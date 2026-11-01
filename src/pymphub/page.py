@@ -36,6 +36,9 @@ from pymphub.unites import (
 )
 
 VERSION_SCHEMA = 1
+MOTIF_ID_PAGE = r"^\d{4}-\d{2}-\d{2}_[a-z0-9]+(-[a-z0-9]+)*_\d{4,}$"
+# Format : site.service.modalite.fabricant-modele.numero-serie
+MOTIF_MACHINE = r"^[^.\s]+\.[^.\s]+\.[^.\s]+\.[^.\s]+-[^.\s]+\.[^.\s]+$"
 
 
 def _verifier_nom(nom: str) -> str:
@@ -418,7 +421,7 @@ class Page(_Modele):
     """Le contenu de `page.json`."""
 
     version_schema: int = VERSION_SCHEMA
-    id: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}_[a-z0-9]+(-[a-z0-9]+)*_\d{4,}$")
+    id: str = Field(pattern=MOTIF_ID_PAGE)
     titre: str = Field(min_length=1)
     description: str = ""
     date_mesure: AwareDatetime
@@ -426,10 +429,7 @@ class Page(_Modele):
     auteur: str = Field(min_length=1)
     gabarit: str | None = Field(default=None, pattern=r"^[a-z0-9_.-]+@\d+$")
     site: str | None = None
-    # Format : site.service.modalite.fabricant-modele.numero-serie
-    machine: str | None = Field(
-        default=None, pattern=r"^[^.\s]+\.[^.\s]+\.[^.\s]+\.[^.\s]+-[^.\s]+\.[^.\s]+$"
-    )
+    machine: str | None = Field(default=None, pattern=MOTIF_MACHINE)
     equipements: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
     statut: Literal["brouillon", "validée", "corrigée"] = "brouillon"
