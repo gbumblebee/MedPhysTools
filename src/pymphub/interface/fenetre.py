@@ -1,5 +1,6 @@
 """Fenêtre principale : accueil, création et ouverture d'une archive, deux espaces."""
 
+import os
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -33,6 +34,7 @@ from pymphub.archive import (
 from pymphub.disque import chemin_affichable
 from pymphub.interface.espace_archive import EspaceArchive
 from pymphub.interface.espace_saisie import EspaceSaisie
+from pymphub.interface.preferences import derniere_archive, memoriser_derniere_archive
 
 # Erreurs attendues à l'ouverture ou à la création d'une archive : on les explique à
 # l'utilisateur. Les autres sont de vrais défauts du logiciel et doivent rester visibles.
@@ -195,6 +197,7 @@ class FenetrePrincipale(QMainWindow):
         self.espace_saisie.page_modifiee.connect(self.espace_archive.page_modifiee)
         self.espace_archive.reprise_effectuee.connect(self.espace_saisie.recharger)
         self.espace_archive.fiche.edition_demandee.connect(self._modifier_page)
+        self.espace_saisie.fiche_demandee.connect(self._voir_fiche)
         self.espaces.addTab(self.espace_archive, "Archive")
         self.espaces.addTab(self.espace_saisie, "Saisie")
 
@@ -284,6 +287,21 @@ class FenetrePrincipale(QMainWindow):
         if self.espace_saisie.ouvrir_page(id_page):
             self.espaces.setCurrentWidget(self.espace_saisie)
 
+    def ouvrir_derniere_archive(self) -> bool:
+        """Rouvre la dernière archive. Si elle a disparu, l'accueil s'affiche simplement."""
+        chemin = derniere_archive()
+        if chemin is None:
+            return False
+        if not (chemin / "archive.toml").is_file():
+            self.statusBar().showMessage(f"Dernière archive introuvable : {chemin}")
+            return False
+        return self.ouvrir_archive(chemin)
+
+    def _voir_fiche(self, id_page: str) -> None:
+        """Montre dans l'espace Archive la vue d'ensemble de la page."""
+        self.espace_archive.afficher_page(id_page)
+        self.espaces.setCurrentWidget(self.espace_archive)
+
     def _installer(self, archive: Archive) -> None:
         self.archive = archive
         self.setWindowTitle(f"{archive.configuration.nom} — pymphub")
@@ -291,6 +309,7 @@ class FenetrePrincipale(QMainWindow):
         self.pile.setCurrentWidget(self.espaces)
         self.espace_archive.installer(archive)
         self.espace_saisie.installer(archive)
+        memoriser_derniere_archive(os.path.abspath(chemin_affichable(archive.racine)))
         self.archive_ouverte.emit(archive)
 
     def closeEvent(self, evenement: QCloseEvent) -> None:  # noqa: N802

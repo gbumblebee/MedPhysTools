@@ -857,6 +857,21 @@ def test_le_bouton_modifier_ouvre_la_page_dans_la_saisie(fenetre, qtbot):
     assert fenetre.espace_saisie.page.id == id_page
 
 
+def test_le_bouton_voir_la_fiche_enregistre_puis_montre_la_page(fenetre, arc, qtbot):
+    saisie = fenetre.espace_saisie
+    saisie.creer_page(description())
+    attendre(fenetre, qtbot)
+    fiche = fenetre.espace_archive.fiche
+    editeur_notes(saisie).texte.setPlainText("Texte de la fiche")
+    saisie.bouton_fiche.click()
+    assert fenetre.espaces.currentWidget() is fenetre.espace_archive
+    assert fiche.page.id == saisie.page.id
+    assert fiche.onglets.currentIndex() == 0
+    assert "Texte de la fiche" in fiche.notes[0].toPlainText()
+    attendre(fenetre, qtbot)
+    assert fiche.page.id == saisie.page.id
+
+
 def test_le_bouton_modifier_est_inactif_sans_page(fenetre):
     assert not fenetre.espace_archive.fiche.bouton_modifier.isEnabled()
 

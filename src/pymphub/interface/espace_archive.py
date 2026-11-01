@@ -543,6 +543,13 @@ class EspaceArchive(QWidget):
         self.actualiser()
         return True
 
+    def afficher_page(self, id_page: str) -> None:
+        """Affiche la fiche d'une page, sur son onglet de contenu."""
+        if self.archive is None:
+            return
+        self.fiche.onglets.setCurrentIndex(0)
+        self.fiche.afficher(self.archive, id_page)
+
     def page_modifiee(self, id_page: str) -> None:
         """Met à jour la liste et la fiche après un enregistrement dans l'espace Saisie."""
         if self.archive is None:

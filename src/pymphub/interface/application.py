@@ -10,7 +10,7 @@ from pymphub.interface.theme import appliquer_theme
 
 
 def main() -> int:
-    """Lance l'application. Un dossier passé en argument s'ouvre directement."""
+    """Lance l'application, sur l'archive passée en argument ou sur la dernière ouverte."""
     application = QApplication(sys.argv)
     application.setApplicationName("pymphub")
     appliquer_theme(application)
@@ -20,6 +20,8 @@ def main() -> int:
     arguments = application.arguments()[1:]
     if arguments:
         fenetre.ouvrir_archive(arguments[0])
+    else:
+        fenetre.ouvrir_derniere_archive()
     fenetre.show()
     return application.exec()
 

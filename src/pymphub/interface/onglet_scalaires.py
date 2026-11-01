@@ -4,6 +4,7 @@ Une ligne incomplète n'est jamais enregistrée. Elle ne retient pas les lignes 
 et une ligne déjà enregistrée garde sa dernière version valide tant qu'on la complète.
 """
 
+import html
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 
@@ -66,6 +67,44 @@ def _marquer(champ: QWidget, invalide: bool) -> None:
         champ.style().polish(champ)
 
 
+# Sources courantes : elles règlent la loi et le k, et disent quoi saisir comme valeur.
+MODELES_DE_SOURCE: dict[str, dict[str, str]] = {
+    "Certificat": {
+        "loi": "normale",
+        "k": "2",
+        "source": "Certificat d'étalonnage n° ",
+        "aide": "U du certificat",
+    },
+    "Résolution": {
+        "loi": "rectangulaire",
+        "k": "",
+        "source": "Résolution de l'afficheur",
+        "aide": "moitié du pas",
+    },
+    "Tolérance": {
+        "loi": "rectangulaire",
+        "k": "",
+        "source": "Tolérance constructeur",
+        "aide": "± tolérance",
+    },
+}
+
+_COLONNES_COMPOSANTE = (
+    "Type",
+    "Valeur",
+    "Unité",
+    "",
+    "Loi",
+    "k",
+    "ddl",
+    "Source",
+    "Erreur commune",
+    "Incertitude-type",
+    "",
+)
+_COLONNES_AVANCEES = (0, 6, 8)
+
+
 class LigneComposante:
     """Les champs d'une composante d'incertitude, sur une ligne d'une grille."""
 
@@ -75,7 +114,10 @@ class LigneComposante:
         rang: int,
         unite: str,
         composante: Composante | None = None,
+        valeur_mesuree: float | None = None,
     ) -> None:
+        self.unite_mesure = unite
+        self.valeur_mesuree = valeur_mesuree
         self.type = QComboBox()
         self.type.addItems(["B", "A"])
         self.valeur = QLineEdit()
@@ -85,6 +127,11 @@ class LigneComposante:
         self.relative.setToolTip("Valeur exprimée en % de la mesure")
         self.loi = QComboBox()
         self.loi.addItems(_LOIS)
+        self.loi.setToolTip(
+            "Normale : valeur / k.\n"
+            "Rectangulaire : la valeur est la demi-largeur, divisée par √3.\n"
+            "Triangulaire : la valeur est la demi-largeur, divisée par √6."
+        )
         self.k = QLineEdit()
         self.k.setPlaceholderText("1")
         self.k.setToolTip(
@@ -93,12 +140,19 @@ class LigneComposante:
         self.ddl = QLineEdit()
         self.ddl.setPlaceholderText("∞")
         self.ddl.setToolTip(
-            "Degrés de liberté : obligatoires pour une composante de type A"
+            "Degrés de liberté. Laisser vide pour une composante de type B.\n"
+            "Obligatoire pour le type A : n − 1 pour n mesures."
         )
         self.source = QLineEdit()
         self.source.setPlaceholderText("Résolution, certificat n°…")
         self.erreur_commune = QLineEdit()
         self.erreur_commune.setPlaceholderText("n° de certificat partagé")
+        self.erreur_commune.setToolTip(
+            "Repère d'une erreur partagée entre plusieurs mesures. "
+            "Conservé, mais pas encore utilisé dans les calculs."
+        )
+        self.incertitude_type = QLabel("")
+        self.incertitude_type.setTextFormat(Qt.TextFormat.PlainText)
         self.bouton_retirer = QPushButton("×")
         self.bouton_retirer.setToolTip("Retirer cette composante")
         self.bouton_retirer.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -112,6 +166,7 @@ class LigneComposante:
             self.ddl,
             self.source,
             self.erreur_commune,
+            self.incertitude_type,
             self.bouton_retirer,
         ]
         for colonne, champ in enumerate(self.champs):
@@ -129,11 +184,56 @@ class LigneComposante:
             )
             self.source.setText(composante.source)
             self.erreur_commune.setText(composante.erreur_commune or "")
-        self.relative.toggled.connect(self._actualiser)
-        self._actualiser()
+        self.relative.toggled.connect(self.actualiser)
+        self.loi.currentIndexChanged.connect(self.actualiser)
+        self.actualiser()
 
-    def _actualiser(self) -> None:
+    def actualiser(self) -> None:
+        """Adapte les champs, et affiche l'incertitude-type obtenue."""
         self.unite.setEnabled(not self.relative.isChecked())
+        normale = self.loi.currentText() == "normale"
+        if not normale:
+            self.k.clear()
+        self.k.setEnabled(normale)
+        self.incertitude_type.setText(self.texte_incertitude_type())
+
+    def texte_incertitude_type(self) -> str:
+        """Montre le résultat du calcul, pour vérifier la saisie d'un coup d'œil."""
+        try:
+            composante = self.composante()
+            if composante.relative:
+                if self.valeur_mesuree:
+                    u = composante.incertitude_type(
+                        self.valeur_mesuree, self.unite_mesure
+                    )
+                    return f"u = {u:.3g} {self.unite_mesure}"
+                diviseur = composante.incertitude_type(100.0, "1")
+                return f"u = {diviseur:.3g} %"
+            unite = (
+                self.unite_mesure
+                if verifier_unite(self.unite_mesure).valide
+                and sont_compatibles(composante.unite, self.unite_mesure)
+                else composante.unite
+            )
+            return f"u = {composante.incertitude_type(1.0, unite):.3g} {unite}"
+        except ValueError:
+            return ""
+
+    def appliquer_modele(self, nom: str) -> None:
+        """Règle la ligne pour une source courante, et indique quoi saisir."""
+        modele = MODELES_DE_SOURCE[nom]
+        self.type.setCurrentText("B")
+        self.loi.setCurrentText(modele["loi"])
+        self.k.setText(modele["k"])
+        self.source.setText(modele["source"])
+        self.valeur.setPlaceholderText(modele["aide"])
+        self.valeur.setFocus()
+        self.actualiser()
+
+    def afficher_options(self, visibles: bool) -> None:
+        """Montre ou masque les champs rarement utiles."""
+        for colonne in _COLONNES_AVANCEES:
+            self.champs[colonne].setVisible(visibles)
 
     def signaler_les_changements(self, rappel: object) -> None:
         """Appelle `rappel` à chaque modification d'un champ."""
@@ -145,7 +245,9 @@ class LigneComposante:
             self.source,
             self.erreur_commune,
         ):
+            champ.textChanged.connect(self.actualiser)
             champ.textChanged.connect(rappel)
+        self.type.currentIndexChanged.connect(self.actualiser)
         self.type.currentIndexChanged.connect(rappel)
         self.loi.currentIndexChanged.connect(rappel)
         self.relative.toggled.connect(rappel)
@@ -173,7 +275,11 @@ class LigneComposante:
 
 
 class DialogueIncertitudes(QDialog):
-    """Déclare les composantes d'incertitude d'une mesure."""
+    """Déclare les composantes d'incertitude d'une mesure.
+
+    Les boutons de sources courantes règlent la ligne. Le type, les degrés de liberté et
+    l'erreur commune, rarement utiles, restent masqués tant qu'on n'en a pas besoin.
+    """
 
     def __init__(
         self,
@@ -182,36 +288,27 @@ class DialogueIncertitudes(QDialog):
         composantes: Sequence[Composante],
         autres: Mapping[str, Sequence[Composante]] | None = None,
         parent: QWidget | None = None,
+        valeur_mesuree: float | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Incertitudes de {nom or 'la mesure'}")
-        self.setMinimumWidth(1100)
+        self.setMinimumWidth(900)
         self.unite_mesure = unite
+        self.valeur_mesuree = valeur_mesuree
         self.lignes: list[LigneComposante] = []
         self.autres = dict(autres or {})
 
-        self.grille = QGridLayout()
-        for colonne, titre in enumerate(
-            (
-                "Type",
-                "Valeur",
-                "Unité",
-                "",
-                "Loi",
-                "k",
-                "ddl",
-                "Source",
-                "Erreur commune",
-                "",
+        ligne_modeles = QHBoxLayout()
+        ligne_modeles.addWidget(QLabel("Ajouter :"))
+        self.boutons_modeles: dict[str, QPushButton] = {}
+        for nom_modele in MODELES_DE_SOURCE:
+            bouton = QPushButton(nom_modele)
+            bouton.clicked.connect(
+                lambda _coche=False, modele=nom_modele: self.ajouter_modele(modele)
             )
-        ):
-            self.grille.addWidget(QLabel(titre), 0, colonne)
-        self.grille.setColumnStretch(1, 1)
-        self.grille.setColumnStretch(7, 3)
-        self.grille.setColumnStretch(8, 1)
-        self._prochain_rang = 1
-
-        self.bouton_ajouter = QPushButton("Ajouter une composante")
+            self.boutons_modeles[nom_modele] = bouton
+            ligne_modeles.addWidget(bouton)
+        self.bouton_ajouter = QPushButton("Autre")
         self.bouton_ajouter.clicked.connect(lambda: self.ajouter_ligne())
         self.bouton_exacte = QPushButton("Valeur exacte")
         self.bouton_exacte.setToolTip("Déclare explicitement une incertitude nulle")
@@ -222,11 +319,25 @@ class DialogueIncertitudes(QDialog):
             self.reprendre.addItem(autre, autre)
         self.reprendre.setEnabled(bool(self.autres))
         self.reprendre.activated.connect(self._reprendre_choisie)
-        ligne_boutons = QHBoxLayout()
-        ligne_boutons.addWidget(self.bouton_ajouter)
-        ligne_boutons.addWidget(self.bouton_exacte)
-        ligne_boutons.addWidget(self.reprendre)
-        ligne_boutons.addStretch()
+        ligne_modeles.addWidget(self.bouton_ajouter)
+        ligne_modeles.addWidget(self.bouton_exacte)
+        ligne_modeles.addWidget(self.reprendre)
+        ligne_modeles.addStretch()
+
+        self.grille = QGridLayout()
+        self.entetes: list[QLabel] = []
+        for colonne, titre in enumerate(_COLONNES_COMPOSANTE):
+            entete = QLabel(titre)
+            self.entetes.append(entete)
+            self.grille.addWidget(entete, 0, colonne)
+        self.grille.setColumnStretch(1, 1)
+        self.grille.setColumnStretch(7, 3)
+        self._prochain_rang = 1
+
+        self.case_options = QCheckBox(
+            "Options avancées : type, degrés de liberté, erreur commune"
+        )
+        self.case_options.toggled.connect(self._afficher_options)
 
         self.message = QLabel("")
         self.message.setObjectName("alerte")
@@ -243,8 +354,9 @@ class DialogueIncertitudes(QDialog):
         boutons.rejected.connect(self.reject)
 
         disposition = QVBoxLayout(self)
+        disposition.addLayout(ligne_modeles)
         disposition.addLayout(self.grille)
-        disposition.addLayout(ligne_boutons)
+        disposition.addWidget(self.case_options)
         disposition.addWidget(self.message)
         disposition.addWidget(boutons)
 
@@ -252,18 +364,45 @@ class DialogueIncertitudes(QDialog):
             self.ajouter_ligne(composante)
         if not self.lignes:
             self.ajouter_ligne()
+        # Une valeur déjà renseignée dans une option avancée doit rester visible.
+        self.case_options.setChecked(
+            any(
+                c.type == "A" or c.ddl is not None or c.erreur_commune
+                for c in composantes
+            )
+        )
+        self._afficher_options(self.case_options.isChecked())
         self.lignes[0].valeur.setFocus()
         self._actualiser()
+
+    def _afficher_options(self, visibles: bool) -> None:
+        for colonne in _COLONNES_AVANCEES:
+            self.entetes[colonne].setVisible(visibles)
+        for ligne in self.lignes:
+            ligne.afficher_options(visibles)
 
     def ajouter_ligne(self, composante: Composante | None = None) -> LigneComposante:
         """Ajoute une ligne, prête à être remplie."""
         ligne = LigneComposante(
-            self.grille, self._prochain_rang, self.unite_mesure, composante
+            self.grille,
+            self._prochain_rang,
+            self.unite_mesure,
+            composante,
+            self.valeur_mesuree,
         )
         self._prochain_rang += 1
         ligne.signaler_les_changements(self._actualiser)
         ligne.bouton_retirer.clicked.connect(lambda: self.retirer_ligne(ligne))
         self.lignes.append(ligne)
+        ligne.afficher_options(self.case_options.isChecked())
+        self._actualiser()
+        return ligne
+
+    def ajouter_modele(self, nom: str) -> LigneComposante:
+        """Prépare une ligne pour une source courante, en réutilisant une ligne vide."""
+        vides = [x for x in self.lignes if not x.valeur.text().strip()]
+        ligne = vides[-1] if vides else self.ajouter_ligne()
+        ligne.appliquer_modele(nom)
         self._actualiser()
         return ligne
 
@@ -431,6 +570,8 @@ class LigneScalaire:
         )
         self.commentaire = QLineEdit()
         self.commentaire.setPlaceholderText("Commentaire")
+        self.commentaire.setMinimumWidth(240)
+        self.commentaire.textChanged.connect(self._afficher_commentaire_complet)
         self.bouton_retirer = QPushButton("×")
         self.bouton_retirer.setToolTip("Retirer cette mesure")
         self.bouton_retirer.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -472,6 +613,10 @@ class LigneScalaire:
         self.unite.returnPressed.connect(self.accepter_suggestion)
         self.commentaire.textChanged.connect(self._modifiee)
         self.horodatage.dateTimeChanged.connect(self._modifiee)
+
+    def _afficher_commentaire_complet(self, texte: str) -> None:
+        """Montre tout le commentaire au survol, même s'il dépasse de sa case."""
+        self.commentaire.setToolTip(f"<p>{html.escape(texte)}</p>" if texte else "")
 
     def champs_grille(self) -> list[QWidget]:
         """Les champs de la première ligne de la grille, dans l'ordre de saisie."""
@@ -639,6 +784,12 @@ class LigneScalaire:
         self.unite.setText(suggestion)
         return True
 
+    def _valeur_connue(self) -> float | None:
+        try:
+            return lire_nombre(self.valeur.text())
+        except ValueError:
+            return None
+
     def _demander_composantes(self) -> tuple[Composante, ...] | None:
         autres = {
             ligne.nom.text().strip(): ligne.composantes
@@ -651,6 +802,7 @@ class LigneScalaire:
             self.composantes,
             autres,
             self.editeur,
+            self._valeur_connue(),
         )
         if dialogue.exec() == QDialog.DialogCode.Accepted:
             return dialogue.composantes()

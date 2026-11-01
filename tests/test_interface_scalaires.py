@@ -792,14 +792,113 @@ def test_le_dialogue_gere_loi_k_ddl_et_erreur_commune(dialogue):
     assert dialogue.composantes()[0].loi == "rectangulaire"
 
 
-def test_le_dialogue_refuse_un_k_sur_une_loi_rectangulaire(dialogue):
+def test_le_k_ne_s_applique_qu_a_une_loi_normale(dialogue):
     ligne = dialogue.lignes[0]
     ligne.valeur.setText("1")
     ligne.source.setText("s")
     ligne.k.setText("2")
     ligne.loi.setCurrentText("rectangulaire")
+    assert ligne.k.text() == ""
+    assert not ligne.k.isEnabled()
+    assert dialogue.bouton_ok.isEnabled()
+    ligne.loi.setCurrentText("normale")
+    assert ligne.k.isEnabled()
+
+
+@pytest.mark.parametrize(
+    ("modele", "loi", "k", "source", "attendu"),
+    [
+        ("Certificat", "normale", "2", "Certificat", "u = 0.5 MBq"),
+        ("Résolution", "rectangulaire", "", "Résolution", "u = 0.577 MBq"),
+        ("Tolérance", "rectangulaire", "", "Tolérance", "u = 0.577 MBq"),
+    ],
+)
+def test_un_bouton_regle_la_ligne_pour_une_source_courante(
+    dialogue, modele, loi, k, source, attendu
+):
+    dialogue.boutons_modeles[modele].click()
+    assert len(dialogue.lignes) == 1
+    ligne = dialogue.lignes[0]
+    assert ligne.loi.currentText() == loi
+    assert ligne.k.text() == k
+    assert ligne.source.text().startswith(source)
+    assert ligne.valeur.placeholderText() != "valeur"
     assert not dialogue.bouton_ok.isEnabled()
-    assert dialogue.message.text()
+    ligne.valeur.setText("1")
+    assert dialogue.bouton_ok.isEnabled()
+    assert ligne.incertitude_type.text() == attendu
+
+
+def test_un_second_bouton_ajoute_une_ligne(dialogue):
+    dialogue.boutons_modeles["Certificat"].click()
+    dialogue.lignes[0].valeur.setText("1")
+    dialogue.boutons_modeles["Résolution"].click()
+    assert len(dialogue.lignes) == 2
+    dialogue.lignes[1].valeur.setText("0,05")
+    assert [c.loi for c in dialogue.composantes()] == ["normale", "rectangulaire"]
+
+
+def test_l_incertitude_type_est_convertie_dans_l_unite_de_la_mesure(dialogue):
+    ligne = dialogue.lignes[0]
+    ligne.valeur.setText("500")
+    ligne.source.setText("s")
+    ligne.unite.setText("kBq")
+    assert ligne.incertitude_type.text() == "u = 0.5 MBq"
+
+
+def test_l_incertitude_type_d_une_composante_relative(qtbot):
+    dialogue = DialogueIncertitudes("a", "MBq", (), valeur_mesuree=200.0)
+    qtbot.addWidget(dialogue)
+    ligne = dialogue.lignes[0]
+    ligne.valeur.setText("2")
+    ligne.source.setText("s")
+    ligne.relative.setChecked(True)
+    assert ligne.incertitude_type.text() == "u = 4 MBq"
+
+
+def test_sans_valeur_mesuree_l_incertitude_relative_reste_en_pourcent(dialogue):
+    ligne = dialogue.lignes[0]
+    ligne.valeur.setText("2")
+    ligne.source.setText("s")
+    ligne.relative.setChecked(True)
+    assert ligne.incertitude_type.text() == "u = 2 %"
+
+
+def test_une_saisie_invalide_n_affiche_pas_d_incertitude_type(dialogue):
+    assert dialogue.lignes[0].incertitude_type.text() == ""
+
+
+def test_les_options_avancees_sont_masquees_par_defaut(dialogue):
+    ligne = dialogue.lignes[0]
+    assert ligne.ddl.isHidden()
+    assert ligne.type.isHidden()
+    assert ligne.erreur_commune.isHidden()
+    assert not ligne.k.isHidden()
+    dialogue.case_options.setChecked(True)
+    assert not ligne.ddl.isHidden()
+    dialogue.case_options.setChecked(False)
+    assert ligne.ddl.isHidden()
+
+
+@pytest.mark.parametrize(
+    "composante",
+    [
+        Composante(type="A", valeur=1.0, unite="MBq", ddl=4, source="s"),
+        Composante(type="B", valeur=1.0, unite="MBq", ddl=20, source="s"),
+        Composante(type="B", valeur=1.0, unite="MBq", erreur_commune="E", source="s"),
+    ],
+)
+def test_une_option_deja_renseignee_reste_visible(qtbot, composante):
+    dialogue = DialogueIncertitudes("a", "MBq", (composante,))
+    qtbot.addWidget(dialogue)
+    assert dialogue.case_options.isChecked()
+    assert not dialogue.lignes[0].ddl.isHidden()
+
+
+def test_une_ligne_ajoutee_suit_l_etat_des_options(dialogue):
+    assert dialogue.ajouter_ligne().ddl.isHidden()
+    dialogue.case_options.setChecked(True)
+    assert not dialogue.ajouter_ligne().ddl.isHidden()
 
 
 def test_une_composante_de_type_a_exige_ses_ddl(dialogue):
@@ -910,6 +1009,34 @@ def test_annuler_le_dialogue_ne_change_rien(editeur, monkeypatch):
     monkeypatch.setattr(ligne, "_demander_composantes", lambda: None)
     ligne.bouton_incertitude.click()
     assert ligne.composantes == (CERTIFICAT,)
+
+
+# --- Commentaires ----------------------------------------------------------------------
+
+
+def test_le_commentaire_a_une_place_suffisante(editeur):
+    assert editeur.lignes[0].commentaire.minimumWidth() >= 240
+
+
+def test_le_commentaire_complet_s_affiche_au_survol(editeur):
+    ligne = editeur.lignes[0]
+    long = "Mesure faite après stabilisation de la source " * 5
+    ligne.commentaire.setText(long)
+    assert long in ligne.commentaire.toolTip()
+
+
+def test_un_commentaire_n_est_pas_interprete_comme_une_mise_en_forme(editeur):
+    ligne = editeur.lignes[0]
+    ligne.commentaire.setText("<img src=x> a < b")
+    assert "<img" not in ligne.commentaire.toolTip()
+    assert "&lt;img" in ligne.commentaire.toolTip()
+
+
+def test_sans_commentaire_pas_d_info_bulle(editeur):
+    ligne = editeur.lignes[0]
+    ligne.commentaire.setText("x")
+    ligne.commentaire.clear()
+    assert ligne.commentaire.toolTip() == ""
 
 
 # --- Clavier ---------------------------------------------------------------------------

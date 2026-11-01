@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 from datetime import date
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import Qt
@@ -18,6 +19,7 @@ from pymphub.interface.fenetre import (
     DialogueNouvelleArchive,
     FenetrePrincipale,
 )
+from pymphub.interface.preferences import derniere_archive, memoriser_derniere_archive
 from pymphub.interface.theme import appliquer_theme
 
 
@@ -246,6 +248,102 @@ def test_l_application_demarre_dans_un_processus_neuf(tmp_path):
         timeout=60,
     )
     assert resultat.returncode == 0, resultat.stderr
+
+
+def test_la_derniere_archive_ouverte_est_memorisee(fenetre, tmp_path):
+    fenetre.creer_archive(description(tmp_path))
+    assert derniere_archive() == tmp_path / "ArchiveStage1"
+
+
+def test_la_derniere_archive_se_rouvre(fenetre, tmp_path, qtbot):
+    fenetre.creer_archive(description(tmp_path))
+    autre = FenetrePrincipale()
+    qtbot.addWidget(autre)
+    assert autre.ouvrir_derniere_archive()
+    assert autre.archive.configuration.nom == "ArchiveStage1"
+    assert autre.pile.currentWidget() is autre.espaces
+
+
+def test_une_derniere_archive_disparue_affiche_l_accueil_sans_erreur(
+    fenetre, tmp_path, qtbot
+):
+    fenetre.creer_archive(description(tmp_path))
+    qtbot.waitUntil(fenetre.espace_archive.au_repos, timeout=30000)
+    shutil.rmtree(tmp_path / "ArchiveStage1")
+    autre = FenetrePrincipale()
+    qtbot.addWidget(autre)
+    erreurs = []
+    autre.afficher_erreur = erreurs.append
+    assert not autre.ouvrir_derniere_archive()
+    assert erreurs == []
+    assert autre.pile.currentWidget() is autre.accueil
+    assert "introuvable" in autre.statusBar().currentMessage()
+
+
+def test_un_echec_d_ouverture_ne_remplace_pas_la_derniere_archive(fenetre, tmp_path):
+    fenetre.creer_archive(description(tmp_path))
+    assert not fenetre.ouvrir_archive(tmp_path)
+    assert derniere_archive() == tmp_path / "ArchiveStage1"
+
+
+def test_aucune_derniere_archive_connue(monkeypatch, tmp_path, fenetre):
+    monkeypatch.setenv("PYMPHUB_CONFIG", str(tmp_path / "vide"))
+    assert derniere_archive() is None
+    assert not fenetre.ouvrir_derniere_archive()
+
+
+def test_des_preferences_abimees_sont_ignorees(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYMPHUB_CONFIG", str(tmp_path))
+    (tmp_path / "preferences.toml").write_text("pas du TOML [", encoding="utf-8")
+    assert derniere_archive() is None
+    memoriser_derniere_archive("/une/archive")
+    assert derniere_archive() == Path("/une/archive")
+
+
+def test_des_preferences_impossibles_a_ecrire_ne_bloquent_rien(monkeypatch, tmp_path):
+    fichier = tmp_path / "un_fichier"
+    fichier.write_text("x", encoding="utf-8")
+    monkeypatch.setenv("PYMPHUB_CONFIG", str(fichier))
+    memoriser_derniere_archive("/une/archive")
+    assert derniere_archive() is None
+
+
+def test_les_tests_n_utilisent_pas_les_vraies_preferences():
+    assert "pymphub-tests-" in os.environ["PYMPHUB_CONFIG"]
+
+
+def test_le_lancement_sans_argument_rouvre_la_derniere_archive(tmp_path):
+    Archive.creer(tmp_path / "A", "s", "r", date(2026, 1, 1))
+    configuration = tmp_path / "config"
+    configuration.mkdir()
+    (configuration / "preferences.toml").write_text(
+        f'derniere_archive = "{(tmp_path / "A").as_posix()}"\n', encoding="utf-8"
+    )
+    code = (
+        "import sys\n"
+        "from PySide6.QtWidgets import QApplication\n"
+        "from pymphub.interface import application\n"
+        "from pymphub.interface.fenetre import FenetrePrincipale\n"
+        "sys.argv = ['pymphub']\n"
+        "def lancer(*_):\n"
+        "    fenetre = next(w for w in QApplication.topLevelWidgets()"
+        " if isinstance(w, FenetrePrincipale))\n"
+        "    print(fenetre.archive.configuration.nom)\n"
+        "    fenetre.close()\n"
+        "    return 0\n"
+        "QApplication.exec = lancer\n"
+        "sys.exit(application.main())\n"
+    )
+    resultat = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=os.environ
+        | {"QT_QPA_PLATFORM": "offscreen", "PYMPHUB_CONFIG": str(configuration)},
+        timeout=60,
+    )
+    assert resultat.returncode == 0, resultat.stderr
+    assert resultat.stdout.strip() == "A"
 
 
 def test_l_application_n_est_pas_necessaire_au_coeur():

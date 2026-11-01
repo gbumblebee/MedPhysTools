@@ -157,6 +157,7 @@ class EspaceSaisie(QWidget):
     """Édite une page : ses informations et ses onglets."""
 
     page_modifiee = Signal(str)
+    fiche_demandee = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -213,7 +214,11 @@ class EspaceSaisie(QWidget):
         self.bouton_annuler.clicked.connect(self.annuler_modifications)
 
         ligne_haut = QHBoxLayout()
+        self.bouton_fiche = QPushButton("Voir la fiche")
+        self.bouton_fiche.setToolTip("Vue d'ensemble de la page, dans l'espace Archive")
+        self.bouton_fiche.clicked.connect(self.demander_fiche)
         ligne_haut.addWidget(self.identifiant, stretch=1)
+        ligne_haut.addWidget(self.bouton_fiche)
         ligne_haut.addWidget(self.bouton_annuler)
         ligne_haut.addWidget(self.bouton_corriger)
         ligne_haut.addWidget(self.bouton_valider)
@@ -533,6 +538,12 @@ class EspaceSaisie(QWidget):
             return False
         self._charger(self.page)
         return True
+
+    def demander_fiche(self) -> None:
+        """Enregistre un brouillon, puis demande la vue d'ensemble de la page."""
+        if self.page is not None:
+            self.enregistrer_maintenant()
+            self.fiche_demandee.emit(self.page.id)
 
     def annuler_modifications(self) -> None:
         """Revient à la dernière version enregistrée."""
