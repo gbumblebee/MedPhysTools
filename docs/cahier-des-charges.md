@@ -392,6 +392,7 @@ Une seule application de bureau PySide6 à trois espaces (Archive, Saisie, Hub) 
 
 **Ergonomie**
 
+- Style sobre et moderne ; priorité à la praticité et à une bonne ergonomie.
 - Raccourcis clavier pour la saisie en série ; tabulation dans l'ordre du gabarit.
 - Affichage systématique de l'unité et de l'incertitude à côté de chaque valeur.
 - Valeurs corrigées affichées barrées avec info-bulle du motif.
