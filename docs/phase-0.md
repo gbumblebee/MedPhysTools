@@ -56,7 +56,8 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 - `007` et `10.50` restent exacts en identifiant, et un nombre peut devenir `10.5` ;
 - une page sans gabarit est valide ;
 - une valeur numérique sans unité ou sans incertitude est refusée, et une valeur exacte déclare une incertitude nulle ;
-- deux grandeurs ou deux colonnes de même nom dans une page sont refusées ;
+- deux grandeurs de même nom dans une page, ou deux colonnes de même nom dans un tableau, sont refusées ;
+- un repère d'erreur commune est conservé à l'aller-retour ;
 - déplacer une grandeur d'un onglet à un autre ne change pas la façon de la relire ;
 - ajouter un type d'onglet ne demande qu'une déclaration, démontrée par un type de test ;
 - un type d'onglet inconnu est conservé intact à l'aller-retour.
@@ -67,7 +68,7 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 
 **Validée quand :**
 - le gabarit créé contient les noms, natures, colonnes et unités choisis, mais aucune valeur mesurée ;
-- une page créée depuis ce gabarit est conforme et garde sa version ;
+- une page créée depuis ce gabarit garde sa version et signale les variables à remplir, puis devient conforme une fois remplie ;
 - une variable manquante ou une unité incohérente avec le gabarit est signalée.
 
 ### 5. Archive sur disque

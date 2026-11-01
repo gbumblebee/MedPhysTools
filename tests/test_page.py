@@ -123,7 +123,11 @@ def page_complete():
             },
             {"id": "o3", "type": "tableau", "grandeurs": ["decroissance"]},
             {"id": "o4", "type": "dicom", "grandeurs": ["serie_ct"]},
-            {"id": "o5", "type": "graphes", "grandeurs": ["heure", "mesure"]},
+            {
+                "id": "o5",
+                "type": "graphes",
+                "grandeurs": ["decroissance.heure", "decroissance.mesure"],
+            },
         ],
     )
 
@@ -295,7 +299,6 @@ def test_chemin_de_tableau_invalide_refuse(chemin):
     [
         [activite(), activite()],
         [activite(), tableau() | {"nom": "activite"}],
-        [activite() | {"nom": "heure"}, tableau()],
     ],
 )
 def test_un_nom_repete_dans_la_page_est_refuse(mesures):
@@ -376,13 +379,49 @@ def test_un_onglet_ne_peut_pas_referencer_une_grandeur_absente():
 
 
 def test_un_onglet_peut_referencer_une_colonne():
-    onglet = {"id": "o1", "type": "graphes", "grandeurs": ["heure", "mesure"]}
-    assert lire(page_libre(mesures=[tableau()], onglets=[onglet])).onglets[
-        0
-    ].grandeurs == (
-        "heure",
-        "mesure",
+    references = ["decroissance.heure", "decroissance.mesure"]
+    onglet = {"id": "o1", "type": "graphes", "grandeurs": references}
+    page = lire(page_libre(mesures=[tableau()], onglets=[onglet]))
+    assert page.onglets[0].grandeurs == tuple(references)
+
+
+def test_un_onglet_ne_designe_pas_une_colonne_sans_son_tableau():
+    onglet = {"id": "o1", "type": "graphes", "grandeurs": ["heure"]}
+    with pytest.raises(ValidationError, match="heure"):
+        lire(page_libre(mesures=[tableau()], onglets=[onglet]))
+
+
+def test_deux_tableaux_peuvent_avoir_une_colonne_de_meme_nom():
+    seconde_serie = tableau() | {"nom": "seconde_serie", "fichier": "brut/seconde.csv"}
+    page = lire(page_libre(mesures=[tableau(), seconde_serie]))
+    assert depuis_json(vers_json(page)) == page
+
+
+def test_une_colonne_peut_porter_le_nom_d_une_grandeur():
+    page = lire(page_libre(mesures=[activite() | {"nom": "heure"}, tableau()]))
+    assert isinstance(page.grandeur("heure"), Scalaire)
+
+
+def test_une_colonne_repetee_dans_un_tableau_est_refusee():
+    donnees = tableau()
+    donnees["colonnes"].append(donnees["colonnes"][1])
+    with pytest.raises(ValidationError, match="répétées"):
+        lire(page_libre(mesures=[donnees]))
+
+
+def test_l_erreur_commune_est_conservee_dans_une_page():
+    composante = COMPOSANTE_MBQ | {"erreur_commune": "certificat-2026-114"}
+    donnees = tableau()
+    donnees["colonnes"][3]["erreur_commune"] = "afficheur-123"
+    page = lire(
+        page_libre(mesures=[activite() | {"composantes": [composante]}, donnees])
     )
+    relue = depuis_json(vers_json(page))
+    assert relue.grandeur("activite").composantes[0].erreur_commune == (
+        "certificat-2026-114"
+    )
+    colonne = relue.grandeur("decroissance").colonnes[3]
+    assert colonne.composante(1.0).erreur_commune == "afficheur-123"
 
 
 def test_identifiants_d_onglets_repetes_refuses():

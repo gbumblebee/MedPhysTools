@@ -4,6 +4,9 @@ Une page correspond à un CQ. Elle contient des grandeurs, repérées par un nom
 et des onglets qui les organisent. Les onglets ne font que référencer les grandeurs :
 réorganiser les onglets ne change donc pas la façon de relire une mesure.
 
+Le nom d'une colonne est unique dans son tableau. Une colonne se désigne donc par
+« tableau.colonne », par exemple `decroissance.heure`.
+
 Pour ajouter un type d'onglet, il suffit de décrire ses données dans une classe
 dérivée de `Onglet` et d'appeler `enregistrer_type_onglet`. Un type inconnu de cette
 version du logiciel est conservé tel quel à l'enregistrement.
@@ -118,9 +121,6 @@ class Scalaire(_Modele):
         """Établit le budget d'incertitude de la valeur."""
         return etablir_budget(self.valeur, self.unite, self.composantes)
 
-    def noms(self) -> list[str]:
-        return [self.nom]
-
 
 class Identifiant(_Modele):
     """Un texte conservé à l'identique : numéro de série, de lot, de certificat…"""
@@ -129,9 +129,6 @@ class Identifiant(_Modele):
     nom: Nom
     valeur: str = Field(min_length=1)
     commentaire: str = ""
-
-    def noms(self) -> list[str]:
-        return [self.nom]
 
 
 class ColonneNumerique(_Modele):
@@ -170,6 +167,7 @@ class ColonneIncertitude(_Modele):
     k: float = Field(default=1.0, gt=0, allow_inf_nan=False)
     ddl: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     source: str = Field(min_length=1)
+    erreur_commune: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _verifier_composante(self) -> "ColonneIncertitude":
@@ -187,6 +185,7 @@ class ColonneIncertitude(_Modele):
             k=self.k,
             ddl=self.ddl,
             source=self.source,
+            erreur_commune=self.erreur_commune,
         )
 
 
@@ -207,6 +206,13 @@ class Tableau(_Modele):
 
     @model_validator(mode="after")
     def _verifier_incertitudes(self) -> "Tableau":
+        noms = [colonne.nom for colonne in self.colonnes]
+        doublons = sorted({nom for nom in noms if noms.count(nom) > 1})
+        if doublons:
+            raise ValueError(
+                f"Colonnes répétées dans le tableau « {self.nom} » : {', '.join(doublons)}."
+            )
+
         numeriques = {
             c.nom: c for c in self.colonnes if isinstance(c, ColonneNumerique)
         }
@@ -242,9 +248,6 @@ class Tableau(_Modele):
                         f"incompatible avec la colonne « {colonne.nom} » en {colonne.unite}."
                     )
         return self
-
-    def noms(self) -> list[str]:
-        return [self.nom, *(colonne.nom for colonne in self.colonnes)]
 
 
 class Copie(_Modele):
@@ -291,9 +294,6 @@ class Fichier(_Modele):
     ]
     type_fichier: str = ""
     commentaire: str = ""
-
-    def noms(self) -> list[str]:
-        return [self.nom]
 
 
 Grandeur = Annotated[
@@ -356,7 +356,7 @@ class Onglet(BaseModel):
     titre: str = ""
 
     def grandeurs_referencees(self) -> list[str]:
-        """Noms de grandeurs ou de colonnes dont dépend cet onglet."""
+        """Grandeurs (`nom`) ou colonnes (`tableau.colonne`) dont dépend cet onglet."""
         return []
 
     def pieces_jointes_referencees(self) -> list[str]:
@@ -456,7 +456,7 @@ class Page(_Modele):
 
     @model_validator(mode="after")
     def _verifier_coherence(self) -> "Page":
-        noms = [nom for grandeur in self.mesures for nom in grandeur.noms()]
+        noms = [grandeur.nom for grandeur in self.mesures]
         doublons = sorted({nom for nom in noms if noms.count(nom) > 1})
         if doublons:
             raise ValueError(
@@ -468,10 +468,16 @@ class Page(_Modele):
         if doublons:
             raise ValueError(f"Identifiants d'onglets répétés : {', '.join(doublons)}.")
 
+        references = set(noms) | {
+            f"{grandeur.nom}.{colonne.nom}"
+            for grandeur in self.mesures
+            if isinstance(grandeur, Tableau)
+            for colonne in grandeur.colonnes
+        }
         chemins = {piece.chemin for piece in self.pieces_jointes}
         for onglet in self.onglets:
             for nom in onglet.grandeurs_referencees():
-                if nom not in noms:
+                if nom not in references:
                     raise ValueError(
                         f"L'onglet « {onglet.id} » référence « {nom} », absent de la page."
                     )

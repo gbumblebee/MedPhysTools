@@ -39,6 +39,10 @@ class Composante(BaseModel):
     Si `relative` est vrai, `valeur` est un pourcentage de la valeur mesurée et
     `unite` reste vide. Sinon, `unite` est obligatoire. `ddl` à None signifie des
     degrés de liberté infinis.
+
+    `erreur_commune` repère une erreur partagée entre plusieurs mesures, par exemple
+    le numéro d'un certificat. Ce champ est conservé, mais pas encore exploité dans
+    les calculs : voir docs/incertitudes.md.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -51,6 +55,7 @@ class Composante(BaseModel):
     k: float = Field(default=1.0, gt=0, allow_inf_nan=False)
     ddl: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     source: str = Field(min_length=1)
+    erreur_commune: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _verifier_coherence(self) -> "Composante":

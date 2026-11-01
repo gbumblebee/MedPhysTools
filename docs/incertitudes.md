@@ -65,6 +65,7 @@ La conversion est linéaire : y = f · x + d. Seul le facteur f s'applique à l'
    - Sur un **rapport** ou une **différence**, cette erreur devrait se compenser en partie : le logiciel surestime alors l'incertitude.
    - Sur une **somme** ou un **produit**, il la sous-estime.
    - Exemple vérifié : le rapport de deux mesures de 100 MBq, chacune à 1 % avec le même certificat, donne 1,41 %. Si le certificat est la seule source d'incertitude, le résultat exact est 0 %.
+   - Le champ facultatif `erreur_commune` d'une composante permet déjà de repérer cette erreur, par exemple avec le numéro du certificat. Il est conservé dans les pages, mais **les calculs ne l'utilisent pas encore**.
 2. **k = 2 ne garantit pas 95 %.** Le taux de couverture dépend de ν_eff, selon une loi de Student :
 
    | ν_eff | 2 | 3 | 5 | 9 | 19 | 50 |

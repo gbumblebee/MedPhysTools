@@ -124,7 +124,7 @@ ArchiveStage1/
 | fichiers | liste : mode de stockage + empreinte SHA-256 | objets/3f/a9… ou UID de série DICOM | non |
 | statut | brouillon / validée / corrigée | validée | tracé |
 
-**Une page par CQ, divisée en onglets.** Une page libre est le mode normal : elle ne suppose aucun gabarit. Ses onglets sont de types variés (notes et photos annotées, scalaires, tableau, DICOM, graphes, fichiers) et on en ajoute autant que nécessaire pendant le stage. Chaque grandeur et chaque colonne a un nom unique dans la page, indépendant de son onglet : réorganiser les onglets ne casse donc ni un script ni une analyse.
+**Une page par CQ, divisée en onglets.** Une page libre est le mode normal : elle ne suppose aucun gabarit. Ses onglets sont de types variés (notes et photos annotées, scalaires, tableau, DICOM, graphes, fichiers) et on en ajoute autant que nécessaire pendant le stage. Chaque grandeur a un nom unique dans la page et chaque colonne un nom unique dans son tableau (`decroissance.heure`), indépendamment des onglets : les réorganiser ne casse donc ni un script ni une analyse.
 
 **Ajouter un type d'onglet.** Un nouveau type se déclare à un seul endroit, sans modifier les autres types. Le cœur décrit ses données, l'interface fournit son affichage. Un type inconnu de la version du logiciel utilisée reste lisible et ses données sont conservées intactes à l'enregistrement.
 
@@ -135,7 +135,7 @@ ArchiveStage1/
 - **Identifiant** : texte conservé à l'identique (numéro de série, de lot, de certificat).
 - **Fichier** : DICOM, image, export constructeur ; stocké en copie ou en référence, avec empreinte et type (voir « Stockage des fichiers bruts »).
 
-**Incertitudes (GUM).** La méthode et ses hypothèses sont détaillées dans `docs/incertitudes.md`. Chaque grandeur porte une liste de composantes, chacune avec : type A ou B, valeur, loi (normale, rectangulaire, triangulaire…), degrés de liberté, source (« résolution afficheur », « certificat d'étalonnage n° … »). La propagation dans les calculs utilise GTC ; le stockage garde les composantes, pas seulement l'incertitude combinée, pour pouvoir refaire le budget.
+**Incertitudes (GUM).** La méthode et ses hypothèses sont détaillées dans `docs/incertitudes.md`. Chaque grandeur porte une liste de composantes, chacune avec : type A ou B, valeur, loi (normale, rectangulaire, triangulaire…), degrés de liberté, source (« résolution afficheur », « certificat d'étalonnage n° … ») et, si besoin, un repère d'erreur commune à plusieurs mesures, comme le numéro du certificat. La propagation dans les calculs utilise GTC ; le stockage garde les composantes, pas seulement l'incertitude combinée, pour pouvoir refaire le budget.
 
 **Nombres et identifiants.** Une grandeur numérique est stockée comme un nombre : `10.50` peut devenir `10.5`. Un identifiant (numéro de série, de lot, de certificat…) est toujours stocké comme du texte, sans aucune conversion : `10.50` et `007` restent `10.50` et `007`, y compris dans les colonnes de tableaux CSV.
 
@@ -145,7 +145,7 @@ ArchiveStage1/
 
 **Unités.** Valeur et unité saisies sont conservées, au sens de la règle ci-dessus. Les conversions (MBq ↔ mCi, mm ↔ cm) se font à l'affichage et dans les calculs, avec contrôle de cohérence dimensionnelle (bibliothèque pint). Une saisie incohérente avec le gabarit (une longueur là où on attend une activité) est bloquée. En page libre, aucune unité attendue n'est imposée.
 
-**Gabarits.** Un gabarit sert à automatiser le post-traitement des CQ : il liste les variables utiles à l'analyse (nom, nature, colonnes, unité attendue), jamais leurs données. Il se crée après coup depuis une page libre, en choisissant ces variables. Il est écrit en TOML et versionné, et une page garde la version du gabarit auquel elle est rattachée. Le hub recherche ensuite les valeurs dans l'archive à partir de ces noms.
+**Gabarits.** Un gabarit sert à automatiser le post-traitement des CQ : il liste les variables utiles à l'analyse (nom, nature, colonnes, unité attendue), jamais leurs données. Il se crée après coup depuis une page libre, en choisissant ces variables. Il est écrit en TOML et versionné, et une page garde la version du gabarit auquel elle est rattachée. Une page créée depuis un gabarit part vide : les variables restent à remplir, avec leur unité et leur incertitude. Le hub recherche ensuite les valeurs dans l'archive à partir de ces noms.
 
 **Stockage des fichiers bruts : copie ou référence.** Chaque fichier brut est enregistré selon l'un des trois modes ci-dessous, choisi explicitement à l'import. Le but est d'éviter les copies inutiles sur une carrière entière sans jamais perdre la capacité de retrouver et vérifier une donnée.
 
@@ -515,6 +515,8 @@ Le premier rapport PDF validé (phase 2) est le jalon clé : c'est le moment où
 | Contenu du dépôt Git d'une archive | fichiers légers seulement ; tout changement d'un fichier lourd est tracé dans un commit | tranché |
 | Nombres et identifiants | un nombre peut perdre ses zéros finaux ; un identifiant reste un texte exact | tranché |
 | Écriture du TOML | tomli-w | tranché |
+| Noms de colonnes | uniques dans leur tableau seulement ; désignés par `tableau.colonne` | tranché |
+| Erreurs communes entre mesures | repère facultatif stocké dès maintenant ; exploitation dans les calculs plus tard | tranché |
 | Unité et incertitude | obligatoires pour toute valeur numérique | tranché |
 | Syntaxe des unités | syntaxe MetroloPy dès maintenant, calculs avec pint et GTC ; MetroloPy limité aux tests de compatibilité | tranché |
 | Adoption de MetroloPy dans le logiciel | à décider plus tard : licence GPL-3.0, incompatible avec une distribution entièrement sous MIT | ouvert |
