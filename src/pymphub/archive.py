@@ -47,6 +47,7 @@ from pymphub.historique import (
     normaliser_motif,
 )
 from pymphub.index import Index, PageIllisible
+from pymphub.lecture import PageLue, ResultatsRecherche
 from pymphub.page import (
     MOTIF_ID_PAGE,
     MOTIF_MACHINE,
@@ -767,6 +768,34 @@ class Archive:
         return page.model_copy(update={"mesures": mesures})
 
     # --- Recherche --------------------------------------------------------------
+
+    def page(self, id_page: str) -> PageLue:
+        """Relit une page pour un script : `Archive(chemin).page(id).mesures["activite"]`."""
+        return PageLue(self, self.lire_page(id_page))
+
+    def chercher(
+        self,
+        tags: Sequence[str] = (),
+        mode_tags: Literal["et", "ou"] = "et",
+        depuis: str | date | datetime | None = None,
+        jusqua: str | date | datetime | None = None,
+        gabarit: str | None = None,
+        machine: str | None = None,
+        statut: str | None = None,
+        auteur: str | None = None,
+        texte: str | None = None,
+    ) -> ResultatsRecherche:
+        """Cherche des pages et les renvoie de la plus récente à la plus ancienne.
+
+        Voir `Index.chercher` pour le détail des critères. Chaque page n'est relue
+        qu'au moment d'y accéder.
+        """
+        return ResultatsRecherche(
+            self,
+            self.chercher_identifiants(
+                tags, mode_tags, depuis, jusqua, gabarit, machine, statut, auteur, texte
+            ),
+        )
 
     def _index_synchronise(self) -> Index:
         """Renvoie l'index, après l'avoir mis à jour si le dernier commit a changé."""
