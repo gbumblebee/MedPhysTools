@@ -5,15 +5,19 @@ chemin absolu n'y est stocké : une archive déplacée reste donc utilisable.
 """
 
 import json
+import os
 import re
 import shutil
 import tomllib
 import unicodedata
-from datetime import date, datetime
+from collections.abc import Mapping
+from datetime import date, datetime, timezone
 from importlib import resources
 from pathlib import Path
 
+import pandas as pd
 import tomli_w
+from dulwich.objects import Commit
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from pymphub.depot import Depot, auteur_du_commit, date_du_commit
@@ -22,6 +26,15 @@ from pymphub.disque import (
     chemin_long,
     ecrire_atomique,
     verifier_nom_windows,
+)
+from pymphub.fichiers import (
+    FichierAltere,
+    FichierManquant,
+    ReferenceNonResolue,
+    chemin_objet,
+    copier_dans_le_magasin,
+    empreinte_fichier,
+    verifier_empreinte,
 )
 from pymphub.gabarit import Gabarit, depuis_toml, verifier_conformite, vers_toml
 from pymphub.historique import (
@@ -35,9 +48,21 @@ from pymphub.historique import (
 from pymphub.page import (
     MOTIF_ID_PAGE,
     MOTIF_MACHINE,
+    Copie,
+    Fichier,
     Page,
+    PieceJointe,
+    ReferenceFichier,
+    Tableau,
     depuis_json,
     vers_json,
+)
+from pymphub.tableaux import (
+    DonneesTableau,
+    TableauInvalide,
+    differences_csv,
+    ecrire_csv,
+    lire_csv,
 )
 
 VERSION_FORMAT = 1
@@ -141,6 +166,19 @@ def _comparer_versions(
         return differences(json.loads(ancien), json.loads(nouveau))
     except json.JSONDecodeError:
         return ()
+
+
+def _decrire_reference(chemin: str) -> ReferenceFichier:
+    """Décrit un fichier externe : chemin, empreinte, taille et date de modification."""
+    acces = chemin_long(chemin)
+    empreinte = empreinte_fichier(acces)
+    etat = acces.stat()
+    return ReferenceFichier(
+        chemin=chemin,
+        empreinte=empreinte,
+        taille=etat.st_size,
+        date=datetime.fromtimestamp(etat.st_mtime, tz=timezone.utc),
+    )
 
 
 def _en_sujet(texte: str) -> str:
@@ -324,21 +362,66 @@ class Archive:
             raise PageRefusee(f"Page non conforme à {page.gabarit} : {details}")
 
     def _exiger_page_suivie(self, id_page: str) -> None:
-        """Refuse d'écraser une page dont le fichier diffère du dernier commit.
+        """Refuse d'écraser une page dont les fichiers diffèrent du dernier commit.
 
-        L'écraser effacerait la trace d'une modification faite hors du logiciel, ou
+        Les écraser effacerait la trace d'une modification faite hors du logiciel, ou
         d'un enregistrement interrompu avant son commit.
         """
-        chemin = self._dossier_page(id_page) / "page.json"
-        if chemin.read_bytes() != self._depot.contenu_actuel(
-            _chemin_page_json(id_page)
-        ):
+        for relatif, contenu in self._depot.fichiers_suivis(
+            f"pages/{id_page}/"
+        ).items():
+            chemin = self.racine / relatif
+            if not chemin.is_file() or chemin.read_bytes() != contenu:
+                raise PageRefusee(
+                    f"La page « {id_page} » a changé hors du logiciel ou sans commit : "
+                    "l'examiner, puis utiliser enregistrer_reprise."
+                )
+
+    def _preparer_tableaux(
+        self, page: Page, tableaux: Mapping[str, DonneesTableau] | None
+    ) -> dict[str, str]:
+        """Vérifie les tableaux d'une page et renvoie les fichiers CSV à écrire.
+
+        Un tableau sans nouvelles données doit déjà exister sur le disque et respecter
+        sa description. Renvoie, pour chaque fichier à écrire, son chemin dans la page
+        et son texte.
+        """
+        tableaux = tableaux or {}
+        declares = {g.nom: g for g in page.mesures if isinstance(g, Tableau)}
+        inconnus = sorted(set(tableaux) - set(declares))
+        if inconnus:
             raise PageRefusee(
-                f"La page « {id_page} » a changé hors du logiciel ou sans commit : "
-                "l'examiner, puis utiliser enregistrer_reprise."
+                f"Tableaux non déclarés dans la page : {', '.join(inconnus)}."
             )
 
-    def creer_page(self, page: Page, auteur: str | None = None) -> Path:
+        dossier = self._dossier_page(page.id)
+        textes: dict[str, str] = {}
+        for nom, tableau in declares.items():
+            try:
+                if nom in tableaux:
+                    textes[tableau.fichier] = ecrire_csv(tableau, tableaux[nom])
+                    continue
+                chemin = dossier / tableau.fichier
+                if not chemin.is_file():
+                    raise PageRefusee(f"Le tableau « {nom} » n'a pas de données.")
+                lire_csv(tableau, chemin.read_text(encoding="utf-8"))
+            except TableauInvalide as erreur:
+                raise PageRefusee(str(erreur)) from erreur
+        return textes
+
+    def _ecrire_tableaux(self, id_page: str, textes: Mapping[str, str]) -> None:
+        dossier = self._dossier_page(id_page)
+        for relatif, texte in textes.items():
+            chemin = dossier / relatif
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            ecrire_atomique(chemin, texte)
+
+    def creer_page(
+        self,
+        page: Page,
+        auteur: str | None = None,
+        tableaux: Mapping[str, DonneesTableau] | None = None,
+    ) -> Path:
         """Enregistre une nouvelle page, en brouillon, et renvoie son dossier."""
         if page.statut != "brouillon":
             raise PageRefusee(
@@ -346,29 +429,55 @@ class Archive:
             )
         self._verifier_page(page)
         dossier = self._dossier_page(page.id)
+        if dossier.exists():
+            raise PageRefusee(f"La page « {page.id} » existe déjà.")
+        textes = self._preparer_tableaux(page, tableaux)
+
+        dossier.mkdir()
         try:
-            dossier.mkdir()
-        except FileExistsError as erreur:
-            raise PageRefusee(f"La page « {page.id} » existe déjà.") from erreur
-        try:
+            self._ecrire_tableaux(page.id, textes)
             ecrire_atomique(dossier / "page.json", vers_json(page))
         except BaseException:
-            dossier.rmdir()
+            shutil.rmtree(dossier, ignore_errors=True)
             raise
         self._depot.enregistrer(
             message_commit("création", page.id),
-            [_chemin_page_json(page.id)],
+            [_chemin_page_json(page.id), *(f"pages/{page.id}/{r}" for r in textes)],
             auteur or page.auteur,
         )
         return dossier
 
+    def _modifications_tableaux(
+        self, page: Page, textes: Mapping[str, str]
+    ) -> tuple[Modification, ...]:
+        """Compare les nouveaux fichiers CSV à ceux du disque, cellule par cellule."""
+        dossier = self._dossier_page(page.id)
+        modifications: list[Modification] = []
+        for grandeur in page.mesures:
+            if isinstance(grandeur, Tableau) and grandeur.fichier in textes:
+                chemin = dossier / grandeur.fichier
+                if chemin.is_file():
+                    modifications.extend(
+                        differences_csv(
+                            grandeur.nom,
+                            chemin.read_text(encoding="utf-8"),
+                            textes[grandeur.fichier],
+                        )
+                    )
+        return tuple(modifications)
+
     def modifier_page(
-        self, page: Page, motif: str | None = None, auteur: str | None = None
+        self,
+        page: Page,
+        motif: str | None = None,
+        auteur: str | None = None,
+        tableaux: Mapping[str, DonneesTableau] | None = None,
     ) -> bool:
         """Enregistre une nouvelle version d'une page et renvoie True si elle a changé.
 
-        Un brouillon s'enregistre sans motif. Une page validée exige un motif et passe
-        au statut « corrigée ». Sans changement, aucun commit n'est créé.
+        `tableaux` donne les nouvelles données des tableaux modifiés. Un brouillon
+        s'enregistre sans motif. Une page validée exige un motif et passe au statut
+        « corrigée ». Sans changement, aucun commit n'est créé.
         """
         ancienne = self.lire_page(page.id)
         for champ in _CHAMPS_FIXES:
@@ -381,7 +490,16 @@ class Archive:
                 "Le statut ne se modifie pas ici : utiliser valider_page."
             )
         self._exiger_page_suivie(page.id)
-        if page == ancienne:
+
+        textes = self._preparer_tableaux(page, tableaux)
+        dossier = self._dossier_page(page.id)
+        textes = {
+            relatif: texte
+            for relatif, texte in textes.items()
+            if not (dossier / relatif).is_file()
+            or (dossier / relatif).read_text(encoding="utf-8") != texte
+        }
+        if page == ancienne and not textes:
             return False
 
         motif = normaliser_motif(motif)
@@ -396,7 +514,30 @@ class Archive:
             page = page.model_copy(update={"statut": "corrigée"})
         self._verifier_page(page)
 
-        self._ecrire_et_enregistrer(page, ancienne, nature, motif, auteur)
+        modifications = differences(
+            json.loads(vers_json(ancienne)), json.loads(vers_json(page))
+        ) + self._modifications_tableaux(page, textes)
+
+        # Un tableau retiré de la page quitte aussi le dépôt ; Git garde son contenu.
+        fichiers_gardes = {g.fichier for g in page.mesures if isinstance(g, Tableau)}
+        retires = [
+            g.fichier
+            for g in ancienne.mesures
+            if isinstance(g, Tableau) and g.fichier not in fichiers_gardes
+        ]
+
+        self._ecrire_tableaux(page.id, textes)
+        ecrire_atomique(dossier / "page.json", vers_json(page))
+        for relatif in retires:
+            (dossier / relatif).unlink(missing_ok=True)
+        self._depot.enregistrer(
+            message_commit(nature, page.id, motif, modifications),
+            [
+                _chemin_page_json(page.id),
+                *(f"pages/{page.id}/{r}" for r in (*textes, *retires)),
+            ],
+            auteur or page.auteur,
+        )
         return True
 
     def valider_page(self, id_page: str, auteur: str | None = None) -> Page:
@@ -407,26 +548,16 @@ class Archive:
         self._exiger_page_suivie(id_page)
         page = ancienne.model_copy(update={"statut": "validée"})
         self._verifier_page(page)
-        self._ecrire_et_enregistrer(page, ancienne, "validation", None, auteur)
-        return page
-
-    def _ecrire_et_enregistrer(
-        self,
-        page: Page,
-        ancienne: Page,
-        nature: str,
-        motif: str | None,
-        auteur: str | None,
-    ) -> None:
         modifications = differences(
             json.loads(vers_json(ancienne)), json.loads(vers_json(page))
         )
-        ecrire_atomique(self._dossier_page(page.id) / "page.json", vers_json(page))
+        ecrire_atomique(self._dossier_page(id_page) / "page.json", vers_json(page))
         self._depot.enregistrer(
-            message_commit(nature, page.id, motif, modifications),
-            [_chemin_page_json(page.id)],
+            message_commit("validation", id_page, None, modifications),
+            [_chemin_page_json(id_page)],
             auteur or page.auteur,
         )
+        return page
 
     def lire_page(self, id_page: str) -> Page:
         """Relit une page d'après son identifiant."""
@@ -440,7 +571,193 @@ class Archive:
             )
         return page
 
+    # --- Tableaux ----------------------------------------------------------------
+
+    def _tableau_de(self, page: Page, nom: str) -> Tableau:
+        grandeur = page.grandeur(nom)
+        if not isinstance(grandeur, Tableau):
+            raise ValueError(f"« {nom} » n'est pas un tableau.")
+        return grandeur
+
+    def lire_tableau(self, id_page: str, nom: str) -> pd.DataFrame:
+        """Relit un tableau d'une page, avec ses unités dans `attrs["unites"]`."""
+        tableau = self._tableau_de(self.lire_page(id_page), nom)
+        chemin = self._dossier_page(id_page) / tableau.fichier
+        if not chemin.is_file():
+            raise FichierManquant(f"Fichier introuvable : « {tableau.fichier} ».")
+        return lire_csv(tableau, chemin.read_text(encoding="utf-8"))
+
+    def version_tableau(self, id_page: str, nom: str, commit: str) -> pd.DataFrame:
+        """Relit un tableau tel qu'il était à un commit de l'historique."""
+        tableau = self._tableau_de(self.version_page(id_page, commit), nom)
+        contenu = self._depot.contenu(commit, f"pages/{id_page}/{tableau.fichier}")
+        if contenu is None:
+            raise FichierManquant(f"« {tableau.fichier} » n'existe pas à ce commit.")
+        return lire_csv(tableau, contenu.decode("utf-8"))
+
+    # --- Fichiers bruts ---------------------------------------------------------
+
+    def importer_copie(
+        self,
+        source: str | Path,
+        nom: str,
+        type_fichier: str = "",
+        commentaire: str = "",
+    ) -> Fichier:
+        """Copie un fichier dans `objets/` et renvoie la grandeur à ajouter à une page."""
+        origine = chemin_long(source)
+        empreinte = copier_dans_le_magasin(self.racine / "objets", origine)
+        return Fichier(
+            nom=nom,
+            stockage=Copie(empreinte=empreinte, nom_origine=origine.name),
+            type_fichier=type_fichier,
+            commentaire=commentaire,
+        )
+
+    def referencer_fichier(
+        self,
+        source: str | Path,
+        nom: str,
+        type_fichier: str = "",
+        commentaire: str = "",
+    ) -> Fichier:
+        """Référence un fichier sans le copier, et renvoie la grandeur à ajouter à une page."""
+        return Fichier(
+            nom=nom,
+            stockage=_decrire_reference(chemin_affichable(os.path.abspath(source))),
+            type_fichier=type_fichier,
+            commentaire=commentaire,
+        )
+
+    def chemin_fichier(self, id_page: str, nom: str) -> Path:
+        """Renvoie le chemin d'un fichier brut, après avoir vérifié son empreinte.
+
+        Lève `FichierManquant` ou `FichierAltere` sans rien écrire dans l'archive. Une
+        référence DICOM ne se résout pas encore : l'accès au PACS n'existe pas en v1.
+        """
+        grandeur = self.lire_page(id_page).grandeur(nom)
+        if not isinstance(grandeur, Fichier):
+            raise ValueError(f"« {nom} » n'est pas un fichier.")
+        stockage = grandeur.stockage
+        if isinstance(stockage, Copie):
+            cible = chemin_objet(self.racine / "objets", stockage.empreinte)
+            return verifier_empreinte(cible, stockage.empreinte)
+        if isinstance(stockage, ReferenceFichier):
+            return verifier_empreinte(chemin_long(stockage.chemin), stockage.empreinte)
+        raise ReferenceNonResolue(
+            f"« {nom} » est une référence DICOM : récupérer la série "
+            f"{stockage.series_instance_uid} sur {stockage.noeud}."
+        )
+
+    def importer_piece_jointe(
+        self, id_page: str, source: str | Path, nom_fichier: str | None = None
+    ) -> PieceJointe:
+        """Copie une pièce jointe dans la page et renvoie sa description.
+
+        Une pièce jointe existante ne peut pas être remplacée par un autre contenu.
+        """
+        origine = chemin_long(source)
+        nom_fichier = verifier_nom_windows(nom_fichier or origine.name)
+        dossier = self._dossier_page(id_page)
+        if not (dossier / "page.json").is_file():
+            raise PageIntrouvable(f"Aucune page « {id_page} » dans l'archive.")
+
+        empreinte = empreinte_fichier(origine)
+        cible = dossier / "pieces_jointes" / nom_fichier
+        if cible.exists() and empreinte_fichier(cible) != empreinte:
+            raise FileExistsError(
+                f"La pièce jointe « {nom_fichier} » existe déjà avec un autre contenu."
+            )
+        if not cible.exists():
+            cible.parent.mkdir(exist_ok=True)
+            temporaire = cible.with_name(f".{nom_fichier}.tmp")
+            try:
+                shutil.copyfile(origine, temporaire)
+                verifier_empreinte(temporaire, empreinte)
+                os.replace(temporaire, cible)
+            except BaseException:
+                temporaire.unlink(missing_ok=True)
+                raise
+        return PieceJointe(chemin=f"pieces_jointes/{nom_fichier}", empreinte=empreinte)
+
+    def chemin_piece_jointe(self, id_page: str, chemin: str) -> Path:
+        """Renvoie le chemin d'une pièce jointe, après avoir vérifié son empreinte."""
+        for piece in self.lire_page(id_page).pieces_jointes:
+            if piece.chemin == chemin:
+                return verifier_empreinte(
+                    self._dossier_page(id_page) / chemin, piece.empreinte
+                )
+        raise KeyError(f"Aucune pièce jointe « {chemin} » dans la page « {id_page} ».")
+
+    def enregistrer_fichier_modifie(
+        self, id_page: str, designation: str, motif: str, auteur: str | None = None
+    ) -> Page:
+        """Enregistre le nouvel état d'un fichier lourd qui a changé hors du logiciel.
+
+        `designation` est le nom d'une grandeur en référence fichier, ou le chemin d'une
+        pièce jointe. Le motif est obligatoire, même pour un brouillon. Le commit garde
+        le nom du fichier, son ancienne et sa nouvelle empreinte. Un objet du magasin ne
+        se remplace pas : il doit être restauré.
+        """
+        if normaliser_motif(motif) is None:
+            raise PageRefusee("L'enregistrement d'un fichier modifié exige un motif.")
+        page = self.lire_page(id_page)
+        nouvelle = self._page_avec_fichier_actualise(page, designation)
+        self.modifier_page(nouvelle, motif, auteur)
+        return self.lire_page(id_page)
+
+    def _page_avec_fichier_actualise(self, page: Page, designation: str) -> Page:
+        for piece in page.pieces_jointes:
+            if piece.chemin == designation:
+                empreinte = empreinte_fichier(self._dossier_page(page.id) / designation)
+                actualisee = PieceJointe(chemin=piece.chemin, empreinte=empreinte)
+                pieces = tuple(
+                    actualisee if p.chemin == designation else p
+                    for p in page.pieces_jointes
+                )
+                return page.model_copy(update={"pieces_jointes": pieces})
+
+        grandeur = page.grandeur(designation)
+        stockage = grandeur.stockage if isinstance(grandeur, Fichier) else None
+        if isinstance(stockage, Copie):
+            raise FichierAltere(
+                f"« {designation} » est une copie du magasin : la restaurer depuis une "
+                "sauvegarde au lieu de la remplacer."
+            )
+        if not isinstance(stockage, ReferenceFichier):
+            raise ValueError(f"« {designation} » n'est pas une référence de fichier.")
+        actualisee = grandeur.model_copy(
+            update={"stockage": _decrire_reference(stockage.chemin)}
+        )
+        mesures = tuple(actualisee if g.nom == designation else g for g in page.mesures)
+        return page.model_copy(update={"mesures": mesures})
+
     # --- Historique ------------------------------------------------------------
+
+    def _modifications_csv_du_commit(
+        self, commit: Commit, page: str, contenu_page: bytes | None
+    ) -> tuple[Modification, ...]:
+        """Compare les tableaux d'une page entre un commit et son parent."""
+        if contenu_page is None or not commit.parents:
+            return ()
+        try:
+            mesures = json.loads(contenu_page).get("mesures", [])
+        except json.JSONDecodeError:
+            return ()
+        modifications: list[Modification] = []
+        for grandeur in mesures:
+            if grandeur.get("nature") != "tableau":
+                continue
+            chemin = f"pages/{page}/{grandeur['fichier']}"
+            ancien = self._depot.contenu(commit.parents[0], chemin)
+            nouveau = self._depot.contenu(commit.id, chemin)
+            if ancien is not None and nouveau is not None:
+                modifications.extend(
+                    differences_csv(
+                        grandeur["nom"], ancien.decode("utf-8"), nouveau.decode("utf-8")
+                    )
+                )
+        return tuple(modifications)
 
     def _entrees(
         self, id_page: str | None = None, nature: str | None = None
@@ -468,7 +785,10 @@ class Archive:
                     nature=infos.get("Nature", ""),
                     page=page,
                     motif=infos.get("Motif"),
-                    modifications=_comparer_versions(ancien, nouveau),
+                    modifications=_comparer_versions(ancien, nouveau)
+                    + self._modifications_csv_du_commit(
+                        commit, page, nouveau or ancien
+                    ),
                 )
             )
         return entrees
@@ -495,10 +815,28 @@ class Archive:
 
     # --- Modifications hors du logiciel ----------------------------------------
 
+    def _tableaux_declares_sur_disque(self) -> list[Path]:
+        """Liste les CSV déclarés par les `page.json` du disque, même non encore suivis."""
+        chemins: list[Path] = []
+        for page_json in self.racine.glob("pages/*/page.json"):
+            try:
+                mesures = json.loads(page_json.read_bytes()).get("mesures", [])
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            chemins += [
+                page_json.parent / g["fichier"]
+                for g in mesures
+                if isinstance(g, dict)
+                and g.get("nature") == "tableau"
+                and isinstance(g.get("fichier"), str)
+            ]
+        return chemins
+
     def modifications_non_tracees(self) -> list[str]:
         """Liste les fichiers suivis qui diffèrent du dernier commit.
 
         Cela révèle une modification faite à la main ou un enregistrement interrompu.
+        Les fichiers déposés dans `brut/` mais pas encore déclarés ne sont pas concernés.
         """
         suivis = self._depot.fichiers_suivis()
         sur_disque = [
@@ -507,13 +845,23 @@ class Archive:
         ]
         sur_disque += self.racine.glob("gabarits/*.toml")
         sur_disque += self.racine.glob("pages/*/page.json")
+        sur_disque += self._tableaux_declares_sur_disque()
 
         ecarts = set(suivis) - {
             c.relative_to(self.racine).as_posix() for c in sur_disque
         }
+        ecarts = {
+            r
+            for r in ecarts
+            if not (self.racine / r).is_file()
+            or (self.racine / r).read_bytes() != suivis[r]
+        }
         for chemin in sur_disque:
             relatif = chemin.relative_to(self.racine).as_posix()
-            if not chemin.is_file() or chemin.read_bytes() != suivis.get(relatif):
+            if chemin.is_file():
+                if chemin.read_bytes() != suivis.get(relatif):
+                    ecarts.add(relatif)
+            elif relatif in suivis:
                 ecarts.add(relatif)
         return sorted(ecarts)
 

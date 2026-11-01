@@ -117,6 +117,12 @@ def message_commit(
         lignes.append(f"Champs: {', '.join(m.champ for m in modifications)}")
     if motif is not None:
         lignes.append(f"Motif: {motif}")
+    # Les fichiers lourds sont hors de Git : le commit garde au moins la trace du changement.
+    lignes += [
+        f"Fichier: {m.champ} : {m.ancien} -> {m.nouveau}"
+        for m in modifications
+        if m.champ.endswith(("empreinte", "empreinte_pixels"))
+    ]
     return "\n".join(lignes) + "\n"
 
 

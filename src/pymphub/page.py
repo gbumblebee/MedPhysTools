@@ -27,6 +27,7 @@ from pydantic import (
     model_validator,
 )
 
+from pymphub.disque import verifier_nom_windows
 from pymphub.incertitudes import Budget, Composante, etablir_budget
 from pymphub.unites import (
     UniteInvalide,
@@ -71,6 +72,8 @@ def _verifier_chemin_relatif(chemin: str) -> str:
 def _verifier_csv_brut(chemin: str) -> str:
     _verifier_chemin_relatif(chemin)
     morceaux = PurePosixPath(chemin)
+    for partie in morceaux.parts:
+        verifier_nom_windows(partie)
     if morceaux.parts[0] != "brut" or morceaux.suffix.lower() != ".csv":
         raise ValueError(
             f"Un tableau est stocké dans brut/*.csv, pas dans « {chemin} »."
@@ -80,6 +83,8 @@ def _verifier_csv_brut(chemin: str) -> str:
 
 def _verifier_piece_jointe(chemin: str) -> str:
     _verifier_chemin_relatif(chemin)
+    for partie in PurePosixPath(chemin).parts:
+        verifier_nom_windows(partie)
     if PurePosixPath(chemin).parts[0] != "pieces_jointes":
         raise ValueError(
             f"Une pièce jointe est stockée dans pieces_jointes/, pas dans « {chemin} »."
@@ -462,6 +467,11 @@ class Page(_Modele):
             raise ValueError(
                 f"Noms présents plusieurs fois dans la page : {', '.join(doublons)}."
             )
+
+        fichiers = [g.fichier for g in self.mesures if isinstance(g, Tableau)]
+        doublons = sorted({f for f in fichiers if fichiers.count(f) > 1})
+        if doublons:
+            raise ValueError(f"Fichiers de tableaux partagés : {', '.join(doublons)}.")
 
         ids = [onglet.id for onglet in self.onglets]
         doublons = sorted({i for i in ids if ids.count(i) > 1})

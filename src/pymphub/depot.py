@@ -102,11 +102,12 @@ class Depot:
             tete = depot.head()
         return self.contenu(tete, chemin)
 
-    def fichiers_suivis(self) -> dict[str, bytes]:
-        """Renvoie le contenu de tous les fichiers du dernier commit."""
+    def fichiers_suivis(self, prefixe: str = "") -> dict[str, bytes]:
+        """Renvoie le contenu des fichiers du dernier commit, éventuellement d'un dossier."""
         with Repo(str(self.racine)) as depot:
             arbre = depot[depot.head()].tree
             return {
                 entree.path.decode("utf-8"): depot[entree.sha].data
                 for entree in iter_tree_contents(depot.object_store, arbre)
+                if entree.path.decode("utf-8").startswith(prefixe)
             }

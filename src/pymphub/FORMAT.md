@@ -54,6 +54,14 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
   - `reference_fichier` : chemin externe, empreinte, taille et date ;
   - `reference_dicom` : UID DICOM de l'étude, de la série et des instances, avec le nœud DICOM.
 
+## Tableaux CSV
+
+UTF-8, virgule comme séparateur, point décimal, fins de ligne LF et une ligne d'en-tête. Le type de chaque colonne se lit dans `page.json`, jamais dans le CSV : une colonne d'identifiants reste du texte, même si elle contient `007`.
+
+## Magasin objets/
+
+Un fichier d'empreinte SHA-256 `3fa9c2…` se trouve dans `objets/3f/a9c2…`, sans extension. Son nom d'origine se lit dans le champ `nom_origine` de `page.json`. Ces fichiers ne sont pas dans Git : seule leur empreinte y est versionnée.
+
 ## Composante d'incertitude
 
 | Champ | Contenu |
