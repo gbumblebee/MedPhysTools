@@ -1,0 +1,30 @@
+[project]
+name = "pymphub"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "gbumblebee" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "dulwich>=1.2.20",
+    "gtc>=1.5.1",
+    "numpy>=2.5.4",
+    "pandas>=3.1.0",
+    "pint>=0.26.2",
+    "pydantic>=2.14.2",
+]
+
+[project.scripts]
+pymphub = "pymphub:main"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]
