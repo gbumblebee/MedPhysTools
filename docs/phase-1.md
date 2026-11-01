@@ -120,7 +120,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 
 ### 8. Ajustements et indicateurs
 
-**Contenu :** ajustements lmfit dans le cahier de labo (modèles usuels et personnalisés), fonction ajustée avec son incertitude, indicateurs usuels sur les points ou sur l'ajustement : minimum, maximum, moyenne, dérivée, intégrale. Enregistrement des valeurs évaluées en tableau, et des coefficients avec leur matrice de corrélation dans `page.json`, affichés dans un onglet dédié.
+**Contenu :** ajustements lmfit dans le cahier de labo (modèles usuels et personnalisés), fonction ajustée avec son incertitude, indicateurs usuels sur les points ou sur l'ajustement : minimum, maximum, moyenne, dérivée, intégrale. Enregistrement dans un tableau de la courbe suréchantillonnée, sans extrapolation, pour la retracer. Enregistrement dans `page.json` des coefficients, de leur matrice de corrélation et des résultats des indicateurs. Onglet dédié pour les afficher.
 
 **Validée quand :**
 - un ajustement exponentiel retrouve des paramètres connus, sur des données synthétiques ;
@@ -128,18 +128,20 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 - les hypothèses sont documentées, notamment le traitement des incertitudes sur X ;
 - coefficients, incertitudes et matrice de corrélation se retrouvent à l'identique après réouverture ;
 - la fonction se réévalue depuis les coefficients sauvegardés avec la même incertitude ;
-- un ajustement enregistré ne modifie aucune valeur brute ;
+- la courbe enregistrée a plus de points que les données et reste dans leur intervalle ;
+- un indicateur enregistré se relit avec sa méthode, ses données d'origine, son intervalle et son incertitude ;
+- un ajustement ou un indicateur enregistré ne modifie aucune valeur brute ;
 - chaque indicateur est vérifié sur une fonction dont le résultat est connu.
 
 ### 9. Import DICOM et pseudonymisation
 
-**Contenu :** ajout de `pydicom`, choix obligatoire à l'import entre patient et fantôme, enregistré dans la page, pseudonymisation des données de patient, noms de fichiers neutres, compression sans perte, empreinte des pixels, référence DICOM renseignée depuis les fichiers.
+**Contenu :** ajout de `pydicom`, pseudonymisation par défaut à l'import, option « fantôme » qui conserve le fichier tel quel, choix enregistré dans la page, noms de fichiers neutres, compression sans perte, empreinte des pixels, référence DICOM renseignée depuis les fichiers.
 
 **Validée quand :**
-- un import sans choix explicite entre patient et fantôme est refusé ;
-- un fichier déclaré fantôme reste identique, et le logiciel avertit si ses balises ressemblent à celles d'un patient ;
-- pour un fichier de patient, aucune balise identifiante de la liste retenue ne reste dans la copie, sur des fichiers de test ;
-- pour un fichier de patient, aucun nom présent dans le nom du fichier n'atteint `page.json`, Git ou l'index ;
+- un import sans option particulière est pseudonymisé ;
+- un fichier désigné comme fantôme reste identique, et le logiciel avertit si ses balises ressemblent à celles d'un patient ;
+- sans l'option fantôme, aucune balise identifiante de la liste retenue ne reste dans la copie, sur des fichiers de test ;
+- sans l'option fantôme, aucun nom présent dans le nom du fichier n'atteint `page.json`, Git ou l'index ;
 - les pixels restent identiques, empreinte des pixels comprise ;
 - les limites sont affichées : un texte incrusté dans l'image n'est pas détecté.
 
@@ -150,7 +152,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 **Validée quand :**
 - des fichiers de test CT, dose, TEP et TEMP s'affichent avec les bonnes valeurs physiques ;
 - un fichier non pris en charge donne un message clair, sans plantage ;
-- les balises identifiantes d'un fichier de patient ne s'affichent pas ;
+- les balises identifiantes d'un fichier pseudonymisé ne s'affichent pas ;
 - une grosse série s'ouvre sans bloquer l'interface.
 
 ### 11. Gabarits dans l'interface
@@ -183,6 +185,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Sujet | Décision |
 | --- | --- |
 | Emplacement de l'interface | Sous-paquet `pymphub.interface`, seul autorisé à importer Qt |
-| Pseudonymisation | Choix obligatoire à chaque import : patient (pseudonymisé, UID conservés) ou fantôme (conservé tel quel) |
-| Ajustements | Dans le cahier de labo ; valeurs évaluées en tableau, coefficients et corrélations dans `page.json` et dans un onglet dédié |
+| Pseudonymisation | Par défaut à chaque import, UID conservés ; un fichier désigné comme fantôme est conservé tel quel |
+| Ajustements | Dans le cahier de labo ; courbe suréchantillonnée sans extrapolation en tableau, pour le tracé seulement ; coefficients et corrélations dans `page.json` et dans un onglet dédié |
+| Indicateurs | Minimum, maximum, intégrale, dérivée, etc. enregistrés dans `page.json` |
 | Premier CQ réel | Vers début février 2027 |
