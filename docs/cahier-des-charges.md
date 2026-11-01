@@ -17,7 +17,7 @@ Le logiciel est un outil personnel, local et portable, qui fait gagner du temps 
 
 **Inclus**
 
-- Cahier de labo : pages de mesures avec gabarits, incertitudes GUM, unités, photos et pièces jointes. Incertitude présenté avec élargissement k = 2 (parametre par défaut pouvant être changé dans l'affichage à tout moment) en absolu et en relatif.
+- Cahier de labo : pages de mesures libres organisées en onglets, gabarits facultatifs, incertitudes GUM, unités, photos et pièces jointes. Incertitude présenté avec élargissement k = 2 (parametre par défaut pouvant être changé dans l'affichage à tout moment) en absolu et en relatif.
 - Archive versionnée par stage (ArchiveStage1, ArchiveStage2…).
 - Hub de modules d'analyse : radiologie, médecine nucléaire, radiothérapie.
 - Référentiel de normes paramétrable, avec sources BibTeX.
@@ -64,7 +64,7 @@ Le logiciel est un paquet Python unique : un cœur sans interface, une applicati
 
 ```
 Interface Qt (PySide6), sans logique métier
-  Archive (recherche, historique) | Saisie (gabarits, tableaux, DICOM) | Hub (formulaires générés)
+  Archive (recherche, historique) | Saisie (onglets, tableaux, DICOM) | Hub (formulaires générés)
       │ appelle                                                            │ exécute
       ▼                                                                    ▼
 Cœur pymphub (Python pur, testable sans Qt)    ◄── importe ──   Modules (dossiers)
@@ -113,15 +113,20 @@ ArchiveStage1/
 | Champ | Type | Exemple | Modifiable |
 | --- | --- | --- | --- |
 | id | texte unique | 2026-11-14\_activimetre-linearite\_0007 | non |
-| gabarit | nom + version | activimetre.linearite@1 | non |
+| gabarit (facultatif) | nom + version | activimetre.linearite@1 | rattachement tracé |
 | titre, description libre | texte | « Linéarité Capintec, décroissance Tc-99m » | oui, tracé |
 | date et heure de la mesure | ISO 8601 + fuseau | 2026-11-14T09:30+01:00 | oui, tracé |
 | date de saisie, auteur | auto | 2026-11-14T11:05, G. | non |
 | site, machine, équipement de mesure | références | CHU X / activimètre n° série | oui, tracé |
 | tags | liste | \[activimetre, linearite, Tc99m\] | oui, tracé |
+| onglets | liste : identifiant, type, titre, contenu | tableau « Relevés », notes « Montage » | oui, tracé |
 | mesures | liste de grandeurs (ci-dessous) |  | correction = nouvelle version |
 | fichiers | liste : mode de stockage + empreinte SHA-256 | objets/3f/a9… ou UID de série DICOM | non |
 | statut | brouillon / validée / corrigée | validée | tracé |
+
+**Une page par CQ, divisée en onglets.** Une page libre est le mode normal : elle ne suppose aucun gabarit. Ses onglets sont de types variés (notes et photos annotées, scalaires, tableau, DICOM, graphes, fichiers) et on en ajoute autant que nécessaire pendant le stage. Chaque grandeur et chaque colonne a un nom unique dans la page, indépendant de son onglet : réorganiser les onglets ne casse donc ni un script ni une analyse.
+
+**Ajouter un type d'onglet.** Un nouveau type se déclare à un seul endroit, sans modifier les autres types. Le cœur décrit ses données, l'interface fournit son affichage. Un type inconnu de la version du logiciel utilisée reste lisible et ses données sont conservées intactes à l'enregistrement.
 
 **Une grandeur mesurée**
 
@@ -133,9 +138,13 @@ ArchiveStage1/
 
 **Nombres et identifiants.** Une grandeur numérique est stockée comme un nombre : `10.50` peut devenir `10.5`. Un identifiant (numéro de série, de lot, de certificat…) est toujours stocké comme du texte, sans aucune conversion : `10.50` et `007` restent `10.50` et `007`, y compris dans les colonnes de tableaux CSV.
 
-**Unités.** Valeur et unité saisies sont conservées, au sens de la règle ci-dessus. Les conversions (MBq ↔ mCi, mm ↔ cm) se font à l'affichage et dans les calculs, avec contrôle de cohérence dimensionnelle (bibliothèque pint). Une saisie incohérente avec le gabarit (une longueur là où on attend une activité) est bloquée.
+**Déclaration obligatoire.** Toute valeur numérique, scalaire ou dans un tableau, déclare son unité et son incertitude. Dans un tableau, l'unité se déclare par colonne, et l'incertitude par colonne ou par cellule. Une grandeur sans dimension déclare l'unité `1`, et une valeur exacte déclare explicitement une incertitude nulle.
 
-**Gabarits.** Un gabarit décrit les champs attendus d'un type de page (grandeurs, unités autorisées, incertitudes par défaut, tags automatiques). Il est écrit en TOML, versionné, et une page garde la version du gabarit qui l'a créée. Une page « libre » sans gabarit reste possible.
+**Syntaxe des unités.** Les unités s'écrivent dans la syntaxe de MetroloPy (`MBq`, `kBq/mL`, `kg/m**3`, `mA*s`, `um`), pour permettre son adoption plus tard sans convertir les archives. La syntaxe est vérifiée pendant la frappe et une correction est suggérée quand elle est fausse (`Bq/ml` → `Bq/mL`). Les unités absentes de MetroloPy (`Ci`, `HU`, `cps`, `lp`) sont définies dans un catalogue unique.
+
+**Unités.** Valeur et unité saisies sont conservées, au sens de la règle ci-dessus. Les conversions (MBq ↔ mCi, mm ↔ cm) se font à l'affichage et dans les calculs, avec contrôle de cohérence dimensionnelle (bibliothèque pint). Une saisie incohérente avec le gabarit (une longueur là où on attend une activité) est bloquée. En page libre, aucune unité attendue n'est imposée.
+
+**Gabarits.** Un gabarit sert à automatiser le post-traitement des CQ : il liste les variables utiles à l'analyse (nom, nature, colonnes, unité attendue), jamais leurs données. Il se crée après coup depuis une page libre, en choisissant ces variables. Il est écrit en TOML et versionné, et une page garde la version du gabarit auquel elle est rattachée. Le hub recherche ensuite les valeurs dans l'archive à partir de ces noms.
 
 **Stockage des fichiers bruts : copie ou référence.** Chaque fichier brut est enregistré selon l'un des trois modes ci-dessous, choisi explicitement à l'import. Le but est d'éviter les copies inutiles sur une carrière entière sans jamais perdre la capacité de retrouver et vérifier une donnée.
 
@@ -158,11 +167,11 @@ Chaque archive est un dépôt Git géré par le logiciel : toute création ou mo
 
 **Règles**
 
-1. **Création d'une page** : commit automatique « création ».
-2. **Modification** : le logiciel demande un motif (champ obligatoire), puis commit « correction : \<motif> ». L'ancienne valeur reste lisible dans l'historique et affichée barrée dans l'interface, comme une correction sur un cahier papier. Git est le seul historique des corrections ; le message de commit nomme donc la page, les champs modifiés et le motif, pour retrouver facilement où chaque correction a été faite, page par page ou sur toute l'archive.
+1. **Création d'une page** : commit automatique « création ». Tant que la page est en brouillon, chaque enregistrement produit un commit automatique, sans motif.
+2. **Modification d'une page validée** : le logiciel demande un motif (champ obligatoire), puis commit « correction : \<motif> ». L'ancienne valeur reste lisible dans l'historique et affichée barrée dans l'interface, comme une correction sur un cahier papier. Git est le seul historique des corrections ; le message de commit nomme donc la page, les champs modifiés et le motif, pour retrouver facilement où chaque correction a été faite, page par page ou sur toute l'archive.
 3. **Validation** : passage brouillon → validée, commit signé du nom de l'utilisateur. Une page validée ne se modifie plus que par correction motivée.
 4. **Fichiers bruts** : trop lourds pour Git (DICOM), ils restent hors du dépôt, mais leur empreinte SHA-256 est versionnée dans `page.json`. Une commande « vérifier l'intégrité » recalcule toutes les empreintes, signale tout fichier modifié ou manquant et toute référence (fichier ou DICOM) devenue introuvable. Seuls les fichiers légers (`page.json`, tableaux CSV) sont dans Git ; `objets/` et `pieces_jointes/` restent hors du dépôt. Tout changement d'un fichier lourd laisse une trace dans un commit : nom du fichier, ancienne et nouvelle empreinte.
-5. **Analyses** : chaque exécution de module est enregistrée avec la version du module, la version du logiciel, la version des normes et les empreintes des entrées. Une analyse est donc rejouable à l'identique.
+5. **Analyses** : chaque exécution de module est enregistrée avec la version du module, la version du logiciel, la version des normes, les empreintes des entrées et l'assignation des entrées (automatique ou manuelle). Une analyse est donc rejouable à l'identique.
 
 **Historique lisible.** L'interface affiche pour chaque page une chronologie : date, auteur, champ modifié, ancienne valeur, nouvelle valeur, motif.
 
@@ -172,23 +181,26 @@ Chaque archive est un dépôt Git géré par le logiciel : toute création ou mo
 
 ## 6. Saisie (cahier de labo) et calculs rapides
 
-La saisie se fait directement sur ordinateur, à partir d'un gabarit ou en page libre ; la retranscription d'une feuille papier suit le même chemin, avec la feuille scannée jointe.
+La saisie se fait directement sur ordinateur, en page libre par défaut ou à partir d'un gabarit ; la retranscription d'une feuille papier suit le même chemin, avec la feuille scannée jointe.
 
 **Fonctions de saisie**
 
-- Nouvelle page depuis un gabarit : le formulaire affiche les grandeurs attendues, leurs unités et les incertitudes type B par défaut (résolution, certificat), modifiables.
-- Saisie de tableaux dans une grille type tableur, avec collage depuis Excel/CSV.
-- Mesures répétées : saisie de n valeurs → moyenne et incertitude type A calculées automatiquement.
+- Page libre : ajout à tout moment d'un onglet (notes et photos, scalaires, tableau, DICOM, graphes, fichiers).
+- Export en gabarit : depuis une page, choix des variables utiles au post-traitement.
+- Nouvelle page depuis un gabarit : le formulaire affiche les grandeurs attendues et leurs unités.
+- Saisie de tableaux dans une grille type tableur, avec collage depuis Excel et import CSV.
+- Mesures répétées : saisie de n valeurs ou sélection de valeurs répétées dans un tableau → moyenne et incertitude type A calculées automatiquement.
 - Horodatage de la mesure distinct de l'horodatage de saisie ; bouton « maintenant ».
 - Pièces jointes par glisser-déposer : photos (vignettes visibles dans la page), PDF, exports constructeurs.
+- Annotation des photos : les annotations sont enregistrées à part, l'image d'origine n'est jamais modifiée.
 - Association manuelle fichier ↔ entrée attendue : on dépose les fichiers dans `brut/` puis on choisit, pour chaque entrée du gabarit, le fichier correspondant.
-- Aperçu DICOM : défilement des coupes, fenêtrage, lecture des principales balises.
-- Contrôles à la saisie : unité incompatible, valeur hors plage plausible définie dans le gabarit (alerte, pas blocage).
+- Visualiseur DICOM polyvalent (CT, dose, TEP, TEMP, etc.) : défilement des coupes, fenêtrage, valeurs mises à l'échelle, lecture des principales balises.
+- Contrôles à la saisie : unité et incertitude obligatoires, syntaxe de l'unité vérifiée en direct avec suggestion, unité incompatible avec le gabarit quand la page en a un.
 
 **Calculs rapides (post-traitement léger)**
 
 - Calculatrice d'expressions sur les grandeurs de la page, avec propagation GUM automatique : `A0 * exp(-ln(2) * t / T12)` donne valeur, incertitude élargie et budget.
-- Courbes rapides : une colonne contre une autre, échelle log, ajustement linéaire ou exponentiel avec incertitudes sur les paramètres.
+- Graphes rapides : une colonne contre une autre, échelle log, ajustement linéaire ou exponentiel avec incertitudes sur les paramètres ; graphes 3D.
 - Les calculs rapides sont enregistrés comme grandeurs dérivées, avec leur formule, jamais à la place des valeurs brutes.
 
 **Ce que la saisie ne fait pas** : les analyses lourdes (images, protocoles complets) relèvent des modules du hub (section 8).
@@ -289,7 +301,8 @@ def analyser(serie: SerieDICOM,
 **Découverte et exécution**
 
 - Le hub parcourt `modules/` au démarrage et construit le menu à trois niveaux : domaine → sous-domaine → module.
-- Exécution : choix d'une ou plusieurs pages sources dans l'archive → formulaire pré-rempli depuis la page → lancement → résultats affichés → enregistrement dans `analyses/` de la page.
+- Exécution : choix d'une ou plusieurs pages sources dans l'archive → assignation des entrées obligatoires → lancement → résultats affichés → enregistrement dans `analyses/` de la page.
+- Assignation : le hub lit les entrées dans la page si elle a un gabarit. Sinon, l'utilisateur les assigne à la main (par exemple un tableau, puis ses colonnes X et Y), avec contrôle des unités. Le hub fait cette recherche et passe les valeurs à `analyser()`, qui reste une fonction pure.
 - Ajouter un module = copier un dossier modèle, écrire `analyser()`, relancer le hub. Aucune modification du cœur.
 - Un module peut aussi s'exécuter en ligne de commande ou dans un notebook, avec la même fonction.
 
@@ -380,20 +393,20 @@ Une seule application de bureau PySide6 à trois espaces (Archive, Saisie, Hub) 
 | Espace | Rôle | Éléments principaux |
 | --- | --- | --- |
 | Archive | Retrouver et consulter | Filtres tags / dates / gabarit / machine, liste de pages, fiche page, historique, vérification d'intégrité |
-| Saisie | Créer et corriger des pages | Choix du gabarit, formulaire, grille tableur, pièces jointes, aperçu DICOM, calculatrice GUM, courbes rapides |
+| Saisie | Créer et corriger des pages | Onglets extensibles, grille tableur, photos annotées, visualiseur DICOM, calculatrice GUM, graphes 2D et 3D, export en gabarit |
 | Hub | Analyser | Menu domaine → sous-domaine → module, formulaire généré, résultats, rapport, validation |
 
 **Choix techniques**
 
 - PySide6 (licence LGPL) plutôt que PyQt6 (GPL), pour garder le choix de licence du projet.
 - magicgui pour générer les formulaires des modules depuis les annotations de type.
-- pyqtgraph pour l'affichage d'images DICOM et de courbes interactives rapides ; matplotlib pour les figures des rapports.
+- pyqtgraph pour l'affichage d'images DICOM et de courbes interactives rapides ; matplotlib pour les graphes 3D et les figures des rapports.
 - Lancement d'outils externes (3D Slicer, ImageJ/Fiji) en sous-processus quand un module en a besoin.
 
 **Ergonomie**
 
 - Style sobre et moderne ; priorité à la praticité et à une bonne ergonomie.
-- Raccourcis clavier pour la saisie en série ; tabulation dans l'ordre du gabarit.
+- Raccourcis clavier pour la saisie en série ; tabulation dans l'ordre de la page.
 - Affichage systématique de l'unité et de l'incertitude à côté de chaque valeur.
 - Valeurs corrigées affichées barrées avec info-bulle du motif.
 - Interface en français ; libellés des gabarits et modules en français.
@@ -473,8 +486,8 @@ Une version utile dès la phase 2, puis un module à chaque stage.
 | Phase | Contenu | Critère de passage |
 | --- | --- | --- |
 | 0. Fondations (cœur sans interface) | format page.json + gabarits TOML ; GTC, pint, Git, index SQLite ; API Python Archive() | Une page se relit en une ligne de Python |
-| 1. Saisie (application Qt) | espaces Archive et Saisie ; 2 premiers gabarits du stage ; calculatrice GUM, courbes rapides | Un CQ réel saisi au lieu du tableur |
-| 2. Hub (premiers modules) | contrat de module + magicgui ; OpenIQ-CT + activimètre ; normes BibTeX + rapport LaTeX | Premier rapport PDF validé manuellement |
+| 1. Saisie (application Qt) | espaces Archive et Saisie ; page libre à onglets extensibles, photos annotées ; visualiseur DICOM, calculatrice GUM, graphes 2D et 3D ; export en gabarit | Un CQ réel saisi au lieu du tableur |
+| 2. Hub (premiers modules) | contrat de module + magicgui ; assignation des entrées (gabarit ou manuelle) ; OpenIQ-CT + activimètre ; normes BibTeX + rapport LaTeX | Premier rapport PDF validé manuellement |
 | 3. Extension (au fil des stages) | modules pylinac, hazen, NEMA ; export .eln, vérification d'intégrité ; guide « écrire un module » | Un module ajouté en moins d'une journée |
 | 4. Partage (après le DQPRM) | documentation complète ; anonymisation des données de test ; référentiel des normes partagé | Utilisé par un autre physicien |
 
@@ -490,14 +503,20 @@ Le premier rapport PDF validé (phase 2) est le jalon clé : c'est le moment où
 | Versionnage Git | dulwich, Git en Python pur, rien à faire autoriser | tranché |
 | Distribution LaTeX | TeX Live portable | tranché |
 | Règle de décision si U chevauche la limite | bande de garde (paramètre imprimé dans le rapport) | tranché |
-| Granularité d'une page | une page par CQ | tranché |
-| Premiers gabarits et modules | médecine nucléaire et radiologie : activimètre, TEP, TEMP, scanner | tranché |
+| Granularité d'une page | une page par CQ, divisée en onglets extensibles | tranché |
+| Premiers modules | médecine nucléaire et radiologie : activimètre, TEP, TEMP, scanner | tranché |
 | Identifiants machines et sites | format `site.service.modalite.fabricant-modele.numero-serie`, défini dans `archive.toml` | tranché |
 | Stockage des fichiers bruts | trois modes : copie dédupliquée, référence fichier, référence DICOM par UID ; copie par défaut à la validation | tranché |
 | Historique des corrections | Git seul, à condition de retrouver facilement où chaque correction a été faite | tranché |
 | Contenu du dépôt Git d'une archive | fichiers légers seulement ; tout changement d'un fichier lourd est tracé dans un commit | tranché |
 | Nombres et identifiants | un nombre peut perdre ses zéros finaux ; un identifiant reste un texte exact | tranché |
 | Écriture du TOML | tomli-w | tranché |
+| Unité et incertitude | obligatoires pour toute valeur numérique | tranché |
+| Syntaxe des unités | syntaxe MetroloPy dès maintenant, calculs avec pint et GTC ; MetroloPy limité aux tests de compatibilité | tranché |
+| Adoption de MetroloPy dans le logiciel | à décider plus tard : licence GPL-3.0, incompatible avec une distribution entièrement sous MIT | ouvert |
+| Rôle des gabarits | facultatifs, créés depuis une page libre ; ils listent les variables utiles au post-traitement, jamais leurs données | tranché |
+| Entrées d'une analyse | lues via le gabarit ou assignées à la main ; assignation enregistrée avec l'analyse | tranché |
+| Motif de modification | brouillon : versionné sans motif ; page validée : motif obligatoire | tranché |
 | Relecture d'une page précise | `Archive(chemin).page(id)` | tranché |
 | Compatibilité Windows | développement sous Fedora ; tests Windows vers mi-décembre 2026, à l'arrivée du poste | tranché |
 

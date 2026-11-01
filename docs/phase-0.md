@@ -24,12 +24,16 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 
 ### 1. Unités
 
-**Contenu :** registre pint unique, avec HU et mCi.
+**Contenu :** registre pint unique, catalogue des unités en syntaxe MetroloPy (avec `Ci`, `HU`, `cps`, `lp`), vérification de syntaxe avec suggestion, conversions.
 
 **Validée quand :**
 - la conversion MBq ↔ mCi est exacte ;
 - convertir une longueur en activité échoue ;
-- la saisie d'origine reste intacte.
+- la saisie d'origine reste intacte ;
+- toute unité du catalogue est comprise par pint et par MetroloPy, avec les mêmes facteurs de conversion ;
+- une syntaxe fausse est refusée, avec une suggestion quand elle existe (`Mbq` → `MBq`, `g/cm^3` → `g/cm**3`) ;
+- une unité vide est refusée : une grandeur sans dimension déclare `1` ;
+- Gy ↔ Sv et Bq ↔ cps sont refusés, malgré des dimensions identiques ou proches.
 
 ### 2. Incertitudes
 
@@ -39,24 +43,32 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 - un budget calculé à la main est retrouvé ;
 - U s'affiche en absolu et en relatif ;
 - k change l'affichage, pas les données ;
-- une conversion avec décalage (°C ↔ K) ne décale pas l'incertitude.
+- une conversion avec décalage (°C ↔ K) ne décale pas l'incertitude ;
+- n valeurs répétées donnent la moyenne et une incertitude de type A avec n − 1 degrés de liberté.
 
 ### 3. Modèle de page
 
-**Contenu :** modèles pydantic pour la page et les trois types de grandeurs (scalaire, tableau, fichier), version du schéma.
+**Contenu :** modèles pydantic pour la page libre, ses onglets et les trois types de grandeurs (scalaire, tableau, fichier), annotations de photos, version du schéma.
 
 **Validée quand :**
 - l'aller-retour JSON est identique ;
 - une date sans fuseau et un identifiant machine mal formé sont refusés ;
-- `007` et `10.50` restent exacts en identifiant, et un nombre peut devenir `10.5`.
+- `007` et `10.50` restent exacts en identifiant, et un nombre peut devenir `10.5` ;
+- une page sans gabarit est valide ;
+- une valeur numérique sans unité ou sans incertitude est refusée, et une valeur exacte déclare une incertitude nulle ;
+- deux grandeurs ou deux colonnes de même nom dans une page sont refusées ;
+- déplacer une grandeur d'un onglet à un autre ne change pas la façon de la relire ;
+- ajouter un type d'onglet ne demande qu'une déclaration, démontrée par un type de test ;
+- un type d'onglet inconnu est conservé intact à l'aller-retour.
 
 ### 4. Gabarits TOML
 
-**Contenu :** chargement, version, unités autorisées, plages plausibles, page libre.
+**Contenu :** création d'un gabarit depuis une page libre par choix des variables, écriture et relecture en TOML, version, nouvelle page depuis un gabarit, contrôle d'une page par rapport à un gabarit.
 
 **Validée quand :**
-- une unité incohérente est bloquée ;
-- une valeur hors plage donne une alerte, sans blocage.
+- le gabarit créé contient les noms, natures, colonnes et unités choisis, mais aucune valeur mesurée ;
+- une page créée depuis ce gabarit est conforme et garde sa version ;
+- une variable manquante ou une unité incohérente avec le gabarit est signalée.
 
 ### 5. Archive sur disque
 
@@ -72,7 +84,8 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 **Contenu :** dulwich, commits de création, de correction et de validation, historique par champ.
 
 **Validée quand :**
-- une correction sans motif est refusée ;
+- chaque enregistrement d'un brouillon crée un commit, sans motif ;
+- une correction sans motif est refusée sur une page validée ;
 - l'ancienne valeur est retrouvée ;
 - les corrections d'une page et de toute l'archive sont retrouvées, avec champs et motif ;
 - `git log` et `git fsck` standard fonctionnent.
@@ -98,7 +111,7 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 
 ### 9. API `Archive()`
 
-**Contenu :** `page`, `chercher`, `mesures`, `.en()`, `.incertitude`, `tableau`, `fichiers`.
+**Contenu :** `page`, `chercher` (y compris par gabarit), `mesures`, `.en()`, `.incertitude`, `tableau`, `fichiers`.
 
 **Validée quand :**
 - `Archive(chemin).page(id)` relit une page ;
@@ -107,7 +120,7 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 
 ### 10. Sortie de phase
 
-**Contenu :** scénario complet sur un CQ d'activimètre, archive de test v1 figée, matrice exigences ↔ tests.
+**Contenu :** scénario complet sur un CQ d'activimètre (page libre à plusieurs onglets, puis gabarit créé depuis cette page), archive de test v1 figée, matrice exigences ↔ tests.
 
 **Validée quand :** un script neuf relit la page en une ligne sur l'archive copiée ailleurs, sous Fedora.
 
@@ -115,7 +128,7 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 
 ## Hors phase 0
 
-- **Interface et analyse :** Qt, modules, normes et rapports LaTeX.
+- **Interface et analyse :** Qt (onglets, graphes, visualiseur DICOM, annotation des photos à l'écran), assignation des entrées dans le hub, modules, normes et rapports LaTeX.
 - **DICOM :** `pydicom` n'est pas dans les dépendances, donc ni empreinte des pixels ni compression. Seul le schéma de la référence DICOM est prévu.
 - **Intégrité et exports :** la vérification globale et l'export `.eln` arrivent en phase 3. La phase 0 vérifie seulement l'empreinte à l'accès à un fichier.
 - **Section 16 du cahier des charges :** ni registre des équipements ni journal machine, seulement des références stables dans le format pour les ajouter plus tard.
