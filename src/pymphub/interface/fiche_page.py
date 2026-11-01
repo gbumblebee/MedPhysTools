@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDoubleSpinBox,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QPlainTextEdit,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QTableWidget,
@@ -137,6 +138,8 @@ def _hauteur_ajustee(table: QTableWidget, lignes_max: int = 15) -> None:
 class FichePage(QWidget):
     """Affiche une page en lecture seule."""
 
+    edition_demandee = Signal(str)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.archive: Archive | None = None
@@ -161,7 +164,11 @@ class FichePage(QWidget):
         )
         self.champ_k.valueChanged.connect(self._actualiser_incertitudes)
         ligne_k = QHBoxLayout()
+        self.bouton_modifier = QPushButton("Modifier")
+        self.bouton_modifier.setEnabled(False)
+        self.bouton_modifier.clicked.connect(self._demander_edition)
         ligne_k.addWidget(self.entete, stretch=1)
+        ligne_k.addWidget(self.bouton_modifier)
         ligne_k.addWidget(QLabel("k ="))
         ligne_k.addWidget(self.champ_k)
 
@@ -185,6 +192,10 @@ class FichePage(QWidget):
         disposition.addLayout(ligne_k)
         disposition.addWidget(self.onglets)
 
+    def _demander_edition(self) -> None:
+        if self.page is not None:
+            self.edition_demandee.emit(self.page.id)
+
     def _ajouter(self, widget: QWidget) -> None:
         """Ajoute un bloc à la fiche, qui garde toujours sa hauteur nécessaire.
 
@@ -204,6 +215,7 @@ class FichePage(QWidget):
         self.table_mesures = None
         self.notes = []
         self.entete.setText(message)
+        self.bouton_modifier.setEnabled(False)
         self._vider_contenu()
         self.table_historique.setRowCount(0)
         self._historique_a_jour = False
@@ -230,6 +242,7 @@ class FichePage(QWidget):
             return
 
         self.entete.setText(f"{self.page.titre}  ({self.page.statut})")
+        self.bouton_modifier.setEnabled(True)
         self._construire_informations(self.page)
         self._construire_mesures(self.page)
         self._construire_tableaux(archive, self.page)

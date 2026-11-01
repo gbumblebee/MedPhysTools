@@ -32,6 +32,7 @@ from pymphub.archive import (
 )
 from pymphub.disque import chemin_affichable
 from pymphub.interface.espace_archive import EspaceArchive
+from pymphub.interface.espace_saisie import EspaceSaisie
 
 # Erreurs attendues à l'ouverture ou à la création d'une archive : on les explique à
 # l'utilisateur. Les autres sont de vrais défauts du logiciel et doivent rester visibles.
@@ -173,16 +174,6 @@ class Accueil(QWidget):
         disposition.addStretch()
 
 
-def _espace_a_venir(texte: str) -> QWidget:
-    """Espace encore vide, en attendant les prochaines étapes."""
-    espace = QWidget()
-    etiquette = QLabel(texte)
-    etiquette.setObjectName("discret")
-    disposition = QVBoxLayout(espace)
-    disposition.addWidget(etiquette, alignment=Qt.AlignmentFlag.AlignCenter)
-    return espace
-
-
 class FenetrePrincipale(QMainWindow):
     """La fenêtre de l'application : elle partage une archive ouverte entre ses espaces."""
 
@@ -200,9 +191,10 @@ class FenetrePrincipale(QMainWindow):
 
         self.espaces = QTabWidget()
         self.espace_archive = EspaceArchive()
-        self.espace_saisie = _espace_a_venir(
-            "Espace Saisie : création et correction de pages"
-        )
+        self.espace_saisie = EspaceSaisie()
+        self.espace_saisie.page_modifiee.connect(self.espace_archive.page_modifiee)
+        self.espace_archive.reprise_effectuee.connect(self.espace_saisie.recharger)
+        self.espace_archive.fiche.edition_demandee.connect(self._modifier_page)
         self.espaces.addTab(self.espace_archive, "Archive")
         self.espaces.addTab(self.espace_saisie, "Saisie")
 
@@ -260,6 +252,8 @@ class FenetrePrincipale(QMainWindow):
 
     def ouvrir_archive(self, chemin: str | Path) -> bool:
         """Ouvre une archive. En cas d'échec, l'archive déjà ouverte reste affichée."""
+        if not self.espace_saisie.peut_quitter_la_page():
+            return False
         try:
             archive = Archive(chemin)
         except _ERREURS_ARCHIVE as erreur:
@@ -270,6 +264,8 @@ class FenetrePrincipale(QMainWindow):
 
     def creer_archive(self, description: DescriptionArchive) -> bool:
         """Crée une archive puis l'ouvre. En cas d'échec, rien d'autre ne change."""
+        if not self.espace_saisie.peut_quitter_la_page():
+            return False
         try:
             archive = Archive.creer(
                 description.chemin,
@@ -283,15 +279,24 @@ class FenetrePrincipale(QMainWindow):
         self._installer(archive)
         return True
 
+    def _modifier_page(self, id_page: str) -> None:
+        """Ouvre dans l'espace Saisie la page choisie dans l'espace Archive."""
+        if self.espace_saisie.ouvrir_page(id_page):
+            self.espaces.setCurrentWidget(self.espace_saisie)
+
     def _installer(self, archive: Archive) -> None:
         self.archive = archive
         self.setWindowTitle(f"{archive.configuration.nom} — pymphub")
         self.statusBar().showMessage(chemin_affichable(archive.racine))
         self.pile.setCurrentWidget(self.espaces)
         self.espace_archive.installer(archive)
+        self.espace_saisie.installer(archive)
         self.archive_ouverte.emit(archive)
 
     def closeEvent(self, evenement: QCloseEvent) -> None:  # noqa: N802
-        """Attend la fin des travaux en arrière-plan avant de fermer."""
+        """Enregistre la page en cours et attend la fin des travaux en arrière-plan."""
+        if not self.espace_saisie.peut_quitter_la_page():
+            evenement.ignore()
+            return
         self.espace_archive.arreter()
         super().closeEvent(evenement)

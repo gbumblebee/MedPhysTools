@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -41,7 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pymphub.archive import Archive
+from pymphub.archive import Archive, PageRefusee
 from pymphub.index import Criteres, PageIllisible, ResumePage, ValeursPossibles
 from pymphub.interface.fiche_page import FichePage, formater_date
 from pymphub.interface.ramasse_miettes import assurer_ramasse_miettes_principal
@@ -283,6 +284,7 @@ class EspaceArchive(QWidget):
 
     recherche_terminee = Signal()
     verification_terminee = Signal()
+    reprise_effectuee = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -345,6 +347,10 @@ class EspaceArchive(QWidget):
         ligne_alerte.setContentsMargins(0, 0, 0, 0)
         ligne_alerte.addWidget(self.alerte, stretch=1)
         ligne_alerte.addWidget(self.bouton_details)
+        self.bouton_reprise = QPushButton("Enregistrer une reprise…")
+        self.bouton_reprise.clicked.connect(self.demander_reprise)
+        self.bouton_reprise.setVisible(False)
+        ligne_alerte.addWidget(self.bouton_reprise)
         self.bandeau.setVisible(False)
 
         gauche = QWidget()
@@ -489,6 +495,7 @@ class EspaceArchive(QWidget):
             morceaux.append(self.erreur_recherche)
         self.alerte.setText(" · ".join(morceaux))
         self.bandeau.setVisible(bool(morceaux))
+        self.bouton_reprise.setVisible(bool(self.non_tracees))
 
     def texte_details(self) -> str:
         """Décrit les alertes en cours."""
@@ -506,6 +513,43 @@ class EspaceArchive(QWidget):
         if self.erreur_recherche:
             morceaux.append(self.erreur_recherche)
         return "\n\n".join(morceaux)
+
+    def afficher_erreur(self, message: str) -> None:
+        """Explique une erreur à l'utilisateur."""
+        QMessageBox.critical(self, "pymphub", message)
+
+    def _demander_motif_reprise(self) -> str | None:
+        motif, accepte = QInputDialog.getText(
+            self,
+            "Enregistrer une reprise",
+            "Après avoir examiné ces fichiers, indiquez le motif (obligatoire) :\n\n"
+            + "\n".join(self.non_tracees),
+        )
+        return motif if accepte else None
+
+    def demander_reprise(self) -> bool:
+        """Enregistre l'état actuel des fichiers modifiés hors du logiciel, avec un motif."""
+        if self.archive is None:
+            return False
+        motif = self._demander_motif_reprise()
+        if motif is None:
+            return False
+        try:
+            self.archive.enregistrer_reprise(motif)
+        except (PageRefusee, OSError, ValueError) as erreur:
+            self.afficher_erreur(str(erreur))
+            return False
+        self.reprise_effectuee.emit()
+        self.actualiser()
+        return True
+
+    def page_modifiee(self, id_page: str) -> None:
+        """Met à jour la liste et la fiche après un enregistrement dans l'espace Saisie."""
+        if self.archive is None:
+            return
+        if self.fiche.page is not None and self.fiche.page.id == id_page:
+            self.fiche.afficher(self.archive, id_page)
+        self.lancer_recherche()
 
     def _afficher_details(self) -> None:
         QMessageBox.warning(self, "Alertes de l'archive", self.texte_details())
