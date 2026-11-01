@@ -78,6 +78,11 @@ class Depot:
             )
         return identifiant.decode("ascii")
 
+    def tete(self) -> str:
+        """Renvoie l'identifiant du dernier commit."""
+        with Repo(str(self.racine)) as depot:
+            return depot.head().decode("ascii")
+
     def commits(self) -> list[Commit]:
         """Renvoie tous les commits, du plus ancien au plus récent."""
         with Repo(str(self.racine)) as depot:

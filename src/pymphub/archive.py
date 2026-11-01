@@ -10,10 +10,11 @@ import re
 import shutil
 import tomllib
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timezone
 from importlib import resources
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Any, Literal
 
 import pandas as pd
 import tomli_w
@@ -45,6 +46,7 @@ from pymphub.historique import (
     message_commit,
     normaliser_motif,
 )
+from pymphub.index import Index, PageIllisible
 from pymphub.page import (
     MOTIF_ID_PAGE,
     MOTIF_MACHINE,
@@ -168,6 +170,37 @@ def _comparer_versions(
         return ()
 
 
+def _tableaux_du_json(contenu: bytes) -> list[tuple[str, str]]:
+    """Renvoie le nom et le fichier des tableaux d'un `page.json`, même abîmé.
+
+    Cette lecture sert justement quand un fichier a changé hors du logiciel. Elle ne doit
+    donc jamais échouer, ni suivre un chemin qui sortirait du dossier de la page.
+    """
+    try:
+        page = json.loads(contenu)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return []
+    mesures = page.get("mesures") if isinstance(page, dict) else None
+    if not isinstance(mesures, list):
+        return []
+    tableaux: list[tuple[str, str]] = []
+    for grandeur in mesures:
+        if not isinstance(grandeur, dict) or grandeur.get("nature") != "tableau":
+            continue
+        nom, fichier = grandeur.get("nom"), grandeur.get("fichier")
+        if not isinstance(nom, str) or not isinstance(fichier, str):
+            continue
+        morceaux = PurePosixPath(fichier)
+        if (
+            fichier
+            and "\\" not in fichier
+            and not morceaux.is_absolute()
+            and ".." not in morceaux.parts
+        ):
+            tableaux.append((nom, fichier))
+    return tableaux
+
+
 def _decrire_reference(chemin: str) -> ReferenceFichier:
     """Décrit un fichier externe : chemin, empreinte, taille et date de modification."""
     acces = chemin_long(chemin)
@@ -197,6 +230,7 @@ class Archive:
         self.racine = chemin_long(chemin)
         self.configuration = _lire_configuration(self.racine)
         self._depot = Depot(self.racine)
+        self._index = Index(self.racine / "index.sqlite", self.racine / "pages")
 
     @classmethod
     def creer(
@@ -732,6 +766,47 @@ class Archive:
         mesures = tuple(actualisee if g.nom == designation else g for g in page.mesures)
         return page.model_copy(update={"mesures": mesures})
 
+    # --- Recherche --------------------------------------------------------------
+
+    def _index_synchronise(self) -> Index:
+        """Renvoie l'index, après l'avoir mis à jour si le dernier commit a changé."""
+        tete = self._depot.tete()
+        if not self._index.est_a_jour(tete):
+            self._index.synchroniser(tete)
+        return self._index
+
+    def index_a_jour(self) -> bool:
+        """Indique si l'index correspond au dernier commit de l'archive."""
+        return self._index.est_a_jour(self._depot.tete())
+
+    def chercher_identifiants(
+        self,
+        tags: Sequence[str] = (),
+        mode_tags: Literal["et", "ou"] = "et",
+        depuis: str | date | datetime | None = None,
+        jusqua: str | date | datetime | None = None,
+        gabarit: str | None = None,
+        machine: str | None = None,
+        statut: str | None = None,
+        auteur: str | None = None,
+        texte: str | None = None,
+    ) -> list[str]:
+        """Cherche des pages et renvoie leurs identifiants, de la plus récente à la plus ancienne.
+
+        Voir `Index.chercher` pour le détail des critères.
+        """
+        return self._index_synchronise().chercher(
+            tags, mode_tags, depuis, jusqua, gabarit, machine, statut, auteur, texte
+        )
+
+    def pages_illisibles(self) -> list[PageIllisible]:
+        """Liste les pages que la recherche n'a pas pu lire."""
+        return self._index_synchronise().pages_illisibles()
+
+    def contenu_index(self) -> dict[str, list[tuple[Any, ...]]]:
+        """Renvoie le contenu de l'index, pour le comparer à une reconstruction."""
+        return self._index_synchronise().contenu()
+
     # --- Historique ------------------------------------------------------------
 
     def _modifications_csv_du_commit(
@@ -740,21 +815,15 @@ class Archive:
         """Compare les tableaux d'une page entre un commit et son parent."""
         if contenu_page is None or not commit.parents:
             return ()
-        try:
-            mesures = json.loads(contenu_page).get("mesures", [])
-        except json.JSONDecodeError:
-            return ()
         modifications: list[Modification] = []
-        for grandeur in mesures:
-            if grandeur.get("nature") != "tableau":
-                continue
-            chemin = f"pages/{page}/{grandeur['fichier']}"
+        for nom, fichier in _tableaux_du_json(contenu_page):
+            chemin = f"pages/{page}/{fichier}"
             ancien = self._depot.contenu(commit.parents[0], chemin)
             nouveau = self._depot.contenu(commit.id, chemin)
             if ancien is not None and nouveau is not None:
                 modifications.extend(
                     differences_csv(
-                        grandeur["nom"], ancien.decode("utf-8"), nouveau.decode("utf-8")
+                        nom, ancien.decode("utf-8"), nouveau.decode("utf-8")
                     )
                 )
         return tuple(modifications)
@@ -817,20 +886,11 @@ class Archive:
 
     def _tableaux_declares_sur_disque(self) -> list[Path]:
         """Liste les CSV déclarés par les `page.json` du disque, même non encore suivis."""
-        chemins: list[Path] = []
-        for page_json in self.racine.glob("pages/*/page.json"):
-            try:
-                mesures = json.loads(page_json.read_bytes()).get("mesures", [])
-            except (json.JSONDecodeError, AttributeError):
-                continue
-            chemins += [
-                page_json.parent / g["fichier"]
-                for g in mesures
-                if isinstance(g, dict)
-                and g.get("nature") == "tableau"
-                and isinstance(g.get("fichier"), str)
-            ]
-        return chemins
+        return [
+            page_json.parent / fichier
+            for page_json in self.racine.glob("pages/*/page.json")
+            for _, fichier in _tableaux_du_json(page_json.read_bytes())
+        ]
 
     def modifications_non_tracees(self) -> list[str]:
         """Liste les fichiers suivis qui diffèrent du dernier commit.
