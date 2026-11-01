@@ -47,7 +47,7 @@ La contrainte dominante est le PC d'hôpital : Windows, sans droits administrate
 | Changement de poste et de stage | Une archive = un dossier autonome, copiable sur clé ou réseau |
 | Archive par stage | ArchiveStage1, ArchiveStage2… ; le logiciel ouvre une archive comme un projet |
 | PACS plus tard | Les entrées passent par une couche « source de données » abstraite (dossier aujourd'hui, PACS demain) |
-| Windows en priorité | Développement multiplateforme, mais tests systématiques sous Windows |
+| Windows en priorité | Développement multiplateforme, d'abord sous Fedora ; tests de compatibilité dès l'arrivée d'un poste Windows (vers mi-décembre 2026), puis systématiques |
 
 **Principes**
 
@@ -62,7 +62,23 @@ La contrainte dominante est le PC d'hôpital : Windows, sans droits administrate
 
 Le logiciel est un paquet Python unique : un cœur sans interface, une application Qt qui l'utilise, et des modules d'analyse branchés dessus. Les modules renvoient leurs résultats au cœur, qui seul écrit dans l'archive.
 
-&#91;embedded content: architecture · interface, cœur, modules, stockage\]
+```
+Interface Qt (PySide6), sans logique métier
+  Archive (recherche, historique) | Saisie (gabarits, tableaux, DICOM) | Hub (formulaires générés)
+      │ appelle                                                            │ exécute
+      ▼                                                                    ▼
+Cœur pymphub (Python pur, testable sans Qt)    ◄── importe ──   Modules (dossiers)
+  Pages et archive : page.json, empreintes                        Radiologie
+  Mesures : GTC (GUM) + pint (unités)                             Médecine nucléaire
+  Normes : TOML + BibTeX datés                                    Radiothérapie
+  Rapports : Jinja2 → LaTeX → PDF                                     │ appellent
+      ▲ importe            │ lit / écrit                              ▼
+Sources de données         ▼                                  Bibliothèques libres
+  dossier déposé à la    ArchiveStageN/ sur disque              pylinac, hazen, PyMedPhys
+  main (v1)                pages/ + brut/ intouchable           pynemaiqpet, OpenIQ-CT
+  PACS (plus tard)         Git : historique motivé
+                           index.sqlite (cache)
+```
 
 Remplacer l'interface, ajouter un module ou brancher le PACS ne touche à aucune autre couche.
 
@@ -82,6 +98,7 @@ ArchiveStage1/
   pages/
     2026-11-14_activimetre-linearite_0007/
       page.json               # métadonnées + mesures + incertitudes + références des fichiers bruts
+      brut/                   # tableaux CSV décrits dans page.json (dans Git) ; fichiers déposés avant import (hors Git)
       pieces_jointes/         # photos, PDF constructeur, notes scannées
       analyses/               # une sous-page par exécution de module
         2026-11-15T10-02_activimetre.linearite_v1.2/
@@ -114,7 +131,9 @@ ArchiveStage1/
 
 **Incertitudes (GUM).** Chaque grandeur porte une liste de composantes, chacune avec : type A ou B, valeur, loi (normale, rectangulaire, triangulaire…), degrés de liberté, source (« résolution afficheur », « certificat d'étalonnage n° … »). La propagation dans les calculs utilise GTC ; le stockage garde les composantes, pas seulement l'incertitude combinée, pour pouvoir refaire le budget.
 
-**Unités.** Valeur et unité saisies sont stockées telles quelles. Les conversions (MBq ↔ mCi, mm ↔ cm) se font à l'affichage et dans les calculs, avec contrôle de cohérence dimensionnelle (bibliothèque pint). Une saisie incohérente avec le gabarit (une longueur là où on attend une activité) est bloquée.
+**Nombres et identifiants.** Une grandeur numérique est stockée comme un nombre : `10.50` peut devenir `10.5`. Un identifiant (numéro de série, de lot, de certificat…) est toujours stocké comme du texte, sans aucune conversion : `10.50` et `007` restent `10.50` et `007`, y compris dans les colonnes de tableaux CSV.
+
+**Unités.** Valeur et unité saisies sont conservées, au sens de la règle ci-dessus. Les conversions (MBq ↔ mCi, mm ↔ cm) se font à l'affichage et dans les calculs, avec contrôle de cohérence dimensionnelle (bibliothèque pint). Une saisie incohérente avec le gabarit (une longueur là où on attend une activité) est bloquée.
 
 **Gabarits.** Un gabarit décrit les champs attendus d'un type de page (grandeurs, unités autorisées, incertitudes par défaut, tags automatiques). Il est écrit en TOML, versionné, et une page garde la version du gabarit qui l'a créée. Une page « libre » sans gabarit reste possible.
 
@@ -140,9 +159,9 @@ Chaque archive est un dépôt Git géré par le logiciel : toute création ou mo
 **Règles**
 
 1. **Création d'une page** : commit automatique « création ».
-2. **Modification** : le logiciel demande un motif (champ obligatoire), puis commit « correction : \<motif> ». L'ancienne valeur reste lisible dans l'historique et affichée barrée dans l'interface, comme une correction sur un cahier papier.
+2. **Modification** : le logiciel demande un motif (champ obligatoire), puis commit « correction : \<motif> ». L'ancienne valeur reste lisible dans l'historique et affichée barrée dans l'interface, comme une correction sur un cahier papier. Git est le seul historique des corrections ; le message de commit nomme donc la page, les champs modifiés et le motif, pour retrouver facilement où chaque correction a été faite, page par page ou sur toute l'archive.
 3. **Validation** : passage brouillon → validée, commit signé du nom de l'utilisateur. Une page validée ne se modifie plus que par correction motivée.
-4. **Fichiers bruts** : trop lourds pour Git (DICOM), ils restent hors du dépôt, mais leur empreinte SHA-256 est versionnée dans `page.json`. Une commande « vérifier l'intégrité » recalcule toutes les empreintes, signale tout fichier modifié ou manquant et toute référence (fichier ou DICOM) devenue introuvable.
+4. **Fichiers bruts** : trop lourds pour Git (DICOM), ils restent hors du dépôt, mais leur empreinte SHA-256 est versionnée dans `page.json`. Une commande « vérifier l'intégrité » recalcule toutes les empreintes, signale tout fichier modifié ou manquant et toute référence (fichier ou DICOM) devenue introuvable. Seuls les fichiers légers (`page.json`, tableaux CSV) sont dans Git ; `objets/` et `pieces_jointes/` restent hors du dépôt. Tout changement d'un fichier lourd laisse une trace dans un commit : nom du fichier, ancienne et nouvelle empreinte.
 5. **Analyses** : chaque exécution de module est enregistrée avec la version du module, la version du logiciel, la version des normes et les empreintes des entrées. Une analyse est donc rejouable à l'identique.
 
 **Historique lisible.** L'interface affiche pour chaque page une chronologie : date, auteur, champ modifié, ancienne valeur, nouvelle valeur, motif.
@@ -188,6 +207,8 @@ La recherche se fait par tag, date, gabarit, machine et texte libre ; un script 
 
 ```python
 from pymphub import Archive
+
+Archive("D:/ArchiveStage1").page("2026-11-14_activimetre-linearite_0007")   # relire une page en une ligne
 
 arc = Archive("D:/ArchiveStage1")
 pages = arc.chercher(tags=["activimetre"], depuis="2026-11-01")
@@ -389,7 +410,7 @@ Python 3.12, distribué en version portable, avec un petit nombre de dépendance
 | Incertitudes GUM | GTC (GUM Tree Calculator) | MIT |
 | Unités | pint | BSD |
 | Validation des structures (page, gabarit) | pydantic | MIT |
-| Lecture TOML / BibTeX | tomllib (inclus) / bibtexparser | — / MIT |
+| Lecture et écriture TOML / BibTeX | tomllib (inclus) + tomli-w / bibtexparser | — + MIT / MIT |
 | Tableaux | numpy, pandas | BSD |
 | DICOM | pydicom | MIT |
 | Interface | PySide6, magicgui, pyqtgraph, matplotlib | LGPL / MIT / MIT / PSF |
@@ -415,7 +436,7 @@ Python 3.12, distribué en version portable, avec un petit nombre de dépendance
 - Copiable sur clé USB ou partage réseau, sans installation ni droits admin.
 - Les archives sont séparées du logiciel : on ouvre `ArchiveStage1` depuis n'importe quelle version compatible.
 
-**Licence du projet** : à trancher (section 15). Une licence permissive facilite l'adoption par les services.
+**Licence du projet** : MIT (section 15). Une licence permissive facilite l'adoption par les services.
 
 ## 13. Qualité logicielle
 
@@ -446,7 +467,15 @@ Un module n'est utilisé en clinique que s'il passe ses tests sur des données d
 
 Les phases 0 à 2 forment la première version utilisable en stage ; on ne passe à la phase suivante qu'une fois son critère atteint (losange).
 
-&#91;embedded content: feuille de route · 5 phases, un critère de passage chacune\]
+Une version utile dès la phase 2, puis un module à chaque stage.
+
+| Phase | Contenu | Critère de passage |
+| --- | --- | --- |
+| 0. Fondations (cœur sans interface) | format page.json + gabarits TOML ; GTC, pint, Git, index SQLite ; API Python Archive() | Une page se relit en une ligne de Python |
+| 1. Saisie (application Qt) | espaces Archive et Saisie ; 2 premiers gabarits du stage ; calculatrice GUM, courbes rapides | Un CQ réel saisi au lieu du tableur |
+| 2. Hub (premiers modules) | contrat de module + magicgui ; OpenIQ-CT + activimètre ; normes BibTeX + rapport LaTeX | Premier rapport PDF validé manuellement |
+| 3. Extension (au fil des stages) | modules pylinac, hazen, NEMA ; export .eln, vérification d'intégrité ; guide « écrire un module » | Un module ajouté en moins d'une journée |
+| 4. Partage (après le DQPRM) | documentation complète ; anonymisation des données de test ; référentiel des normes partagé | Utilisé par un autre physicien |
 
 Le premier rapport PDF validé (phase 2) est le jalon clé : c'est le moment où l'outil fait gagner du temps sur un vrai CQ.
 
@@ -455,7 +484,7 @@ Le premier rapport PDF validé (phase 2) est le jalon clé : c'est le moment où
 | Point | Décision | Statut |
 | --- | --- | --- |
 | Nom du logiciel | pymphub | tranché |
-| Licence du projet | Apache-2.0 : permissive, clause brevets, facile à adopter par un service | tranché |
+| Licence du projet | MIT : permissive, facile à adopter par un service | tranché |
 | Python embarqué sur les PC des services | à tester dès le premier stage (antivirus, exécution de .bat, chemins réseau) | action |
 | Versionnage Git | dulwich, Git en Python pur, rien à faire autoriser | tranché |
 | Distribution LaTeX | TeX Live portable | tranché |
@@ -464,6 +493,12 @@ Le premier rapport PDF validé (phase 2) est le jalon clé : c'est le moment où
 | Premiers gabarits et modules | médecine nucléaire et radiologie : activimètre, TEP, TEMP, scanner | tranché |
 | Identifiants machines et sites | format `site.service.modalite.fabricant-modele.numero-serie`, défini dans `archive.toml` | tranché |
 | Stockage des fichiers bruts | trois modes : copie dédupliquée, référence fichier, référence DICOM par UID ; copie par défaut à la validation | tranché |
+| Historique des corrections | Git seul, à condition de retrouver facilement où chaque correction a été faite | tranché |
+| Contenu du dépôt Git d'une archive | fichiers légers seulement ; tout changement d'un fichier lourd est tracé dans un commit | tranché |
+| Nombres et identifiants | un nombre peut perdre ses zéros finaux ; un identifiant reste un texte exact | tranché |
+| Écriture du TOML | tomli-w | tranché |
+| Relecture d'une page précise | `Archive(chemin).page(id)` | tranché |
+| Compatibilité Windows | développement sous Fedora ; tests Windows vers mi-décembre 2026, à l'arrivée du poste | tranché |
 
 ## 16. Anticipation à long terme
 
@@ -485,17 +520,3 @@ Sur une carrière, les risques principaux ne sont pas techniques mais de pérenn
 | Suivi temporel et planification | données riches mais pas de vue de tendance ni d'échéances | identifiants machines stables, périodicité dans les gabarits ; vue de tendance simple puis export vers un outil tiers |
 | Gouvernance du partage | modules non revus utilisés en clinique par d'autres | statut « validé » d'un module seulement après revue par un second physicien et tests passés ; référentiel de normes en dépôt commun |
 | Réglementaire | glissement vers un usage relevant du dispositif médical sans s'en rendre compte | périmètre écrit (CQ machine, pas de décision patient) ; matrice exigences ↔ tests tenue dès la v1, utile si l'article 5(5) du MDR devient applicable |
-
-&#32;Plutot pymphub
-
-&#32;Commet tu préfère
-
-&#32;TexLive portable
-
-&#32;Bande de garde
-
-&#32;Une page par CQ je pense.
-
-&#32;Médecine nucléaire et radiologie, donc les premiers seront activimètre, TEP, SPECT, Scanner (médecine nucléaire)
-
-&#32;Oui
