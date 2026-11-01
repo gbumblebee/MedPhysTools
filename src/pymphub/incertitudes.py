@@ -1,0 +1,233 @@
+"""Incertitudes selon le GUM : composantes, budget et incertitude élargie.
+
+On stocke les composantes, pas seulement l'incertitude combinée, pour pouvoir
+refaire le budget. La propagation dans les calculs est confiée à GTC.
+
+Le facteur d'élargissement k n'est jamais stocké : il est choisi à l'affichage.
+"""
+
+import math
+import statistics
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Literal
+
+from GTC import dof, uncertainty, ureal
+from GTC.lib import UncertainReal
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from pymphub.unites import (
+    UniteInvalide,
+    UnitesIncompatibles,
+    convertir,
+    convertir_ecart,
+    sont_compatibles,
+    verifier_unite,
+)
+
+# Diviseur reliant la demi-largeur d'une loi à son incertitude-type.
+_DIVISEURS = {"rectangulaire": math.sqrt(3), "triangulaire": math.sqrt(6)}
+
+
+class Composante(BaseModel):
+    """Une composante d'incertitude, telle que déclarée par l'utilisateur.
+
+    Selon la loi, `valeur` désigne :
+    - normale : une incertitude, divisée par `k` si elle vient d'un certificat ;
+    - rectangulaire ou triangulaire : la demi-largeur de l'intervalle.
+
+    Si `relative` est vrai, `valeur` est un pourcentage de la valeur mesurée et
+    `unite` reste vide. Sinon, `unite` est obligatoire. `ddl` à None signifie des
+    degrés de liberté infinis.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    type: Literal["A", "B"]
+    valeur: float = Field(ge=0, allow_inf_nan=False)
+    unite: str | None = None
+    relative: bool = False
+    loi: Literal["normale", "rectangulaire", "triangulaire"] = "normale"
+    k: float = Field(default=1.0, gt=0, allow_inf_nan=False)
+    ddl: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    source: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _verifier_coherence(self) -> "Composante":
+        if self.relative and self.unite is not None:
+            raise ValueError("Une composante relative n'a pas d'unité : valeur en %.")
+        if not self.relative:
+            if self.unite is None:
+                raise ValueError("L'unité d'une composante absolue est obligatoire.")
+            verification = verifier_unite(self.unite)
+            if not verification.valide:
+                raise UniteInvalide(verification.message)
+        if self.k != 1.0 and self.loi != "normale":
+            raise ValueError("Le facteur k ne s'applique qu'à une loi normale.")
+        if self.type == "A":
+            if self.ddl is None:
+                raise ValueError(
+                    "Une composante de type A déclare ses degrés de liberté."
+                )
+            if self.loi != "normale" or self.k != 1.0:
+                raise ValueError(
+                    "Une composante de type A suit une loi normale, avec k = 1."
+                )
+        return self
+
+    def incertitude_type(self, valeur_mesuree: float, unite_mesure: str) -> float:
+        """Renvoie l'incertitude-type, exprimée dans l'unité de la mesure."""
+        diviseur = _DIVISEURS.get(self.loi, self.k)
+        if self.relative:
+            if valeur_mesuree == 0:
+                raise ValueError(
+                    "Une incertitude relative n'a pas de sens sur une valeur nulle."
+                )
+            return abs(valeur_mesuree) * self.valeur / 100 / diviseur
+        return convertir_ecart(self.valeur, self.unite, unite_mesure) / diviseur
+
+
+def composante_exacte(unite: str, source: str = "valeur exacte") -> Composante:
+    """Déclare explicitement une valeur exacte, d'incertitude nulle."""
+    return Composante(type="B", valeur=0.0, unite=unite, source=source)
+
+
+def repetitions(
+    valeurs: Sequence[float], unite: str, source: str = "répétabilité"
+) -> tuple[float, Composante]:
+    """Calcule la moyenne de mesures répétées et leur composante de type A.
+
+    L'incertitude-type est l'écart type de la moyenne, s / √n, avec n − 1 degrés
+    de liberté. Les incertitudes de type B de l'appareil restent à ajouter.
+    """
+    n = len(valeurs)
+    if n < 2:
+        raise ValueError("Il faut au moins deux valeurs répétées.")
+    moyenne = statistics.fmean(valeurs)
+    ecart_type_moyenne = statistics.stdev(valeurs) / math.sqrt(n)
+    composante = Composante(
+        type="A",
+        valeur=ecart_type_moyenne,
+        unite=unite,
+        ddl=n - 1,
+        source=f"{source} (n = {n})",
+    )
+    return moyenne, composante
+
+
+@dataclass(frozen=True)
+class LigneBudget:
+    """Une ligne du budget d'incertitude, dans l'unité de la mesure."""
+
+    source: str
+    type: str
+    loi: str
+    incertitude_type: float
+    ddl: float | None
+    contribution_pourcent: float
+
+
+@dataclass(frozen=True)
+class Budget:
+    """Une valeur mesurée, son budget d'incertitude et son objet GTC.
+
+    Utiliser toujours le même attribut `gtc` pour une même mesure : GTC tient ainsi
+    compte des corrélations quand elle apparaît plusieurs fois dans un calcul.
+    """
+
+    valeur: float
+    unite: str
+    lignes: tuple[LigneBudget, ...]
+    gtc: UncertainReal
+
+    @property
+    def incertitude_type(self) -> float:
+        """Incertitude-type combinée."""
+        return uncertainty(self.gtc)
+
+    @property
+    def ddl(self) -> float:
+        """Degrés de liberté effectifs (Welch-Satterthwaite) ; infinis si exacte."""
+        if self.incertitude_type == 0:
+            return math.inf
+        return dof(self.gtc)
+
+    def elargie(self, k: float = 2.0) -> float:
+        """Incertitude élargie U = k · u, dans l'unité de la mesure."""
+        if k <= 0:
+            raise ValueError("Le facteur d'élargissement k doit être positif.")
+        return k * self.incertitude_type
+
+    def elargie_relative(self, k: float = 2.0) -> float | None:
+        """Incertitude élargie en % de la valeur ; None si la valeur est nulle."""
+        if self.valeur == 0:
+            return None
+        return 100 * self.elargie(k) / abs(self.valeur)
+
+    def en(self, unite: str) -> "Budget":
+        """Renvoie le même budget dans une autre unité, sans perdre les corrélations."""
+        facteur = convertir_ecart(1.0, self.unite, unite)
+        decalage = convertir(0.0, self.unite, unite)
+        lignes = tuple(
+            LigneBudget(
+                source=ligne.source,
+                type=ligne.type,
+                loi=ligne.loi,
+                incertitude_type=ligne.incertitude_type * facteur,
+                ddl=ligne.ddl,
+                contribution_pourcent=ligne.contribution_pourcent,
+            )
+            for ligne in self.lignes
+        )
+        return Budget(
+            valeur=convertir(self.valeur, self.unite, unite),
+            unite=unite,
+            lignes=lignes,
+            gtc=self.gtc * facteur + decalage,
+        )
+
+
+def etablir_budget(
+    valeur: float, unite: str, composantes: Sequence[Composante]
+) -> Budget:
+    """Combine les composantes d'une mesure et renvoie son budget.
+
+    L'incertitude est obligatoire : une valeur exacte le déclare par
+    `composante_exacte`.
+    """
+    verification = verifier_unite(unite)
+    if not verification.valide:
+        raise UniteInvalide(verification.message)
+    if not composantes:
+        raise ValueError(
+            "L'incertitude est obligatoire : déclarer au moins une composante."
+        )
+    for composante in composantes:
+        if not composante.relative and not sont_compatibles(composante.unite, unite):
+            raise UnitesIncompatibles(
+                f"Composante « {composante.source} » en {composante.unite}, "
+                f"incompatible avec une mesure en {unite}."
+            )
+
+    incertitudes = [c.incertitude_type(valeur, unite) for c in composantes]
+    variance = sum(u**2 for u in incertitudes)
+
+    lignes = tuple(
+        LigneBudget(
+            source=c.source,
+            type=c.type,
+            loi=c.loi,
+            incertitude_type=u,
+            ddl=c.ddl,
+            contribution_pourcent=100 * u**2 / variance if variance > 0 else 0.0,
+        )
+        for c, u in zip(composantes, incertitudes)
+    )
+
+    gtc = ureal(valeur, 0.0)
+    for composante, u in zip(composantes, incertitudes):
+        if u > 0:
+            ddl = math.inf if composante.ddl is None else composante.ddl
+            gtc = gtc + ureal(0.0, u, ddl, label=composante.source)
+
+    return Budget(valeur=valeur, unite=unite, lignes=lignes, gtc=gtc)

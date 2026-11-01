@@ -211,3 +211,11 @@ def convertir(valeur: float, depuis: str, vers: str) -> float:
         raise UnitesIncompatibles(
             f"Conversion impossible de « {depuis} » en « {vers} »."
         ) from erreur
+
+
+def convertir_ecart(ecart: float, depuis: str, vers: str) -> float:
+    """Convertit un écart, comme une incertitude, sans appliquer de décalage.
+
+    Un écart de 0,5 °C vaut 0,5 K, alors qu'une température de 0,5 °C vaut 273,65 K.
+    """
+    return convertir(ecart, depuis, vers) - convertir(0.0, depuis, vers)
