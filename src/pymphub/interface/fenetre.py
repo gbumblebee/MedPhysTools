@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import QDate, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
@@ -31,6 +31,7 @@ from pymphub.archive import (
     FormatNonPrisEnCharge,
 )
 from pymphub.disque import chemin_affichable
+from pymphub.interface.espace_archive import EspaceArchive
 
 # Erreurs attendues à l'ouverture ou à la création d'une archive : on les explique à
 # l'utilisateur. Les autres sont de vrais défauts du logiciel et doivent rester visibles.
@@ -198,9 +199,7 @@ class FenetrePrincipale(QMainWindow):
         self.accueil.ouverture_demandee.connect(self.demander_ouverture)
 
         self.espaces = QTabWidget()
-        self.espace_archive = _espace_a_venir(
-            "Espace Archive : recherche et consultation"
-        )
+        self.espace_archive = EspaceArchive()
         self.espace_saisie = _espace_a_venir(
             "Espace Saisie : création et correction de pages"
         )
@@ -289,4 +288,10 @@ class FenetrePrincipale(QMainWindow):
         self.setWindowTitle(f"{archive.configuration.nom} — pymphub")
         self.statusBar().showMessage(chemin_affichable(archive.racine))
         self.pile.setCurrentWidget(self.espaces)
+        self.espace_archive.installer(archive)
         self.archive_ouverte.emit(archive)
+
+    def closeEvent(self, evenement: QCloseEvent) -> None:  # noqa: N802
+        """Attend la fin des travaux en arrière-plan avant de fermer."""
+        self.espace_archive.arreter()
+        super().closeEvent(evenement)

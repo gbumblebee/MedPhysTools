@@ -5,6 +5,7 @@ page, les champs modifiés et le motif, pour retrouver facilement chaque correct
 """
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -33,6 +34,36 @@ class EntreeHistorique:
     page: str
     motif: str | None
     modifications: tuple[Modification, ...]
+
+
+@dataclass(frozen=True)
+class CorrectionChamp:
+    """Une correction motivée d'un champ d'une page."""
+
+    ancien: Any
+    nouveau: Any
+    motif: str | None
+    date: datetime
+    auteur: str
+
+
+def corrections_par_champ(
+    corrections: Sequence[EntreeHistorique],
+) -> dict[str, list[CorrectionChamp]]:
+    """Regroupe des corrections par champ modifié, de la plus ancienne à la plus récente."""
+    resultat: dict[str, list[CorrectionChamp]] = {}
+    for entree in corrections:
+        for modification in entree.modifications:
+            resultat.setdefault(modification.champ, []).append(
+                CorrectionChamp(
+                    modification.ancien,
+                    modification.nouveau,
+                    entree.motif,
+                    entree.date,
+                    entree.auteur,
+                )
+            )
+    return resultat
 
 
 def _cle_de_liste(elements: list[Any]) -> str | None:

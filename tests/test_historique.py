@@ -511,3 +511,67 @@ def test_commit_interrompu_detecte_puis_repris(arc, monkeypatch):
     arc.enregistrer_reprise("Enregistrement interrompu par une coupure")
     arc.modifier_page(page(scalaire(12.0)))
     assert arc.lire_page(ID_PAGE).grandeur("activite").valeur == 12.0
+
+
+# --- Historique en mémoire --------------------------------------------------------
+
+
+def identifiants(depot):
+    return [commit.id for commit in depot.commits()]
+
+
+def test_un_nouveau_commit_apparait_dans_l_historique_en_memoire(arc):
+    depot = arc._depot
+    avant = identifiants(depot)
+    arc.creer_page(page())
+    apres = identifiants(depot)
+    assert apres[: len(avant)] == avant
+    assert len(apres) == len(avant) + 1
+    assert apres == identifiants(Depot(arc.racine))
+
+
+def test_un_commit_d_une_autre_instance_est_vu(arc):
+    depot = arc._depot
+    identifiants(depot)
+    Archive(arc.racine).creer_page(page())
+    assert identifiants(depot) == identifiants(Depot(arc.racine))
+    assert [e.nature for e in arc.historique(ID_PAGE)] == ["création"]
+
+
+def test_un_historique_reecrit_est_relu_en_entier(arc):
+    from dulwich.repo import Repo
+
+    arc.creer_page(page())
+    arc.modifier_page(page(titre="Autre"))
+    depot = arc._depot
+    complet = identifiants(depot)
+    with Repo(str(arc.racine)) as acces:
+        acces.refs[b"refs/heads/master"] = complet[1]
+    assert identifiants(depot) == identifiants(Depot(arc.racine))
+    assert len(identifiants(depot)) == 2
+
+
+def test_modifier_la_liste_renvoyee_ne_change_pas_la_memoire(arc):
+    depot = arc._depot
+    liste = depot.commits()
+    taille = len(liste)
+    liste.clear()
+    assert len(depot.commits()) == taille
+
+
+def test_l_historique_en_memoire_supporte_plusieurs_fils(arc):
+    import threading
+
+    arc.creer_page(page())
+    resultats = []
+
+    def lire():
+        resultats.append(identifiants(arc._depot))
+
+    fils = [threading.Thread(target=lire) for _ in range(8)]
+    for fil in fils:
+        fil.start()
+    for fil in fils:
+        fil.join()
+    assert len(resultats) == 8
+    assert all(r == resultats[0] for r in resultats)

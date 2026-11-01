@@ -20,7 +20,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-VERSION_INDEX = 1
+VERSION_INDEX = 2
 
 _SCHEMA = """
 CREATE TABLE meta (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);
@@ -28,6 +28,8 @@ CREATE TABLE pages (
     numero INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
     empreinte TEXT NOT NULL,
+    titre TEXT NOT NULL,
+    date_mesure TEXT NOT NULL,
     instant REAL NOT NULL,
     date_locale TEXT NOT NULL,
     gabarit TEXT,
@@ -51,6 +53,50 @@ CREATE VIRTUAL TABLE recherche USING fts5(texte, tokenize = "unicode61 remove_di
 
 class CritereInvalide(ValueError):
     """Un critère de recherche ne peut pas être interprété."""
+
+
+@dataclass(frozen=True)
+class Criteres:
+    """Les critères d'une recherche : tous doivent être respectés.
+
+    `depuis` et `jusqua` sont inclus, et comparés à la date de la mesure dans son propre
+    fuseau. `gabarit` accepte une référence (`nom@1`) ou un nom seul, pour toutes ses
+    versions. `mode_tags` vaut « et » (tous les tags) ou « ou » (au moins un).
+    """
+
+    tags: Sequence[str] = ()
+    mode_tags: Literal["et", "ou"] = "et"
+    depuis: str | date | datetime | None = None
+    jusqua: str | date | datetime | None = None
+    gabarit: str | None = None
+    machine: str | None = None
+    statut: str | None = None
+    auteur: str | None = None
+    texte: str | None = None
+
+
+@dataclass(frozen=True)
+class ResumePage:
+    """Ce qu'il faut pour afficher une page dans une liste, sans la relire."""
+
+    id: str
+    titre: str
+    date_mesure: str
+    machine: str | None
+    statut: str | None
+    auteur: str | None
+    gabarit: str | None
+
+
+@dataclass(frozen=True)
+class ValeursPossibles:
+    """Les valeurs présentes dans l'archive pour chaque filtre."""
+
+    gabarits: tuple[str, ...]
+    machines: tuple[str, ...]
+    auteurs: tuple[str, ...]
+    statuts: tuple[str, ...]
+    tags: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -228,6 +274,8 @@ class Index:
             ligne = (
                 id_page,
                 empreinte,
+                str(page.get("titre", "")),
+                page["date_mesure"],
                 mesure.timestamp(),
                 mesure.date().isoformat(),
                 gabarit,
@@ -246,8 +294,9 @@ class Index:
             return
 
         curseur = connexion.execute(
-            "INSERT INTO pages (id, empreinte, instant, date_locale, gabarit, gabarit_nom,"
-            " machine, statut, auteur) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO pages (id, empreinte, titre, date_mesure, instant, date_locale,"
+            " gabarit, gabarit_nom,"
+            " machine, statut, auteur) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ligne,
         )
         numero = curseur.lastrowid
@@ -258,27 +307,15 @@ class Index:
             "INSERT INTO tags VALUES (?, ?)", [(numero, tag) for tag in tags]
         )
 
-    def chercher(
-        self,
-        tags: Sequence[str] = (),
-        mode_tags: Literal["et", "ou"] = "et",
-        depuis: str | date | datetime | None = None,
-        jusqua: str | date | datetime | None = None,
-        gabarit: str | None = None,
-        machine: str | None = None,
-        statut: str | None = None,
-        auteur: str | None = None,
-        texte: str | None = None,
-    ) -> list[str]:
-        """Renvoie les identifiants des pages qui respectent tous les critères.
+    def chercher(self, criteres: Criteres) -> list[str]:
+        """Renvoie les identifiants des pages qui respectent tous les critères."""
+        return [resume.id for resume in self.chercher_resumes(criteres)]
 
-        Les pages sont triées de la mesure la plus récente à la plus ancienne. `depuis` et
-        `jusqua` sont inclus, et comparés à la date de la mesure dans son propre fuseau.
-        `gabarit` accepte une référence (`nom@1`) ou un nom seul, pour toutes ses versions.
-        """
-        if mode_tags not in ("et", "ou"):
+    def chercher_resumes(self, criteres: Criteres) -> list[ResumePage]:
+        """Renvoie les pages qui respectent tous les critères, résumées pour une liste."""
+        if criteres.mode_tags not in ("et", "ou"):
             raise CritereInvalide(
-                f"Mode de tags « {mode_tags} » : « et » ou « ou » attendu."
+                f"Mode de tags « {criteres.mode_tags} » : « et » ou « ou » attendu."
             )
 
         conditions: list[str] = []
@@ -288,26 +325,26 @@ class Index:
             conditions.append(condition)
             parametres.extend(valeurs)
 
-        debut = _en_date(depuis, "depuis")
-        fin = _en_date(jusqua, "jusqua")
+        debut = _en_date(criteres.depuis, "depuis")
+        fin = _en_date(criteres.jusqua, "jusqua")
         if debut is not None:
             ajouter("p.date_locale >= ?", debut)
         if fin is not None:
             ajouter("p.date_locale <= ?", fin)
-        if gabarit is not None:
-            colonne = "p.gabarit" if "@" in gabarit else "p.gabarit_nom"
-            ajouter(f"{colonne} = ?", gabarit)
-        if machine is not None:
-            ajouter("p.machine = ?", machine)
-        if statut is not None:
-            ajouter("p.statut = ?", statut)
-        if auteur is not None:
-            ajouter("p.auteur = ?", auteur)
+        if criteres.gabarit is not None:
+            colonne = "p.gabarit" if "@" in criteres.gabarit else "p.gabarit_nom"
+            ajouter(f"{colonne} = ?", criteres.gabarit)
+        if criteres.machine is not None:
+            ajouter("p.machine = ?", criteres.machine)
+        if criteres.statut is not None:
+            ajouter("p.statut = ?", criteres.statut)
+        if criteres.auteur is not None:
+            ajouter("p.auteur = ?", criteres.auteur)
 
-        tags_uniques = list(dict.fromkeys(tag.casefold() for tag in tags))
+        tags_uniques = list(dict.fromkeys(tag.casefold() for tag in criteres.tags))
         if tags_uniques:
             marques = ", ".join("?" for _ in tags_uniques)
-            minimum = len(tags_uniques) if mode_tags == "et" else 1
+            minimum = len(tags_uniques) if criteres.mode_tags == "et" else 1
             ajouter(
                 "p.numero IN (SELECT numero FROM tags WHERE tag IN "
                 f"({marques}) GROUP BY numero HAVING COUNT(DISTINCT tag COLLATE NOCASE) >= ?)",
@@ -315,8 +352,8 @@ class Index:
                 minimum,
             )
 
-        if texte is not None:
-            requete = _requete_plein_texte(texte)
+        if criteres.texte is not None:
+            requete = _requete_plein_texte(criteres.texte)
             if requete is not None:
                 ajouter(
                     "p.numero IN (SELECT rowid FROM recherche WHERE recherche MATCH ?)",
@@ -326,10 +363,35 @@ class Index:
         ou = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         with contextlib.closing(self._connexion()) as connexion:
             lignes = connexion.execute(
-                f"SELECT p.id FROM pages AS p {ou} ORDER BY p.instant DESC, p.id DESC",
+                "SELECT p.id, p.titre, p.date_mesure, p.machine, p.statut, p.auteur, p.gabarit"
+                f" FROM pages AS p {ou} ORDER BY p.instant DESC, p.id DESC",
                 parametres,
             ).fetchall()
-        return [ligne[0] for ligne in lignes]
+        return [ResumePage(*ligne) for ligne in lignes]
+
+    def valeurs_possibles(self) -> ValeursPossibles:
+        """Renvoie les valeurs présentes dans l'archive, pour proposer des filtres."""
+
+        def distinctes(connexion: sqlite3.Connection, colonne: str) -> tuple[str, ...]:
+            lignes = connexion.execute(
+                f"SELECT DISTINCT {colonne} FROM pages"
+                f" WHERE {colonne} IS NOT NULL ORDER BY {colonne}"
+            )
+            return tuple(ligne[0] for ligne in lignes)
+
+        with contextlib.closing(self._connexion()) as connexion:
+            return ValeursPossibles(
+                gabarits=distinctes(connexion, "gabarit"),
+                machines=distinctes(connexion, "machine"),
+                auteurs=distinctes(connexion, "auteur"),
+                statuts=distinctes(connexion, "statut"),
+                tags=tuple(
+                    ligne[0]
+                    for ligne in connexion.execute(
+                        "SELECT DISTINCT tag FROM tags ORDER BY tag COLLATE NOCASE"
+                    )
+                ),
+            )
 
     def pages_illisibles(self) -> list[PageIllisible]:
         """Liste les pages que l'index n'a pas pu lire."""
@@ -344,7 +406,8 @@ class Index:
         with contextlib.closing(self._connexion()) as connexion:
             return {
                 "pages": connexion.execute(
-                    "SELECT id, empreinte, instant, date_locale, gabarit, gabarit_nom,"
+                    "SELECT id, empreinte, titre, date_mesure, instant, date_locale,"
+                    " gabarit, gabarit_nom,"
                     " machine, statut, auteur FROM pages ORDER BY id"
                 ).fetchall(),
                 "tags": connexion.execute(

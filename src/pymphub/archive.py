@@ -46,7 +46,13 @@ from pymphub.historique import (
     message_commit,
     normaliser_motif,
 )
-from pymphub.index import Index, PageIllisible
+from pymphub.index import (
+    Criteres,
+    Index,
+    PageIllisible,
+    ResumePage,
+    ValeursPossibles,
+)
 from pymphub.lecture import PageLue, ResultatsRecherche
 from pymphub.page import (
     MOTIF_ID_PAGE,
@@ -822,11 +828,21 @@ class Archive:
     ) -> list[str]:
         """Cherche des pages et renvoie leurs identifiants, de la plus récente à la plus ancienne.
 
-        Voir `Index.chercher` pour le détail des critères.
+        Voir `Criteres` pour le détail des critères.
         """
         return self._index_synchronise().chercher(
-            tags, mode_tags, depuis, jusqua, gabarit, machine, statut, auteur, texte
+            Criteres(
+                tags, mode_tags, depuis, jusqua, gabarit, machine, statut, auteur, texte
+            )
         )
+
+    def chercher_resumes(self, criteres: Criteres) -> list[ResumePage]:
+        """Cherche des pages et les renvoie résumées, sans relire leurs fichiers."""
+        return self._index_synchronise().chercher_resumes(criteres)
+
+    def valeurs_possibles(self) -> ValeursPossibles:
+        """Renvoie les valeurs présentes dans l'archive, pour proposer des filtres."""
+        return self._index_synchronise().valeurs_possibles()
 
     def pages_illisibles(self) -> list[PageIllisible]:
         """Liste les pages que la recherche n'a pas pu lire."""
@@ -890,6 +906,10 @@ class Archive:
                 )
             )
         return entrees
+
+    def precharger_historique(self) -> None:
+        """Lit l'historique à l'avance, à appeler depuis un fil de travail."""
+        self._depot.commits()
 
     def historique(self, id_page: str) -> list[EntreeHistorique]:
         """Renvoie la chronologie d'une page, de sa création à sa dernière version."""

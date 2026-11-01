@@ -4,6 +4,7 @@ Le dépôt n'est ouvert que le temps de chaque opération : sous Windows, un fic
 ouvert empêcherait de déplacer l'archive.
 """
 
+import threading
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -45,6 +46,9 @@ class Depot:
 
     def __init__(self, racine: Path) -> None:
         self.racine = racine
+        self._verrou = threading.Lock()
+        self._commits: list[Commit] = []
+        self._tete_connue: bytes | None = None
 
     @classmethod
     def initialiser(cls, racine: Path) -> "Depot":
@@ -84,9 +88,29 @@ class Depot:
             return depot.head().decode("ascii")
 
     def commits(self) -> list[Commit]:
-        """Renvoie tous les commits, du plus ancien au plus récent."""
-        with Repo(str(self.racine)) as depot:
-            return [entree.commit for entree in depot.get_walker()][::-1]
+        """Renvoie tous les commits, du plus ancien au plus récent.
+
+        Ils sont gardés en mémoire : seuls les nouveaux sont relus, car parcourir tout
+        l'historique prend près d'une seconde sur quelques milliers de commits.
+        """
+        with self._verrou, Repo(str(self.racine)) as depot:
+            tete = depot.head()
+            if tete == self._tete_connue:
+                return list(self._commits)
+
+            nouveaux: list[Commit] = []
+            if self._tete_connue is not None:
+                nouveaux = [
+                    entree.commit
+                    for entree in depot.get_walker(exclude=[self._tete_connue])
+                ][::-1]
+            # L'historique doit prolonger celui qu'on connaît. Sinon, on relit tout.
+            if nouveaux and nouveaux[0].parents == [self._tete_connue]:
+                self._commits.extend(nouveaux)
+            else:
+                self._commits = [entree.commit for entree in depot.get_walker()][::-1]
+            self._tete_connue = tete
+            return list(self._commits)
 
     def contenu(self, commit: str | bytes, chemin: str) -> bytes | None:
         """Renvoie un fichier tel qu'il était à un commit, ou None s'il n'existait pas."""

@@ -5,6 +5,7 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from pymphub.interface.fenetre import FenetrePrincipale
+from pymphub.interface.ramasse_miettes import assurer_ramasse_miettes_principal
 from pymphub.interface.theme import appliquer_theme
 
 
@@ -13,6 +14,7 @@ def main() -> int:
     application = QApplication(sys.argv)
     application.setApplicationName("pymphub")
     appliquer_theme(application)
+    assurer_ramasse_miettes_principal()
 
     fenetre = FenetrePrincipale()
     arguments = application.arguments()[1:]

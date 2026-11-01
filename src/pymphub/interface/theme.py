@@ -14,6 +14,7 @@ TEXTE_DISCRET = "#5f6b7a"
 ACCENT = "#1f6f8b"
 ACCENT_FONCE = "#185a71"
 DESACTIVE = "#a7b0bb"
+ALERTE = "#a4372a"
 
 FEUILLE_DE_STYLE = f"""
 QWidget {{ font-size: 10pt; }}
@@ -21,6 +22,26 @@ QMainWindow, QDialog {{ background: {FOND}; }}
 QStatusBar {{ color: {TEXTE_DISCRET}; }}
 QLabel#titre {{ font-size: 20pt; font-weight: 600; }}
 QLabel#sous_titre, QLabel#discret {{ color: {TEXTE_DISCRET}; }}
+QLabel#titre_page {{ font-size: 13pt; font-weight: 600; }}
+QLabel#section {{ font-weight: 600; margin-top: 10px; }}
+QLabel#alerte {{ color: {ALERTE}; font-weight: 600; }}
+QHeaderView::section {{
+    padding: 5px 7px;
+    background: {FOND};
+    border: none;
+    border-bottom: 1px solid {BORDURE};
+    font-weight: 600;
+}}
+QTableView, QTableWidget {{
+    border: 1px solid {BORDURE};
+    gridline-color: {BORDURE};
+}}
+QComboBox {{
+    padding: 4px 7px;
+    background: {SURFACE};
+    border: 1px solid {BORDURE};
+    border-radius: 4px;
+}}
 QTabWidget::pane {{ border: 1px solid {BORDURE}; background: {SURFACE}; }}
 QTabBar::tab {{
     padding: 8px 20px;
