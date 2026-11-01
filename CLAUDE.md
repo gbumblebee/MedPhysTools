@@ -5,7 +5,7 @@ Spécification complète : docs/cahier-des-charges.md (à lire avant toute tâch
 ## Conventions
 - Langue : docstrings, commentaires et noms métier en français.
 - Les modules d'analyse sont des fonctions pures à entrées typées (section 8).
-- Le cœur (src/pymphub/) ne dépend jamais de Qt.
+- Le cœur (src/pymphub/) ne dépend jamais de Qt : seul le sous-paquet pymphub.interface l'importe.
 - Données brutes jamais modifiées ; tout changement est versionné ; le motif est obligatoire sur une page validée.
 - Annotations de type obligatoires ; code simple, lisible par un physicien.
 

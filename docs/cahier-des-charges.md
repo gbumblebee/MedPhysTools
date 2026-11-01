@@ -134,6 +134,7 @@ ArchiveStage1/
 - **Scalaire** : valeur saisie, unité saisie, incertitudes, horodatage, commentaire.
 - **Vecteur ou tableau** : colonnes nommées, chacune avec son unité ; stocké en CSV dans `brut/` et décrit dans `page.json`. Exemple : couples (heure, activité) d'une décroissance.
 - **Identifiant** : texte conservé à l'identique (numéro de série, de lot, de certificat).
+- **Ajustement** : modèle, données d'origine, coefficients avec incertitudes et matrice de corrélation. Il ne remplace jamais les valeurs brutes.
 - **Fichier** : DICOM, image, export constructeur ; stocké en copie ou en référence, avec empreinte et type (voir « Stockage des fichiers bruts »).
 
 **Incertitudes (GUM).** La méthode et ses hypothèses sont détaillées dans `docs/incertitudes.md`. Chaque grandeur porte une liste de composantes, chacune avec : type A ou B, valeur, loi (normale, rectangulaire, triangulaire…), degrés de liberté, source (« résolution afficheur », « certificat d'étalonnage n° … ») et, si besoin, un repère d'erreur commune à plusieurs mesures, comme le numéro du certificat. La propagation dans les calculs utilise GTC ; le stockage garde les composantes, pas seulement l'incertitude combinée, pour pouvoir refaire le budget.
@@ -203,7 +204,7 @@ La saisie se fait directement sur ordinateur, en page libre par défaut ou à pa
 
 - Calculatrice d'expressions sur les grandeurs de la page, avec propagation GUM automatique : `A0 * exp(-ln(2) * t / T12)` donne valeur, incertitude élargie et budget.
 - Graphes rapides : une colonne contre une autre, échelle log, graphes 3D.
-- Ajustements (lmfit) : modèles usuels ou personnalisés, paramètres avec incertitudes et covariances, évaluation de la fonction ajustée avec son incertitude.
+- Ajustements (lmfit), directement dans le cahier de labo : modèles usuels ou personnalisés, évaluation de la fonction ajustée avec son incertitude. Les valeurs évaluées et leur incertitude s'enregistrent dans un tableau. Les coefficients et leur matrice de corrélation restent dans `page.json` et s'affichent dans un onglet dédié.
 - Indicateurs usuels, sur les points ou sur la fonction ajustée : minimum, maximum, moyenne, dérivée, intégrale, etc.
 - Les calculs rapides sont enregistrés comme grandeurs dérivées, avec leur formule, jamais à la place des valeurs brutes.
 
@@ -516,6 +517,10 @@ Le premier rapport PDF validé (phase 2) est le jalon clé : c'est le moment où
 | Contenu du dépôt Git d'une archive | fichiers légers seulement ; tout changement d'un fichier lourd est tracé dans un commit | tranché |
 | Nombres et identifiants | un nombre peut perdre ses zéros finaux ; un identifiant reste un texte exact | tranché |
 | Écriture du TOML | tomli-w | tranché |
+| Emplacement de l'interface | sous-paquet `pymphub.interface`, seul autorisé à importer Qt | tranché |
+| Pseudonymisation DICOM | choix obligatoire à l'import : patient (pseudonymisé, UID conservés) ou fantôme (conservé tel quel) | tranché |
+| Ajustements | faits dans le cahier de labo ; valeurs évaluées en tableau, coefficients et corrélations dans `page.json` et dans un onglet dédié | tranché |
+| Premier CQ réel | vers début février 2027 | tranché |
 | Noms de colonnes | uniques dans leur tableau seulement ; désignés par `tableau.colonne` | tranché |
 | Erreurs communes entre mesures | repère facultatif stocké dès maintenant ; exploitation dans les calculs plus tard | tranché |
 | Unité et incertitude | obligatoires pour toute valeur numérique | tranché |
@@ -541,7 +546,7 @@ Sur une carrière, les risques principaux ne sont pas techniques mais de pérenn
 | Données nucléaires et constantes | périodes ou rapports d'embranchement codés en dur, non sourcés | fichier de données nucléaires versionné et sourcé en BibTeX, comme les normes (tables recommandées du LNHB) |
 | Heure et fuseaux | erreur de décroissance au changement d'heure ou si l'horloge d'un appareil dérive | horodatage avec fuseau ; décalage d'horloge par équipement dans le registre |
 | Sauvegarde | perte totale de l'archive (disque, vol, effacement) ; Git n'est pas une sauvegarde | commande de sauvegarde vers un second support + vérification des empreintes après copie ; règle 3-2-1 recommandée dans la documentation |
-| Propriété et confidentialité des données | emporter des données qui appartiennent à l'hôpital, fuite de données personnelles dans des en-têtes DICOM | statut des données défini avec chaque service ; pseudonymisation des en-têtes DICOM à l'import ; export « sans données brutes » pour ce qu'on peut emporter |
+| Propriété et confidentialité des données | emporter des données qui appartiennent à l'hôpital, fuite de données personnelles dans des en-têtes DICOM | statut des données défini avec chaque service ; à chaque import DICOM, choix obligatoire entre données de patient, pseudonymisées, et fantôme, conservé tel quel ; ce choix est enregistré dans la page ; export « sans données brutes » pour ce qu'on peut emporter |
 | Conflits de dépendances entre modules | deux bibliothèques exigent des versions incompatibles | v1 : un environnement figé ; plus tard : modules lourds exécutés dans leur propre environnement, en sous-processus |
 | Rejouabilité des analyses anciennes | impossible de refaire un calcul de 2027 en 2040 | versions des modules étiquetées dans Git, version enregistrée dans chaque analyse, ancienne version récupérable |
 | Suivi temporel et planification | données riches mais pas de vue de tendance ni d'échéances | identifiants machines stables, périodicité dans les gabarits ; vue de tendance simple puis export vers un outil tiers |
