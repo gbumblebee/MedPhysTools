@@ -217,7 +217,7 @@ La recherche se fait par tag, date, gabarit, machine et texte libre ; un script 
 
 - Index SQLite construit à partir des `page.json` (recherche plein texte intégrée à SQLite).
 - Filtres combinables : tags (et / ou), intervalle de dates, gabarit, machine, statut, auteur.
-- L'index n'est qu'un cache : supprimé, il se reconstruit à l'ouverture de l'archive. Les fichiers restent la seule source de vérité.
+- L'index n'est qu'un cache : supprimé, il se reconstruit à la première recherche. Les fichiers restent la seule source de vérité.
 
 **API Python (usage visé)**
 

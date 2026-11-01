@@ -135,3 +135,9 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 - **DICOM :** `pydicom` n'est pas dans les dépendances, donc ni empreinte des pixels ni compression. Seul le schéma de la référence DICOM est prévu.
 - **Intégrité et exports :** la vérification globale et l'export `.eln` arrivent en phase 3. La phase 0 vérifie seulement l'empreinte à l'accès à un fichier.
 - **Section 16 du cahier des charges :** ni registre des équipements ni journal machine, seulement des références stables dans le format pour les ajouter plus tard.
+
+## Bilan
+
+**Le critère de passage est atteint sous Fedora.** Le détail des exigences, de leurs tests et de ce qui reste à vérifier est dans [la matrice](matrice-exigences.md).
+
+La vérification sous Windows reste à faire à l'arrivée du poste. Elle peut encore demander des corrections dans le cœur.
