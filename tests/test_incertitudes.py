@@ -278,3 +278,12 @@ def test_propagation_d_un_produit_de_deux_mesures():
     produit = a.gtc * b.gtc
     assert produit.x == pytest.approx(200.0)
     assert uncertainty(produit) == pytest.approx(200 * math.sqrt(0.01**2 + 0.02**2))
+
+
+def test_deux_budgets_distincts_sont_independants():
+    # Limite documentée dans docs/incertitudes.md : un même certificat déclaré dans
+    # deux budgets est traité comme deux erreurs indépendantes.
+    certificat = Composante(type="B", valeur=1.0, unite="MBq", source="certificat")
+    a = etablir_budget(100.0, "MBq", [certificat])
+    b = etablir_budget(100.0, "MBq", [certificat])
+    assert uncertainty(a.gtc / b.gtc) == pytest.approx(0.01 * math.sqrt(2))

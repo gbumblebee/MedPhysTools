@@ -48,7 +48,7 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 
 ### 3. Modèle de page
 
-**Contenu :** modèles pydantic pour la page libre, ses onglets et les trois types de grandeurs (scalaire, tableau, fichier), annotations de photos, version du schéma.
+**Contenu :** modèles pydantic pour la page libre, ses onglets et les quatre types de grandeurs (scalaire, identifiant, tableau, fichier), annotations de photos, version du schéma.
 
 **Validée quand :**
 - l'aller-retour JSON est identique ;
@@ -128,7 +128,7 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 
 ## Hors phase 0
 
-- **Interface et analyse :** Qt (onglets, graphes, visualiseur DICOM, annotation des photos à l'écran), assignation des entrées dans le hub, modules, normes et rapports LaTeX.
+- **Interface et analyse :** Qt (onglets, graphes, ajustements lmfit et indicateurs, visualiseur DICOM, annotation des photos à l'écran), assignation des entrées dans le hub, modules, normes et rapports LaTeX.
 - **DICOM :** `pydicom` n'est pas dans les dépendances, donc ni empreinte des pixels ni compression. Seul le schéma de la référence DICOM est prévu.
 - **Intégrité et exports :** la vérification globale et l'export `.eln` arrivent en phase 3. La phase 0 vérifie seulement l'empreinte à l'accès à un fichier.
 - **Section 16 du cahier des charges :** ni registre des équipements ni journal machine, seulement des références stables dans le format pour les ajouter plus tard.

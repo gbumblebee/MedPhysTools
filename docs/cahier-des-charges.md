@@ -132,9 +132,10 @@ ArchiveStage1/
 
 - **Scalaire** : valeur saisie, unité saisie, incertitudes, horodatage, commentaire.
 - **Vecteur ou tableau** : colonnes nommées, chacune avec son unité ; stocké en CSV dans `brut/` et décrit dans `page.json`. Exemple : couples (heure, activité) d'une décroissance.
+- **Identifiant** : texte conservé à l'identique (numéro de série, de lot, de certificat).
 - **Fichier** : DICOM, image, export constructeur ; stocké en copie ou en référence, avec empreinte et type (voir « Stockage des fichiers bruts »).
 
-**Incertitudes (GUM).** Chaque grandeur porte une liste de composantes, chacune avec : type A ou B, valeur, loi (normale, rectangulaire, triangulaire…), degrés de liberté, source (« résolution afficheur », « certificat d'étalonnage n° … »). La propagation dans les calculs utilise GTC ; le stockage garde les composantes, pas seulement l'incertitude combinée, pour pouvoir refaire le budget.
+**Incertitudes (GUM).** La méthode et ses hypothèses sont détaillées dans `docs/incertitudes.md`. Chaque grandeur porte une liste de composantes, chacune avec : type A ou B, valeur, loi (normale, rectangulaire, triangulaire…), degrés de liberté, source (« résolution afficheur », « certificat d'étalonnage n° … »). La propagation dans les calculs utilise GTC ; le stockage garde les composantes, pas seulement l'incertitude combinée, pour pouvoir refaire le budget.
 
 **Nombres et identifiants.** Une grandeur numérique est stockée comme un nombre : `10.50` peut devenir `10.5`. Un identifiant (numéro de série, de lot, de certificat…) est toujours stocké comme du texte, sans aucune conversion : `10.50` et `007` restent `10.50` et `007`, y compris dans les colonnes de tableaux CSV.
 
@@ -200,7 +201,9 @@ La saisie se fait directement sur ordinateur, en page libre par défaut ou à pa
 **Calculs rapides (post-traitement léger)**
 
 - Calculatrice d'expressions sur les grandeurs de la page, avec propagation GUM automatique : `A0 * exp(-ln(2) * t / T12)` donne valeur, incertitude élargie et budget.
-- Graphes rapides : une colonne contre une autre, échelle log, ajustement linéaire ou exponentiel avec incertitudes sur les paramètres ; graphes 3D.
+- Graphes rapides : une colonne contre une autre, échelle log, graphes 3D.
+- Ajustements (lmfit) : modèles usuels ou personnalisés, paramètres avec incertitudes et covariances, évaluation de la fonction ajustée avec son incertitude.
+- Indicateurs usuels, sur les points ou sur la fonction ajustée : minimum, maximum, moyenne, dérivée, intégrale, etc.
 - Les calculs rapides sont enregistrés comme grandeurs dérivées, avec leur formule, jamais à la place des valeurs brutes.
 
 **Ce que la saisie ne fait pas** : les analyses lourdes (images, protocoles complets) relèvent des modules du hub (section 8).
@@ -426,6 +429,7 @@ Python 3.12, distribué en version portable, avec un petit nombre de dépendance
 | Validation des structures (page, gabarit) | pydantic | MIT |
 | Lecture et écriture TOML / BibTeX | tomllib (inclus) + tomli-w / bibtexparser | — + MIT / MIT |
 | Tableaux | numpy, pandas | BSD |
+| Ajustements (à partir de la phase 1) | lmfit | BSD-3-Clause |
 | DICOM | pydicom | MIT |
 | Interface | PySide6, magicgui, pyqtgraph, matplotlib | LGPL / MIT / MIT / PSF |
 | Versionnage | dulwich (compatible Git) | Apache-2.0 |
@@ -486,7 +490,7 @@ Une version utile dès la phase 2, puis un module à chaque stage.
 | Phase | Contenu | Critère de passage |
 | --- | --- | --- |
 | 0. Fondations (cœur sans interface) | format page.json + gabarits TOML ; GTC, pint, Git, index SQLite ; API Python Archive() | Une page se relit en une ligne de Python |
-| 1. Saisie (application Qt) | espaces Archive et Saisie ; page libre à onglets extensibles, photos annotées ; visualiseur DICOM, calculatrice GUM, graphes 2D et 3D ; export en gabarit | Un CQ réel saisi au lieu du tableur |
+| 1. Saisie (application Qt) | espaces Archive et Saisie ; page libre à onglets extensibles, photos annotées ; visualiseur DICOM, calculatrice GUM, graphes 2D et 3D, ajustements lmfit et indicateurs ; export en gabarit | Un CQ réel saisi au lieu du tableur |
 | 2. Hub (premiers modules) | contrat de module + magicgui ; assignation des entrées (gabarit ou manuelle) ; OpenIQ-CT + activimètre ; normes BibTeX + rapport LaTeX | Premier rapport PDF validé manuellement |
 | 3. Extension (au fil des stages) | modules pylinac, hazen, NEMA ; export .eln, vérification d'intégrité ; guide « écrire un module » | Un module ajouté en moins d'une journée |
 | 4. Partage (après le DQPRM) | documentation complète ; anonymisation des données de test ; référentiel des normes partagé | Utilisé par un autre physicien |
