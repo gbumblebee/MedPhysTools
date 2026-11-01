@@ -588,8 +588,29 @@ def test_renommer_un_type_inconnu_garde_ses_donnees(page_avec_onglet_inconnu):
     assert json_onglet(espace, 1) == FUTUR | {"titre": "Renommé"}
 
 
-def test_un_type_connu_sans_editeur_garde_ses_donnees(page_a_trois_onglets):
-    espace = page_a_trois_onglets
+def test_un_type_connu_sans_editeur_garde_ses_donnees(espace):
+    espace.archive.creer_page(
+        Page.model_validate(
+            {
+                "id": "2026-11-14_cq_0001",
+                "titre": "CQ",
+                "date_mesure": HEURE,
+                "date_saisie": HEURE,
+                "auteur": "G.",
+                "mesures": [scalaire()],
+                "onglets": [
+                    {"id": "a", "type": "notes", "titre": "A"},
+                    {
+                        "id": "b",
+                        "type": "dicom",
+                        "titre": "B",
+                        "grandeurs": ["activite"],
+                    },
+                ],
+            }
+        )
+    )
+    espace.ouvrir_page("2026-11-14_cq_0001")
     assert isinstance(espace.onglets.widget(1), EditeurLectureSeule)
     editeur_notes(espace).texte.setPlainText("x")
     espace.enregistrer_maintenant()

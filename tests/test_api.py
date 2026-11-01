@@ -384,8 +384,10 @@ def test_une_page_illisible_ne_gene_que_son_propre_acces(arc):
     )
     chemin = arc.racine / "pages" / autre / "page.json"
     chemin.write_text(
-        chemin.read_text(encoding="utf-8").replace(
-            '"version_schema": 1', '"version_schema": 99'
+        re.sub(
+            r'"version_schema": \d+',
+            '"version_schema": 99',
+            chemin.read_text(encoding="utf-8"),
         ),
         encoding="utf-8",
     )

@@ -287,7 +287,15 @@ class FichePage(QWidget):
             table.setItem(ligne, 0, QTableWidgetItem(grandeur.nom))
             texte_valeur = formater_valeur(grandeur.valeur)
             corrections = self.corrections.get(f"{base}.valeur", ())
-            table.setCellWidget(ligne, 1, etiquette_tracee(texte_valeur, corrections))
+            etiquette_valeur = etiquette_tracee(texte_valeur, corrections)
+            if (
+                isinstance(grandeur, Scalaire)
+                and grandeur.repetitions
+                and not corrections
+            ):
+                valeurs = ", ".join(formater_valeur(v) for v in grandeur.repetitions)
+                etiquette_valeur.setToolTip(f"Moyenne de : {valeurs}")
+            table.setCellWidget(ligne, 1, etiquette_valeur)
             if isinstance(grandeur, Scalaire):
                 table.setCellWidget(
                     ligne,

@@ -12,6 +12,8 @@ dérivée de `Onglet` et d'appeler `enregistrer_type_onglet`. Un type inconnu de
 version du logiciel est conservé tel quel à l'enregistrement.
 """
 
+import math
+import statistics
 from datetime import date
 from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal
@@ -36,7 +38,7 @@ from pymphub.unites import (
     verifier_unite,
 )
 
-VERSION_SCHEMA = 1
+VERSION_SCHEMA = 2
 MOTIF_ID_PAGE = r"^\d{4}-\d{2}-\d{2}_[a-z0-9]+(-[a-z0-9]+)*_\d{4,}$"
 # Format : site.service.modalite.fabricant-modele.numero-serie
 MOTIF_MACHINE = r"^[^.\s]+\.[^.\s]+\.[^.\s]+\.[^.\s]+-[^.\s]+\.[^.\s]+$"
@@ -119,10 +121,24 @@ class Scalaire(_Modele):
     composantes: tuple[Composante, ...]
     horodatage: AwareDatetime | None = None
     commentaire: str = ""
+    # Valeurs brutes de mesures répétées, dont `valeur` est la moyenne (format 2).
+    repetitions: tuple[Nombre, ...] | None = None
 
     @model_validator(mode="after")
     def _verifier_budget(self) -> "Scalaire":
         self.budget()
+        if self.repetitions is not None:
+            if len(self.repetitions) < 2:
+                raise ValueError("Il faut au moins deux valeurs répétées.")
+            if not math.isclose(
+                self.valeur,
+                statistics.fmean(self.repetitions),
+                rel_tol=1e-9,
+                abs_tol=1e-12,
+            ):
+                raise ValueError(
+                    f"« {self.nom} » : la valeur doit être la moyenne de ses répétitions."
+                )
         return self
 
     def budget(self) -> Budget:
@@ -508,8 +524,13 @@ class Page(_Modele):
 
 
 def vers_json(page: Page) -> str:
-    """Écrit une page en JSON lisible, en UTF-8 et avec un retour à la ligne final."""
-    return page.model_dump_json(indent=2) + "\n"
+    """Écrit une page en JSON lisible, en UTF-8 et avec un retour à la ligne final.
+
+    Une page est toujours écrite au format courant : le fichier annonce ainsi ce qu'il
+    peut contenir. Une page d'un format antérieur passe au format courant à sa modification.
+    """
+    actuelle = page.model_copy(update={"version_schema": VERSION_SCHEMA})
+    return actuelle.model_dump_json(indent=2) + "\n"
 
 
 def depuis_json(texte: str) -> Page:

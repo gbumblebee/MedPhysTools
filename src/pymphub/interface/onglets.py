@@ -15,9 +15,11 @@ from dataclasses import dataclass
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
+from pymphub.edition import Grandeur
 from pymphub.page import (
     Onglet,
     OngletNotes,
+    Page,
     enregistrer_type_onglet,
     retirer_type_onglet,
 )
@@ -28,13 +30,32 @@ class EditeurOnglet(QWidget):
 
     modifie = Signal()
 
-    def __init__(self, onglet: Onglet, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, onglet: Onglet, page: Page | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.onglet = onglet
+        self.page = page
 
     def valeur(self) -> Onglet:
         """Renvoie l'onglet avec les modifications de l'utilisateur."""
         return self.onglet
+
+    def grandeurs_possedees(self) -> list[str]:
+        """Noms des grandeurs de la page que cet éditeur peut remplacer ou retirer."""
+        return []
+
+    def grandeurs(self) -> list[Grandeur]:
+        """Grandeurs valides saisies dans cet onglet."""
+        return []
+
+    def erreurs(self) -> list[str]:
+        """Ce qu'il manque pour que la saisie de cet onglet soit complète."""
+        return []
+
+    def enregistre(self, page: Page) -> None:
+        """Prévient l'éditeur que sa saisie vient d'être enregistrée dans cette page."""
+        self.page = page
 
     def renommer(self, titre: str) -> None:
         """Change le titre de l'onglet, sans toucher à ses données."""
@@ -45,8 +66,10 @@ class EditeurOnglet(QWidget):
 class EditeurLectureSeule(EditeurOnglet):
     """Affiche un onglet sans éditeur. Ses données sont rendues telles quelles."""
 
-    def __init__(self, onglet: Onglet, parent: QWidget | None = None) -> None:
-        super().__init__(onglet, parent)
+    def __init__(
+        self, onglet: Onglet, page: Page | None = None, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(onglet, page, parent)
         message = QLabel(
             f"Le type d'onglet « {onglet.type} » ne se modifie pas encore dans cette "
             "version. Ses données sont conservées."
@@ -65,8 +88,10 @@ class EditeurLectureSeule(EditeurOnglet):
 class EditeurNotes(EditeurOnglet):
     """Édite le texte d'un onglet de notes. Ses photos sont conservées."""
 
-    def __init__(self, onglet: Onglet, parent: QWidget | None = None) -> None:
-        super().__init__(onglet, parent)
+    def __init__(
+        self, onglet: Onglet, page: Page | None = None, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(onglet, page, parent)
         self.texte = QPlainTextEdit(getattr(onglet, "texte", ""))
         self.texte.setPlaceholderText("Montage, conditions, remarques…")
         self.texte.textChanged.connect(self.modifie)
@@ -118,12 +143,12 @@ def creer_onglet(nom_type: str, identifiant: str) -> Onglet:
     return declaration.modele(id=identifiant, type=nom_type, titre=declaration.libelle)
 
 
-def creer_editeur(onglet: Onglet) -> EditeurOnglet:
+def creer_editeur(onglet: Onglet, page: Page | None = None) -> EditeurOnglet:
     """Crée l'éditeur d'un onglet : en lecture seule si son type n'en a pas."""
     declaration = _DECLARATIONS.get(onglet.type)
     if declaration is None:
-        return EditeurLectureSeule(onglet)
-    return declaration.editeur(onglet)
+        return EditeurLectureSeule(onglet, page)
+    return declaration.editeur(onglet, page)
 
 
 declarer_onglet("notes", "Notes", OngletNotes, EditeurNotes)

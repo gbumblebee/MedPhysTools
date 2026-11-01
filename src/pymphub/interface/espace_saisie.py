@@ -30,12 +30,16 @@ from PySide6.QtWidgets import (
 
 from pymphub.archive import Archive, PageRefusee
 from pymphub.edition import (
+    conflits_de_noms,
     date_saisie_vers_mesure,
     decouper_tags,
+    fusionner_grandeurs,
     modifier_champs,
     nouvel_id_onglet,
     nouvelle_page,
 )
+from pymphub.interface import onglet_scalaires  # noqa: F401 - déclare son type d'onglet
+from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglets import (
     EditeurOnglet,
     creer_editeur,
@@ -47,15 +51,6 @@ from pymphub.page import Page
 _DELAI_ENREGISTREMENT_MS = 800
 _FORMAT_DATE = "dd/MM/yyyy HH:mm"
 _ERREURS_ENREGISTREMENT = (PageRefusee, ValueError, KeyError, OSError)
-
-
-def message_erreur(erreur: Exception) -> str:
-    """Rend une erreur lisible : pydantic détaille trop pour un utilisateur."""
-    if isinstance(erreur, ValidationError):
-        return "; ".join(
-            detail["msg"].removeprefix("Value error, ") for detail in erreur.errors()
-        )
-    return str(erreur.args[0]) if erreur.args else str(erreur)
 
 
 def _en_qdatetime(date: datetime) -> QDateTime:
@@ -384,7 +379,7 @@ class EspaceSaisie(QWidget):
         self._actualiser_etat()
 
     def _ajouter_editeur(self, onglet: object) -> EditeurOnglet:
-        editeur = creer_editeur(onglet)
+        editeur = creer_editeur(onglet, self.page)
         editeur.modifie.connect(self._sur_modification)
         self.onglets.addTab(editeur, onglet.titre or onglet.type)
         return editeur
@@ -406,12 +401,39 @@ class EspaceSaisie(QWidget):
             date_mesure=date_mesure,
             machine=self.champ_machine.currentText().strip() or None,
             onglets=[editeur.valeur() for editeur in self.editeurs()],
+            mesures=fusionner_grandeurs(
+                self.page.mesures,
+                [nom for e in self.editeurs() for nom in e.grandeurs_possedees()],
+                [grandeur for e in self.editeurs() for grandeur in e.grandeurs()],
+            ),
+        )
+
+    def saisies_incompletes(self) -> list[str]:
+        """Ce qu'il manque dans les onglets : ces saisies ne sont pas enregistrées."""
+        conflits = [
+            f"le nom « {nom} » est déjà utilisé dans cette page"
+            for nom in self._conflits()
+        ]
+        return conflits + [
+            erreur for editeur in self.editeurs() for erreur in editeur.erreurs()
+        ]
+
+    def _conflits(self) -> list[str]:
+        """Noms qui écraseraient une autre grandeur : rien n'est enregistré dans ce cas."""
+        if self.page is None:
+            return []
+        return conflits_de_noms(
+            self.page.mesures,
+            [nom for e in self.editeurs() for nom in e.grandeurs_possedees()],
+            [grandeur for e in self.editeurs() for grandeur in e.grandeurs()],
         )
 
     def modifications_en_attente(self) -> bool:
         """Indique si l'écran diffère de la page enregistrée, ou s'il est invalide."""
         if self.page is None:
             return False
+        if self.saisies_incompletes():
+            return True
         try:
             return self._page_saisie() != self.page
         except ValidationError:
@@ -422,6 +444,7 @@ class EspaceSaisie(QWidget):
             return
         self._actualiser_etat()
         if self.page.statut == "brouillon" and self._erreur_de_saisie() is None:
+            # Une ligne incomplète ne retarde pas l'enregistrement des autres.
             self._minuteur.start()
         else:
             self._minuteur.stop()
@@ -439,16 +462,19 @@ class EspaceSaisie(QWidget):
         brouillon = self.page.statut == "brouillon"
         attente = self.modifications_en_attente()
         erreur = self._erreur_de_saisie()
+        incompletes = self.saisies_incompletes()
         self.bouton_valider.setVisible(brouillon)
         self.bouton_corriger.setVisible(not brouillon)
         self.bouton_annuler.setVisible(not brouillon)
-        self.bouton_corriger.setEnabled(attente and erreur is None)
+        self.bouton_corriger.setEnabled(attente and erreur is None and not incompletes)
         self.bouton_annuler.setEnabled(attente)
-        self.bouton_valider.setEnabled(erreur is None)
+        self.bouton_valider.setEnabled(erreur is None and not incompletes)
 
         statut = f"Statut : {self.page.statut}"
         if erreur is not None:
             self.etat.setText(f"{statut} · Non enregistré : {erreur}")
+        elif incompletes:
+            self.etat.setText(f"{statut} · À compléter : {incompletes[0]}")
         elif brouillon:
             suite = "enregistrement en attente…" if attente else "enregistré"
             self.etat.setText(f"{statut} · {suite}")
@@ -470,6 +496,8 @@ class EspaceSaisie(QWidget):
             self.afficher_erreur(message_erreur(erreur))
             self._actualiser_etat()
             return False
+        for editeur in self.editeurs():
+            editeur.enregistre(self.page)
         self._actualiser_etat()
         self.page_modifiee.emit(page.id)
         return True
@@ -479,6 +507,9 @@ class EspaceSaisie(QWidget):
         self._minuteur.stop()
         if self.page is None or self.page.statut != "brouillon":
             return True
+        if self._conflits():
+            self._actualiser_etat()
+            return False
         try:
             page = self._page_saisie()
         except ValidationError:
@@ -487,6 +518,9 @@ class EspaceSaisie(QWidget):
 
     def demander_correction(self) -> bool:
         """Demande un motif, puis enregistre la correction d'une page validée."""
+        if self.saisies_incompletes():
+            self.afficher_erreur(self.saisies_incompletes()[0])
+            return False
         try:
             page = self._page_saisie()
         except ValidationError as erreur:
@@ -528,8 +562,8 @@ class EspaceSaisie(QWidget):
         """Enregistre un brouillon, ou demande quoi faire des modifications en attente."""
         if self.page is None:
             return True
-        if self.page.statut == "brouillon" and self.enregistrer_maintenant():
-            return True
+        if self.page.statut == "brouillon":
+            self.enregistrer_maintenant()
         if not self.modifications_en_attente():
             return True
         return self._confirmer(

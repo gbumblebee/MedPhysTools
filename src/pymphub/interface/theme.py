@@ -76,6 +76,7 @@ QLineEdit, QDateEdit {{
     border-radius: 4px;
 }}
 QLineEdit:focus, QDateEdit:focus {{ border-color: {ACCENT}; }}
+QLineEdit[invalide="true"] {{ border: 1px solid {ALERTE}; }}
 """
 
 
