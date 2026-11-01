@@ -78,7 +78,8 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 **Validée quand :**
 - une archive déplacée s'ouvre toujours ;
 - un format trop récent est refusé ;
-- les identifiants respectent les règles de nommage Windows, vérifiables sous Fedora.
+- les identifiants respectent les règles de nommage Windows, vérifiables sous Fedora ;
+- les chemins de plus de 260 caractères reçoivent le préfixe `\\?\` sous Windows, ce qui reste à confirmer sur le poste Windows.
 
 ### 6. Traçabilité Git
 
@@ -89,7 +90,8 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 - une correction sans motif est refusée sur une page validée ;
 - l'ancienne valeur est retrouvée ;
 - les corrections d'une page et de toute l'archive sont retrouvées, avec champs et motif ;
-- `git log` et `git fsck` standard fonctionnent.
+- `git log` et `git fsck` standard fonctionnent ;
+- une modification faite hors du logiciel est signalée, et n'est jamais écrasée sans reprise motivée.
 
 ### 7. Fichiers bruts
 

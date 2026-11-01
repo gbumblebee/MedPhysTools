@@ -19,7 +19,14 @@ from pymphub.archive import (
     PageIntrouvable,
     PageRefusee,
 )
-from pymphub.disque import NomInvalide, ecrire_atomique, verifier_nom_windows
+from pymphub.disque import (
+    NomInvalide,
+    chemin_affichable,
+    chemin_long,
+    ecrire_atomique,
+    prefixer_chemin_windows,
+    verifier_nom_windows,
+)
 from pymphub.gabarit import creer_gabarit
 from pymphub.page import Page, depuis_json
 
@@ -139,7 +146,7 @@ def test_aucun_chemin_absolu_n_est_stocke(arc, tmp_path):
     arc.creer_page(page())
     for chemin in arc.racine.rglob("*"):
         if chemin.is_file():
-            assert str(tmp_path) not in chemin.read_text(encoding="utf-8")
+            assert str(tmp_path).encode() not in chemin.read_bytes()
 
 
 def test_dossier_ordinaire_refuse(tmp_path):
@@ -341,11 +348,13 @@ def test_un_brouillon_peut_avoir_des_variables_a_remplir(arc, gabarit):
 
 def test_une_page_validee_doit_etre_complete(arc, gabarit):
     arc.enregistrer_gabarit(gabarit)
+    arc.creer_page(page(gabarit=gabarit.reference))
     with pytest.raises(PageRefusee, match="activite"):
-        arc.creer_page(page(gabarit=gabarit.reference, statut="validée"))
-    arc.creer_page(
-        page(ID_PAGE, scalaire(), gabarit=gabarit.reference, statut="validée")
-    )
+        arc.valider_page(ID_PAGE)
+    assert arc.lire_page(ID_PAGE).statut == "brouillon"
+
+    arc.modifier_page(page(ID_PAGE, scalaire(), gabarit=gabarit.reference))
+    assert arc.valider_page(ID_PAGE).statut == "validée"
 
 
 def test_une_unite_incoherente_avec_le_gabarit_bloque_meme_un_brouillon(arc, gabarit):
@@ -447,3 +456,54 @@ def test_relire_la_page_ecrite_sans_passer_par_l_archive(arc):
     dossier = arc.creer_page(page(ID_PAGE, scalaire()))
     relue = depuis_json((dossier / "page.json").read_text(encoding="utf-8"))
     assert relue.grandeur("activite").valeur == 10.5
+
+
+# --- Chemins de plus de 260 caractères --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("chemin", "attendu"),
+    [
+        (r"D:\ArchiveStage1", r"\\?\D:\ArchiveStage1"),
+        ("D:/ArchiveStage1/pages", r"\\?\D:\ArchiveStage1\pages"),
+        (r"D:\a\..\b", r"\\?\D:\b"),
+        (r"\\serveur\partage\Archive", r"\\?\UNC\serveur\partage\Archive"),
+        (r"\\?\D:\deja", r"\\?\D:\deja"),
+        (r"\\?\UNC\serveur\partage", r"\\?\UNC\serveur\partage"),
+    ],
+)
+def test_prefixe_des_chemins_longs_windows(chemin, attendu):
+    assert prefixer_chemin_windows(chemin) == attendu
+
+
+@pytest.mark.parametrize(
+    ("chemin", "attendu"),
+    [
+        (r"\\?\D:\ArchiveStage1", r"D:\ArchiveStage1"),
+        (r"\\?\UNC\serveur\partage\A", r"\\serveur\partage\A"),
+        ("/home/a", "/home/a"),
+    ],
+)
+def test_chemin_affichable_retire_le_prefixe(chemin, attendu):
+    assert chemin_affichable(chemin) == attendu
+
+
+@pytest.mark.parametrize("chemin", [r"D:\a\b", r"\\serveur\partage\a"])
+def test_le_prefixe_est_reversible(chemin):
+    assert chemin_affichable(prefixer_chemin_windows(chemin)) == chemin
+
+
+def test_hors_windows_le_chemin_reste_inchange(tmp_path):
+    if os.name != "nt":
+        assert chemin_long(tmp_path / "a") == tmp_path / "a"
+
+
+def test_une_archive_au_chemin_tres_long_fonctionne(tmp_path):
+    profond = tmp_path
+    for i in range(6):
+        profond = profond / f"{i}{'d' * 60}"
+    arc = Archive.creer(profond / "ArchiveStage1", "s", "r", date(2026, 1, 1))
+    dossier = arc.creer_page(page(ID_PAGE, scalaire()))
+    assert len(str(dossier / "page.json")) > 260
+    assert Archive(profond / "ArchiveStage1").lire_page(ID_PAGE).grandeur("activite")
+    assert arc.modifications_non_tracees() == []

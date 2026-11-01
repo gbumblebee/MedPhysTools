@@ -47,6 +47,7 @@ La contrainte dominante est le PC d'hôpital : Windows, sans droits administrate
 | Changement de poste et de stage | Une archive = un dossier autonome, copiable sur clé ou réseau |
 | Archive par stage | ArchiveStage1, ArchiveStage2… ; le logiciel ouvre une archive comme un projet |
 | PACS plus tard | Les entrées passent par une couche « source de données » abstraite (dossier aujourd'hui, PACS demain) |
+| Chemins de plus de 260 caractères | Préfixe `\\?\` appliqué à l'accès au disque, sans droits administrateur et jamais stocké dans l'archive ; `core.longpaths` activé dans le dépôt Git |
 | Windows en priorité | Développement multiplateforme, d'abord sous Fedora ; tests de compatibilité dès l'arrivée d'un poste Windows (vers mi-décembre 2026), puis systématiques |
 
 **Principes**

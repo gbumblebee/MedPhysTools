@@ -1,5 +1,6 @@
 """Écriture sûre sur disque et règles de nommage compatibles avec Windows."""
 
+import ntpath
 import os
 import re
 import tempfile
@@ -62,3 +63,40 @@ def ecrire_atomique(chemin: Path, texte: str) -> None:
     except BaseException:
         Path(temporaire).unlink(missing_ok=True)
         raise
+
+
+def prefixer_chemin_windows(chemin: str) -> str:
+    r"""Ajoute à un chemin Windows absolu le préfixe qui lève la limite de 260 caractères.
+
+    `D:\a` devient `\\?\D:\a`, et `\\serveur\partage` devient `\\?\UNC\serveur\partage`.
+    Ce préfixe ne demande aucun droit administrateur, contrairement au réglage système
+    `LongPathsEnabled`. Avec lui, Windows n'interprète plus le chemin : il doit donc
+    déjà être normalisé, sans `/` ni `..`, ce que fait cette fonction.
+    """
+    if chemin.startswith(("\\\\?\\", "\\\\.\\")):
+        return chemin
+    normalise = ntpath.normpath(chemin)
+    if normalise.startswith("\\\\"):
+        return f"\\\\?\\UNC\\{normalise[2:]}"
+    return f"\\\\?\\{normalise}"
+
+
+def chemin_long(chemin: str | Path) -> Path:
+    """Renvoie un chemin utilisable au-delà de 260 caractères sous Windows.
+
+    Sous les autres systèmes, qui n'ont pas cette limite, il est renvoyé tel quel. Le
+    préfixe n'est jamais stocké dans une archive : il sert seulement à accéder au disque.
+    """
+    if os.name == "nt":
+        return Path(prefixer_chemin_windows(os.path.abspath(chemin)))
+    return Path(chemin)
+
+
+def chemin_affichable(chemin: str | Path) -> str:
+    """Retire le préfixe des chemins longs, pour un message ou un outil externe."""
+    texte = str(chemin)
+    if texte.startswith("\\\\?\\UNC\\"):
+        return f"\\\\{texte[8:]}"
+    if texte.startswith("\\\\?\\"):
+        return texte[4:]
+    return texte
