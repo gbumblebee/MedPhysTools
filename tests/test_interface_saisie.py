@@ -486,6 +486,28 @@ def test_un_nouvel_id_d_onglet_n_est_jamais_deja_pris():
     assert nouvel_id_onglet(()) == "onglet_1"
 
 
+def test_replier_les_informations_laisse_la_place_aux_onglets(ouverte, qtbot):
+    ouverte.resize(1200, 800)
+    ouverte.show()
+    qtbot.waitExposed(ouverte)
+    hauteur = ouverte.onglets.height()
+    ouverte.bouton_informations.click()
+    qtbot.wait(20)
+    assert ouverte.bloc_informations.isHidden()
+    assert ouverte.onglets.height() > hauteur
+    assert ouverte.bouton_informations.text() == "Afficher les informations"
+    ouverte.bouton_informations.click()
+    assert not ouverte.bloc_informations.isHidden()
+
+
+def test_replier_les_informations_ne_change_pas_la_page(ouverte):
+    ouverte.bouton_informations.click()
+    assert not ouverte.modifications_en_attente()
+    ouverte.champ_titre.setText("Autre")
+    ouverte.enregistrer_maintenant()
+    assert relue(ouverte).titre == "Autre"
+
+
 # --- Types d'onglets ----------------------------------------------------------------
 
 

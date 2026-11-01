@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
+from pymphub.archive import Archive
 from pymphub.edition import Grandeur
 from pymphub.page import (
     Onglet,
@@ -29,6 +30,7 @@ class EditeurOnglet(QWidget):
     """Base d'un éditeur : il affiche un onglet et donne sa nouvelle valeur."""
 
     modifie = Signal()
+    mesure_proposee = Signal(object)
 
     def __init__(
         self, onglet: Onglet, page: Page | None = None, parent: QWidget | None = None
@@ -56,6 +58,17 @@ class EditeurOnglet(QWidget):
     def enregistre(self, page: Page) -> None:
         """Prévient l'éditeur que sa saisie vient d'être enregistrée dans cette page."""
         self.page = page
+
+    def charger(self, archive: Archive) -> None:
+        """Relit ce qui ne se trouve pas dans `page.json`, comme un fichier CSV."""
+
+    def donnees_tableaux(self) -> dict[str, dict[str, list[str | float]]]:
+        """Cellules des tableaux à enregistrer, par nom de tableau."""
+        return {}
+
+    def tableau_modifie(self) -> bool:
+        """Indique si les cellules diffèrent de la dernière version enregistrée."""
+        return False
 
     def renommer(self, titre: str) -> None:
         """Change le titre de l'onglet, sans toucher à ses données."""

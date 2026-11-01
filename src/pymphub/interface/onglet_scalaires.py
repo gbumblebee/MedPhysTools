@@ -987,6 +987,16 @@ class EditeurScalaires(EditeurOnglet):
         self.lignes.remove(ligne)
         self.ligne_modifiee()
 
+    def ajouter_mesure(self, mesure: Scalaire) -> LigneScalaire:
+        """Ajoute une mesure proposée par un autre onglet : elle reste à enregistrer."""
+        vides = [ligne for ligne in self.lignes if ligne.est_vide()]
+        for ligne in vides:
+            self.retirer_ligne(ligne)
+        ligne = self.ajouter_ligne(mesure)
+        ligne.origine = None
+        self.ligne_modifiee()
+        return ligne
+
     def ligne_modifiee(self) -> None:
         if not self._chargement:
             self.modifie.emit()

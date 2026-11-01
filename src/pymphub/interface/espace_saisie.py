@@ -38,15 +38,16 @@ from pymphub.edition import (
     nouvel_id_onglet,
     nouvelle_page,
 )
-from pymphub.interface import onglet_scalaires  # noqa: F401 - déclare son type d'onglet
+from pymphub.interface import onglet_tableau  # noqa: F401 - déclare son type d'onglet
 from pymphub.interface.messages import message_erreur
+from pymphub.interface.onglet_scalaires import EditeurScalaires
 from pymphub.interface.onglets import (
     EditeurOnglet,
     creer_editeur,
     creer_onglet,
     types_disponibles,
 )
-from pymphub.page import Page
+from pymphub.page import Page, Scalaire
 
 _DELAI_ENREGISTREMENT_MS = 800
 _FORMAT_DATE = "dd/MM/yyyy HH:mm"
@@ -245,6 +246,12 @@ class EspaceSaisie(QWidget):
         self.formulaire.addRow("Machine", self.champ_machine)
         self.formulaire.addRow("Tags", self.champ_tags)
 
+        self.bloc_informations = QWidget()
+        self.bloc_informations.setLayout(self.formulaire)
+        self.bouton_informations = QPushButton("Masquer les informations")
+        self.bouton_informations.setCheckable(True)
+        self.bouton_informations.toggled.connect(self._replier_informations)
+
         self.onglets = QTabWidget()
         self.onglets.setMovable(True)
         self.onglets.setTabsClosable(True)
@@ -263,13 +270,22 @@ class EspaceSaisie(QWidget):
         self.champ_date.dateTimeChanged.connect(self._sur_modification)
         self.champ_machine.currentTextChanged.connect(self._sur_modification)
 
+        ligne_haut.insertWidget(1, self.bouton_informations)
+
         edition = QWidget()
         disposition = QVBoxLayout(edition)
         disposition.addLayout(ligne_haut)
         disposition.addWidget(self.etat)
-        disposition.addLayout(self.formulaire)
+        disposition.addWidget(self.bloc_informations)
         disposition.addWidget(self.onglets, stretch=1)
         return edition
+
+    def _replier_informations(self, replie: bool) -> None:
+        """Laisse toute la hauteur aux onglets, par exemple pour un grand tableau."""
+        self.bloc_informations.setVisible(not replie)
+        self.bouton_informations.setText(
+            "Afficher les informations" if replie else "Masquer les informations"
+        )
 
     # --- Dialogues : isolés ici pour pouvoir les remplacer dans les tests --------------
 
@@ -385,7 +401,9 @@ class EspaceSaisie(QWidget):
 
     def _ajouter_editeur(self, onglet: object) -> EditeurOnglet:
         editeur = creer_editeur(onglet, self.page)
+        editeur.charger(self.archive)
         editeur.modifie.connect(self._sur_modification)
+        editeur.mesure_proposee.connect(self.ajouter_mesure_proposee)
         self.onglets.addTab(editeur, onglet.titre or onglet.type)
         return editeur
 
@@ -438,6 +456,8 @@ class EspaceSaisie(QWidget):
         if self.page is None:
             return False
         if self.saisies_incompletes():
+            return True
+        if any(editeur.tableau_modifie() for editeur in self.editeurs()):
             return True
         try:
             return self._page_saisie() != self.page
@@ -495,7 +515,12 @@ class EspaceSaisie(QWidget):
         try:
             if page.machine is not None:
                 self.archive.declarer_machine(page.machine)
-            self.archive.modifier_page(page, motif=motif)
+            tableaux = {
+                nom: donnees
+                for editeur in self.editeurs()
+                for nom, donnees in editeur.donnees_tableaux().items()
+            }
+            self.archive.modifier_page(page, motif=motif, tableaux=tableaux)
             self.page = self.archive.lire_page(page.id)
         except _ERREURS_ENREGISTREMENT as erreur:
             self.afficher_erreur(message_erreur(erreur))
@@ -519,7 +544,9 @@ class EspaceSaisie(QWidget):
             page = self._page_saisie()
         except ValidationError:
             return False
-        return page == self.page or self._ecrire(page)
+        if page == self.page and not any(e.tableau_modifie() for e in self.editeurs()):
+            return True
+        return self._ecrire(page)
 
     def demander_correction(self) -> bool:
         """Demande un motif, puis enregistre la correction d'une page validée."""
@@ -591,6 +618,16 @@ class EspaceSaisie(QWidget):
             action.triggered.connect(
                 lambda _coche=False, nom=declaration.nom_type: self.ajouter_onglet(nom)
             )
+
+    def ajouter_mesure_proposee(self, mesure: Scalaire) -> None:
+        """Ajoute une mesure à l'onglet de scalaires, en le créant s'il n'existe pas."""
+        scalaires = next(
+            (e for e in self.editeurs() if isinstance(e, EditeurScalaires)), None
+        )
+        if scalaires is None:
+            scalaires = self.ajouter_onglet("scalaires")
+        scalaires.ajouter_mesure(mesure)
+        self.onglets.setCurrentWidget(scalaires)
 
     def ajouter_onglet(self, nom_type: str) -> EditeurOnglet:
         """Ajoute un onglet vide à la page et l'affiche."""
