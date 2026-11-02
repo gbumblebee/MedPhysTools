@@ -95,6 +95,8 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Un tag de note suit la valeur, et la note ne garde que le tag | `tests/test_tags.py::test_la_note_garde_le_tag_et_l_affichage_suit_la_valeur` | Vérifié |
 | Un tag cassé se voit | `tests/test_tags.py::test_un_tag_casse_se_voit_sans_arreter_le_reste` | Vérifié |
 | Capture d'un graphe gardée dans la page et signalée si les données changent | `tests/test_interface_notes.py::test_une_capture_signale_que_le_tableau_a_change` | Vérifié |
+| Export du cahier en PDF, sans logiciel pour le relire | `tests/test_export.py::test_le_pdf_contient_le_cahier` | Vérifié sous Fedora |
+| L'export n'omet aucune grandeur | `tests/test_export.py::test_une_grandeur_hors_de_tout_onglet_reste_dans_le_cahier` | Vérifié |
 | L'archive figée du format 1 se relit | `tests/test_format_1.py::test_toutes_les_pages_se_relisent` | Vérifié |
 
 ## Gabarits

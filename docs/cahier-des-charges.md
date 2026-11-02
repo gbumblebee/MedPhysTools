@@ -207,6 +207,8 @@ La saisie se fait directement sur ordinateur, en page libre par défaut ou à pa
 - Clic droit « Afficher en grand » sur tout ce qui contient une description, un commentaire ou une note.
 - Contrôles à la saisie : unité et incertitude obligatoires, syntaxe de l'unité vérifiée en direct avec suggestion, unité incompatible avec le gabarit quand la page en a un.
 
+- Export du cahier de labo en PDF, page par page et onglet par onglet, pour le relire sans le logiciel. L'archive reste la référence.
+
 **Calculs rapides (post-traitement léger)**
 
 - Calculatrice d'expressions sur les grandeurs de la page, avec propagation GUM automatique : `A0 * exp(-ln(2) * t / T12)` donne valeur, incertitude élargie et budget.

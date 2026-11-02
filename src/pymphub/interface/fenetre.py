@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QDateEdit,
     QDialog,
     QDialogButtonBox,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QStackedWidget,
     QTabWidget,
@@ -198,6 +200,7 @@ class FenetrePrincipale(QMainWindow):
         self.espace_archive.reprise_effectuee.connect(self.espace_saisie.recharger)
         self.espace_archive.fiche.edition_demandee.connect(self._modifier_page)
         self.espace_archive.fiche.suppression_demandee.connect(self._supprimer_page)
+        self.espace_archive.fiche.export_demande.connect(self.demander_export_page)
         self.espace_saisie.fiche_demandee.connect(self._voir_fiche)
         self.espaces.addTab(self.espace_archive, "Archive")
         self.espaces.addTab(self.espace_saisie, "Saisie")
@@ -222,6 +225,12 @@ class FenetrePrincipale(QMainWindow):
         self.action_ouvrir.setShortcut(QKeySequence.StandardKey.Open)
         self.action_ouvrir.triggered.connect(self.demander_ouverture)
         menu.addAction(self.action_ouvrir)
+
+        menu.addSeparator()
+        self.action_exporter = QAction("&Exporter le cahier en PDF…", self)
+        self.action_exporter.triggered.connect(self.demander_export_cahier)
+        self.action_exporter.setEnabled(False)
+        menu.addAction(self.action_exporter)
 
         menu.addSeparator()
         self.action_quitter = QAction("&Quitter", self)
@@ -307,6 +316,65 @@ class FenetrePrincipale(QMainWindow):
             return False
         return self.ouvrir_archive(chemin)
 
+    # --- Export ----------------------------------------------------------------------------
+
+    def _choisir_fichier_pdf(self, nom: str) -> str:
+        chemin, _filtre = QFileDialog.getSaveFileName(
+            self, "Exporter en PDF", nom, "PDF (*.pdf)"
+        )
+        return chemin
+
+    def _exporter(self, identifiants: list[str], nom: str, k: float) -> bool:
+        """Écrit un PDF, avec une barre d'avancement qui permet d'interrompre."""
+        chemin = self._choisir_fichier_pdf(nom)
+        if not chemin:
+            return False
+        fichier = Path(chemin)
+        if fichier.suffix.lower() != ".pdf":
+            fichier = fichier.with_name(f"{fichier.name}.pdf")
+        # L'export se fait sur la dernière version enregistrée : autant la mettre à jour.
+        self.espace_saisie.enregistrer_maintenant()
+        # Chargé ici : l'export tire matplotlib, long à importer.
+        from pymphub.interface.export_pdf import exporter_pdf  # noqa: PLC0415
+
+        avancement = QProgressDialog(
+            "Export du cahier…", "Annuler", 0, len(identifiants), self
+        )
+        avancement.setWindowModality(Qt.WindowModality.WindowModal)
+        avancement.setMinimumDuration(500)
+
+        def avancer(rang: int) -> bool:
+            avancement.setValue(rang)
+            QApplication.processEvents()
+            return not avancement.wasCanceled()
+
+        try:
+            termine = exporter_pdf(self.archive, identifiants, fichier, k, avancer)
+        except (OSError, ValueError) as erreur:
+            self.afficher_erreur(f"Export impossible.\n\n{erreur}")
+            return False
+        finally:
+            avancement.close()
+        if termine:
+            self.statusBar().showMessage(f"Cahier exporté : {fichier}")
+        return termine
+
+    def demander_export_cahier(self) -> bool:
+        """Exporte toutes les pages de l'archive, de la plus ancienne à la plus récente."""
+        if self.archive is None:
+            return False
+        identifiants = list(reversed(self.archive.chercher_identifiants()))
+        if not identifiants:
+            self.afficher_erreur("Cette archive n'a encore aucune page.")
+            return False
+        return self._exporter(
+            identifiants, f"Cahier_{self.archive.configuration.nom}.pdf", 2.0
+        )
+
+    def demander_export_page(self, id_page: str, k: float) -> bool:
+        """Exporte une seule page, au facteur k de la fiche."""
+        return self._exporter([id_page], f"{id_page}.pdf", k)
+
     def _voir_fiche(self, id_page: str) -> None:
         """Montre dans l'espace Archive la vue d'ensemble de la page."""
         self.espace_archive.afficher_page(id_page)
@@ -317,6 +385,7 @@ class FenetrePrincipale(QMainWindow):
         self.setWindowTitle(f"{archive.configuration.nom} — pymphub")
         self.statusBar().showMessage(chemin_affichable(archive.racine))
         self.pile.setCurrentWidget(self.espaces)
+        self.action_exporter.setEnabled(True)
         self.espace_archive.installer(archive)
         self.espace_saisie.installer(archive)
         memoriser_derniere_archive(os.path.abspath(chemin_affichable(archive.racine)))
