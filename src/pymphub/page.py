@@ -166,6 +166,7 @@ class ColonneNumerique(_Modele):
     nom: Nom
     unite: Unite
     composantes: tuple[Composante, ...] = ()
+    commentaire: str = ""
 
 
 class ColonneIdentifiant(_Modele):
@@ -173,6 +174,7 @@ class ColonneIdentifiant(_Modele):
 
     nature: Literal["identifiant"] = "identifiant"
     nom: Nom
+    commentaire: str = ""
 
 
 class ColonneIncertitude(_Modele):
@@ -192,6 +194,7 @@ class ColonneIncertitude(_Modele):
     ddl: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     source: str = Field(min_length=1)
     erreur_commune: str | None = Field(default=None, min_length=1)
+    commentaire: str = ""
 
     @model_validator(mode="after")
     def _verifier_composante(self) -> "ColonneIncertitude":

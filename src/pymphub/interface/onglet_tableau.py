@@ -4,6 +4,7 @@ Chaque colonne déclare sa nature, son unité et son incertitude. Un tableau inc
 jamais enregistré : la dernière version valide reste en place tant qu'on le complète.
 """
 
+import html
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -68,8 +69,8 @@ from pymphub.unites import verifier_unite
 _LIGNES_INITIALES = 5
 _COLONNES_INITIALES = 2
 _LARGEUR_LIBELLES = 110
-_LARGEUR_COLONNE = 150
-_LIBELLES_CONFIGURATION = ("Nom", "Nature", "Unité", "Incertitude", "")
+_LARGEUR_COLONNE = 190
+_LIBELLES_CONFIGURATION = ("Nom", "Nature", "Unité", "Incertitude", "Commentaire", "")
 _NATURES = (
     ("Nombre", "numerique"),
     ("Identifiant", "identifiant"),
@@ -94,8 +95,13 @@ class ConfigurationColonne:
             self.nature.addItem(libelle, valeur)
         self.unite = QLineEdit(unite)
         self.unite.setPlaceholderText("MBq")
+        self.commentaire = QLineEdit()
+        self.commentaire.setPlaceholderText("commentaire")
+        self.commentaire.textChanged.connect(self._afficher_commentaire_complet)
         self.bouton_incertitude = QPushButton("Incertitude…")
         self.bouton_incertitude.clicked.connect(self.demander_incertitude)
+        # La case partage sa largeur avec la liste des colonnes : le texte doit y tenir.
+        self.bouton_incertitude.setStyleSheet("padding: 7px 3px;")
         self.cible = QComboBox()
         self.cible.setToolTip(
             "Colonne dont celle-ci donne l'incertitude, cellule par cellule"
@@ -114,7 +120,12 @@ class ConfigurationColonne:
         self.unite.textChanged.connect(self._modifiee)
         self.unite.returnPressed.connect(self.accepter_suggestion)
         self.cible.currentIndexChanged.connect(self._modifiee)
+        self.commentaire.textChanged.connect(self._modifiee)
         self.actualiser()
+
+    def _afficher_commentaire_complet(self, texte: str) -> None:
+        """Montre tout le commentaire au survol, même s'il dépasse de sa case."""
+        self.commentaire.setToolTip(f"<p>{html.escape(texte)}</p>" if texte else "")
 
     def _modifiee(self) -> None:
         self.actualiser()
@@ -191,14 +202,19 @@ class ConfigurationColonne:
             raise ValueError("chaque colonne doit avoir un nom")
         nature = self.nature_choisie()
         if nature == "identifiant":
-            return ColonneIdentifiant(nom=nom)
+            return ColonneIdentifiant(nom=nom, commentaire=self.commentaire.text())
         if not self.unite.text().strip():
             raise ValueError(
                 f"colonne « {nom} » : l'unité est obligatoire (1 si sans dimension)"
             )
         unite = self.unite.text().strip()
         if nature == "numerique":
-            return ColonneNumerique(nom=nom, unite=unite, composantes=self.composantes)
+            return ColonneNumerique(
+                nom=nom,
+                unite=unite,
+                composantes=self.composantes,
+                commentaire=self.commentaire.text(),
+            )
         if self.modele_cellule is None:
             raise ValueError(f"colonne « {nom} » : indiquer la loi et la source")
         if not self.cible.currentText():
@@ -215,6 +231,7 @@ class ConfigurationColonne:
             ddl=modele.ddl,
             source=modele.source,
             erreur_commune=modele.erreur_commune,
+            commentaire=self.commentaire.text(),
         )
 
 
@@ -333,6 +350,7 @@ class EditeurTableau(EditeurOnglet):
         self._vider_colonnes()
         for colonne in tableau.colonnes:
             configuration = self.ajouter_colonne(colonne.nom)
+            configuration.commentaire.setText(colonne.commentaire)
             if isinstance(colonne, ColonneNumerique):
                 configuration.unite.setText(colonne.unite)
                 configuration.composantes = colonne.composantes
@@ -379,6 +397,7 @@ class EditeurTableau(EditeurOnglet):
             configuration.nature,
             configuration.unite,
             configuration.cellule_incertitude,
+            configuration.commentaire,
             configuration.bouton_retirer,
         ):
             champ.setParent(None)
@@ -399,6 +418,7 @@ class EditeurTableau(EditeurOnglet):
                 configuration.nature,
                 configuration.unite,
                 configuration.cellule_incertitude,
+                configuration.commentaire,
                 configuration.bouton_retirer,
             )
         ):

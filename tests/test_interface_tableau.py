@@ -24,6 +24,7 @@ from pymphub.importation import (
 )
 from pymphub.incertitudes import Composante
 from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from pymphub.interface.fiche_page import FichePage
 from pymphub.interface.onglet_scalaires import EditeurScalaires
 from pymphub.interface.onglet_tableau import FICHIER_IMPORTS, EditeurTableau
 from pymphub.page import Scalaire, Tableau
@@ -941,3 +942,99 @@ def test_un_import_peut_renvoyer_des_lignes():
 def test_un_import_peut_renvoyer_une_grille():
     attendue = Grille(["a"], [["1"]])
     assert executer_import_personnalise("a", lambda _chemin: attendue, None) == attendue
+
+
+# --- Commentaire d'une colonne --------------------------------------------------------
+
+
+def tableau_commente(editeur):
+    editeur.champ_nom.setText("releves")
+    numerique, identifiant = editeur.colonnes
+    numerique.nom.setText("activite")
+    numerique.unite.setText("MBq")
+    numerique.composantes = (CERTIFICAT,)
+    numerique.commentaire.setText("Lue sur l'afficheur")
+    identifiant.nom.setText("lot")
+    identifiant.nature.setCurrentIndex(1)
+    identifiant.commentaire.setText("Numéro du flacon")
+    editeur.coller("10\tA\n20\tB")
+
+
+def test_chaque_colonne_garde_son_commentaire(espace, editeur):
+    tableau_commente(editeur)
+    assert espace.enregistrer_maintenant()
+
+    tableau = espace.archive.lire_page(espace.page.id).grandeur("releves")
+    assert [c.commentaire for c in tableau.colonnes] == [
+        "Lue sur l'afficheur",
+        "Numéro du flacon",
+    ]
+
+    espace.ouvrir_page(espace.page.id)
+    relu = espace.editeurs()[-1]
+    assert [c.commentaire.text() for c in relu.colonnes] == [
+        "Lue sur l'afficheur",
+        "Numéro du flacon",
+    ]
+    assert relu.colonnes[0].commentaire.toolTip() == "<p>Lue sur l&#x27;afficheur</p>"
+
+
+def test_une_colonne_d_incertitude_garde_son_commentaire(espace, editeur):
+    editeur.champ_nom.setText("releves")
+    valeur, incertitude = editeur.colonnes
+    valeur.nom.setText("activite")
+    valeur.unite.setText("MBq")
+    incertitude.nom.setText("u_activite")
+    incertitude.nature.setCurrentIndex(2)
+    incertitude.unite.setText("MBq")
+    incertitude.modele_cellule = CERTIFICAT
+    incertitude.cible.setCurrentText("activite")
+    incertitude.commentaire.setText("Certificat du jour")
+    editeur.coller("10\t1")
+    assert espace.enregistrer_maintenant()
+
+    espace.ouvrir_page(espace.page.id)
+    assert espace.editeurs()[-1].colonnes[1].commentaire.text() == "Certificat du jour"
+
+
+def test_changer_un_commentaire_de_colonne_s_enregistre_sans_toucher_au_csv(
+    espace, editeur
+):
+    tableau_commente(editeur)
+    assert espace.enregistrer_maintenant()
+    fichier = espace.archive.racine / "pages" / espace.page.id / "brut" / "releves.csv"
+    avant = fichier.read_bytes()
+
+    editeur.colonnes[0].commentaire.setText("Relue deux fois")
+    assert espace.modifications_en_attente()
+    assert espace.enregistrer_maintenant()
+
+    assert fichier.read_bytes() == avant
+    historique = espace.archive.historique(espace.page.id)[-1]
+    assert [m.champ for m in historique.modifications] == [
+        "mesures.releves.colonnes.activite.commentaire"
+    ]
+
+
+def test_un_commentaire_de_colonne_se_retrouve_par_la_recherche(espace, editeur):
+    tableau_commente(editeur)
+    assert espace.enregistrer_maintenant()
+    assert espace.archive.chercher_identifiants(texte="afficheur") == [espace.page.id]
+
+
+def test_la_fiche_affiche_les_commentaires_de_colonnes(espace, editeur, qtbot):
+    tableau_commente(editeur)
+    assert espace.enregistrer_maintenant()
+    fiche = FichePage()
+    qtbot.addWidget(fiche)
+    fiche.afficher(espace.archive, espace.page.id)
+
+    assert (
+        fiche.commentaires_colonnes["releves.activite"].text()
+        == "activite : Lue sur l'afficheur"
+    )
+    assert fiche.commentaires_colonnes["releves.lot"].text() == "lot : Numéro du flacon"
+    assert (
+        fiche.tables["releves"].horizontalHeaderItem(0).toolTip()
+        == "<p>Lue sur l&#x27;afficheur</p>"
+    )

@@ -55,7 +55,7 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
 
 - `scalaire` : `valeur` numérique, `unite` et `composantes` d'incertitude, toutes obligatoires. À partir du format 2 de la page, `repetitions` garde les valeurs brutes de mesures répétées, dont `valeur` est la moyenne.
 - `identifiant` : `valeur` texte, à conserver à l'identique.
-- `tableau` : `fichier` CSV dans `brut/` et description de ses `colonnes`. Une colonne se désigne par `tableau.colonne`.
+- `tableau` : `fichier` CSV dans `brut/` et description de ses `colonnes`. Une colonne se désigne par `tableau.colonne`. À partir du format 2 de la page, chaque colonne peut porter un `commentaire`.
 - `fichier` : fichier brut, avec son mode de stockage :
   - `copie` : dans `objets/`, retrouvé par son empreinte ;
   - `reference_fichier` : chemin externe, empreinte, taille et date ;

@@ -57,6 +57,7 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Déplacer une grandeur sans changer sa relecture | `tests/test_page.py::test_deplacer_une_grandeur_d_onglet_ne_change_pas_sa_relecture` | Vérifié |
 | Ajouter un type d'onglet par une déclaration | `tests/test_page.py::test_ajouter_un_type_d_onglet_ne_demande_qu_une_declaration` | Vérifié dans le cœur ; affichage en phase 1 |
 | Type d'onglet inconnu conservé | `tests/test_page.py::test_un_type_d_onglet_inconnu_est_conserve_intact` | Vérifié |
+| Commentaire propre à chaque colonne d'un tableau | `tests/test_interface_tableau.py::test_chaque_colonne_garde_son_commentaire` | Vérifié |
 | Annotations à part de la photo | `tests/test_page.py::test_les_annotations_sont_enregistrees_a_part_de_la_photo` | Vérifié |
 | Repère d'erreur commune conservé | `tests/test_page.py::test_l_erreur_commune_est_conservee_dans_une_page` | Vérifié ; pas utilisé en calcul |
 

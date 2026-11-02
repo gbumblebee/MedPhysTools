@@ -193,7 +193,7 @@ La saisie se fait directement sur ordinateur, en page libre par défaut ou à pa
 - Page libre : ajout à tout moment d'un onglet (notes et photos, scalaires, tableau, DICOM, graphes, fichiers).
 - Export en gabarit : depuis une page, choix des variables utiles au post-traitement.
 - Nouvelle page depuis un gabarit : le formulaire affiche les grandeurs attendues et leurs unités.
-- Saisie de tableaux dans une grille type tableur, avec collage depuis Excel et import CSV.
+- Saisie de tableaux dans une grille type tableur, avec collage depuis Excel et import CSV. Chaque colonne peut porter son propre commentaire.
 - Mesures répétées : saisie de n valeurs ou sélection de valeurs répétées dans un tableau → moyenne et incertitude type A calculées automatiquement.
 - Horodatage de la mesure distinct de l'horodatage de saisie ; bouton « maintenant ».
 - Pièces jointes par glisser-déposer : photos (vignettes visibles dans la page), PDF, exports constructeurs.

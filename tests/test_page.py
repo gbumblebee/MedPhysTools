@@ -6,6 +6,7 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
+from pymphub import page as page_module
 from pymphub.page import (
     VERSION_SCHEMA,
     Identifiant,
@@ -517,3 +518,11 @@ def test_les_modeles_sont_immuables():
     grandeur = Identifiant(nom="lot", valeur="007")
     with pytest.raises(ValidationError):
         grandeur.valeur = "008"
+
+
+def test_une_colonne_ecrite_sans_commentaire_se_relit():
+    """Un tableau enregistré avant l'arrivée du commentaire de colonne reste lisible."""
+    colonne = page_module.ColonneIdentifiant.model_validate(
+        {"nature": "identifiant", "nom": "lot"}
+    )
+    assert colonne.commentaire == ""

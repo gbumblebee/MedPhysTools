@@ -148,6 +148,7 @@ class FichePage(QWidget):
         self.corrections: dict[str, list[CorrectionChamp]] = {}
         self.champs: dict[str, QLabel] = {}
         self.tables: dict[str, QTableWidget] = {}
+        self.commentaires_colonnes: dict[str, QLabel] = {}
         self.table_mesures: QTableWidget | None = None
         self.notes: list[QPlainTextEdit] = []
 
@@ -221,6 +222,7 @@ class FichePage(QWidget):
         self.corrections = {}
         self.champs = {}
         self.tables = {}
+        self.commentaires_colonnes = {}
         self.table_mesures = None
         self.notes = []
         self.entete.setText(message)
@@ -395,13 +397,34 @@ class FichePage(QWidget):
                         table.setCellWidget(i, j, etiquette_tracee(texte, corrections))
                     else:
                         table.setItem(i, j, QTableWidgetItem(texte))
+            for j, colonne in enumerate(grandeur.colonnes):
+                if colonne.commentaire:
+                    table.horizontalHeaderItem(j).setToolTip(
+                        f"<p>{html.escape(colonne.commentaire)}</p>"
+                    )
             self.tables[grandeur.nom] = table
             self._ajouter(table)
             _hauteur_ajustee(table)
+            self._construire_commentaires_colonnes(grandeur)
             if len(donnees) > lignes:
                 suite = QLabel(f"{lignes} premières lignes sur {len(donnees)}.")
                 suite.setObjectName("discret")
                 self._ajouter(suite)
+
+    def _construire_commentaires_colonnes(self, tableau: Tableau) -> None:
+        """Écrit sous le tableau le commentaire de chaque colonne qui en a un."""
+        for colonne in tableau.colonnes:
+            if not colonne.commentaire:
+                continue
+            commentaire = QLabel(f"{colonne.nom} : {colonne.commentaire}")
+            commentaire.setObjectName("discret")
+            commentaire.setTextFormat(Qt.TextFormat.PlainText)
+            commentaire.setWordWrap(True)
+            commentaire.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            self.commentaires_colonnes[f"{tableau.nom}.{colonne.nom}"] = commentaire
+            self._ajouter(commentaire)
 
     def _construire_fichiers(self, page: Page) -> None:
         fichiers = [g for g in page.mesures if isinstance(g, Fichier)]
