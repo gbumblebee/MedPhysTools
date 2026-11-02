@@ -395,8 +395,104 @@ class ColonneCalculee(_Modele):
         return self
 
 
+class ParametreAjuste(_Modele):
+    """Un coefficient d'ajustement, dans l'unité que lui donnent les colonnes ajustées."""
+
+    nom: Nom
+    valeur: Nombre
+    incertitude_type: float = Field(ge=0, allow_inf_nan=False)
+    unite: Unite
+
+
+class Ajustement(_Modele):
+    """Un modèle ajusté sur deux colonnes d'un tableau.
+
+    `correlation` est la matrice de corrélation des coefficients, dans leur ordre. Tout calcul
+    ultérieur repart de ces valeurs. `courbe` nomme le tableau qui garde la fonction
+    suréchantillonnée : il sert seulement à la retracer. `empreinte_donnees` permet de voir
+    que les points ont changé depuis l'ajustement.
+    """
+
+    nature: Literal["ajustement"] = "ajustement"
+    nom: Nom
+    modele: str = Field(min_length=1)
+    formule: str = Field(min_length=1)
+    tableau: Nom
+    x: Nom
+    y: Nom
+    unite_x: Unite
+    unite_y: Unite
+    x_min: Nombre
+    x_max: Nombre
+    points: int = Field(gt=0)
+    parametres: tuple[ParametreAjuste, ...] = Field(min_length=1)
+    correlation: tuple[tuple[float, ...], ...]
+    chi2_reduit: float | None = None
+    methode: str = Field(min_length=1)
+    empreinte_donnees: Empreinte
+    courbe: Nom
+    commentaire: str = ""
+
+    @model_validator(mode="after")
+    def _verifier_correlation(self) -> "Ajustement":
+        taille = len(self.parametres)
+        if len(self.correlation) != taille or any(
+            len(ligne) != taille for ligne in self.correlation
+        ):
+            raise ValueError(
+                f"Ajustement « {self.nom} » : la matrice de corrélation doit être "
+                f"{taille} × {taille}."
+            )
+        return self
+
+    def covariance(self) -> tuple[tuple[float, ...], ...]:
+        """Refait la matrice de covariance des coefficients, à partir de ce qui est gardé."""
+        u = [parametre.incertitude_type for parametre in self.parametres]
+        return tuple(
+            tuple(r * u[i] * u[j] for j, r in enumerate(ligne))
+            for i, ligne in enumerate(self.correlation)
+        )
+
+
+class Indicateur(_Modele):
+    """Un résultat lu sur une courbe : extremum, moyenne, intégrale ou dérivée.
+
+    `source` dit s'il vient des points du tableau ou de la fonction ajustée. `de` et `a`
+    donnent l'intervalle utilisé. `position` est l'abscisse d'un extremum, ou celle demandée
+    pour une dérivée.
+    """
+
+    nature: Literal["indicateur"] = "indicateur"
+    nom: Nom
+    methode: Literal["minimum", "maximum", "moyenne", "integrale", "derivee"]
+    source: Literal["points", "ajustement"]
+    tableau: Nom
+    x: Nom
+    y: Nom
+    ajustement: Nom | None = None
+    de: Nombre
+    a: Nombre
+    position: Nombre | None = None
+    valeur: Nombre
+    incertitude_type: float = Field(ge=0, allow_inf_nan=False)
+    unite: Unite
+    empreinte_donnees: Empreinte
+    commentaire: str = ""
+
+    def budget(self) -> Budget:
+        """Le résultat enregistré, comme une mesure indépendante pour un calcul."""
+        return budget_fige(self.valeur, self.unite, self.incertitude_type, None, ())
+
+
 Grandeur = Annotated[
-    Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee | ColonneCalculee,
+    Scalaire
+    | Identifiant
+    | Tableau
+    | Fichier
+    | GrandeurDerivee
+    | ColonneCalculee
+    | Ajustement
+    | Indicateur,
     Field(discriminator="nature"),
 ]
 
@@ -493,6 +589,8 @@ class ReglagesGraphe(_Modele):
     barres: bool = True
     relier: bool = True
     surface: bool = False
+    # Noms des ajustements dont la courbe se superpose aux points, en 2D.
+    courbes: tuple[str, ...] = ()
 
 
 class OngletGraphes(OngletDonnees):
@@ -633,7 +731,16 @@ class Page(_Modele):
 
     def grandeur(
         self, nom: str
-    ) -> Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee | ColonneCalculee:
+    ) -> (
+        Scalaire
+        | Identifiant
+        | Tableau
+        | Fichier
+        | GrandeurDerivee
+        | ColonneCalculee
+        | Ajustement
+        | Indicateur
+    ):
         """Renvoie une grandeur d'après son nom, quel que soit son onglet."""
         for grandeur in self.mesures:
             if grandeur.nom == nom:

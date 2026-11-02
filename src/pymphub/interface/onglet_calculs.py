@@ -46,8 +46,10 @@ from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
 from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import (
+    Ajustement,
     ColonneCalculee,
     GrandeurDerivee,
+    Indicateur,
     Onglet,
     OngletDonnees,
     Page,
@@ -248,6 +250,25 @@ class LigneCalcul:
             and not self.commentaire.text().strip()
         )
 
+    def revenir_en_auto(self) -> None:
+        """Vide l'unité si c'est celle que donne le calcul : elle suivra alors la formule.
+
+        Seule une unité vraiment demandée, comme des kBq, reste écrite dans le champ.
+        """
+        if self.origine is None:
+            return
+        try:
+            automatique = creer_resultat(
+                self.editeur.page,
+                self.origine.nom,
+                self.origine.formule,
+                self.editeur.lire_tableau,
+            )
+        except (ErreurCalcul, ValidationError):
+            return
+        if automatique.unite == self.origine.unite:
+            self.unite.clear()
+
     def _modifiee(self) -> None:
         self.calculer()
         self.afficher()
@@ -407,6 +428,8 @@ class EditeurCalculs(EditeurOnglet):
         if not self.lignes:
             self.ajouter_ligne()
         self._chargement = False
+        for ligne in self.lignes:
+            ligne.revenir_en_auto()
         self.recalculer()
         self._proposer_noms()
 
@@ -416,9 +439,17 @@ class EditeurCalculs(EditeurOnglet):
         noms = [
             g.nom
             for g in (self.page.mesures if self.page else ())
-            if isinstance(g, (Scalaire, GrandeurDerivee))
+            if isinstance(g, (Scalaire, GrandeurDerivee, Indicateur))
         ]
         self.insertion.addItems(noms)
+        self.insertion.addItems(
+            [
+                f"{g.nom}.{parametre.nom}"
+                for g in (self.page.mesures if self.page else ())
+                if isinstance(g, Ajustement)
+                for parametre in g.parametres
+            ]
+        )
         if self.page:
             self.insertion.addItems(
                 [

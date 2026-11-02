@@ -83,6 +83,15 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Colonne calculée affichée dans chaque tableau concerné | `tests/test_interface_calculs.py::test_une_colonne_s_affiche_dans_tous_les_tableaux_concernes` | Vérifié |
 | Une colonne calculée ne change pas les CSV bruts | `tests/test_interface_calculs.py::test_une_colonne_calculee_ne_touche_pas_au_csv` | Vérifié |
 | Colonne calculée tracée avec ses barres | `tests/test_graphes.py::test_une_colonne_calculee_se_trace_avec_ses_barres` | Vérifié |
+| Un ajustement exponentiel retrouve des paramètres connus | `tests/test_ajustements.py::test_un_ajustement_exponentiel_retrouve_des_parametres_connus` | Vérifié |
+| Incertitude de la fonction ajustée, covariances comprises | `tests/test_ajustements.py::test_l_incertitude_de_la_droite_tient_compte_des_covariances` | Vérifié face à numpy et à Monte-Carlo |
+| Incertitude sur x documentée et appliquée | `tests/test_ajustements.py::test_l_incertitude_sur_x_passe_par_la_variance_effective` | Vérifié |
+| Coefficients et corrélation retrouvés à l'identique | `tests/test_ajustements.py::test_tout_se_retrouve_a_l_identique_apres_relecture` | Vérifié |
+| Fonction réévaluée depuis les coefficients, même incertitude | `tests/test_ajustements.py::test_la_fonction_se_reevalue_depuis_les_coefficients_avec_la_meme_incertitude` | Vérifié |
+| Courbe plus fine que les données, sans extrapolation | `tests/test_ajustements.py::test_la_courbe_est_plus_fine_que_les_donnees_et_reste_dans_leur_intervalle` | Vérifié |
+| Indicateur relu avec méthode, données, intervalle et incertitude | `tests/test_ajustements.py::test_un_indicateur_se_relit_avec_sa_methode_ses_donnees_et_son_intervalle` | Vérifié |
+| Ajustement et indicateur ne modifient aucune valeur brute | `tests/test_interface_ajustements.py::test_un_ajustement_ne_touche_a_aucune_valeur_brute` | Vérifié |
+| Chaque indicateur vérifié sur une fonction connue | `tests/test_ajustements.py::test_chaque_indicateur_sur_la_parabole_ajustee` | Vérifié |
 | L'archive figée du format 1 se relit | `tests/test_format_1.py::test_toutes_les_pages_se_relisent` | Vérifié |
 
 ## Gabarits

@@ -1,6 +1,6 @@
 # Phase 1 — Saisie : découpage en étapes
 
-**État : étapes 0 à 7 codées, jalon « premier essai réel » à faire.** Premier CQ réel complet prévu vers début février 2027.
+**État : étapes 0 à 8 codées, jalon « premier essai réel » à faire.** Premier CQ réel complet prévu vers début février 2027.
 
 **Objectif :** une application Qt avec les espaces Archive et Saisie, pour tenir un cahier de labo libre à la place du tableur.
 
@@ -192,6 +192,9 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Pièces jointes | Copiées dans le dossier de la page dès qu'on les joint, hors de Git. Deux fichiers de même nom sont gardés (`image_2.png`). Retirer une pièce laisse le fichier sur le disque, car l'historique y renvoie |
 | Erreurs communes | Un repère correspond à une seule erreur d'écart type 1, multipliée par l'incertitude de chaque mesure. Valable dans une page, formule comme API de lecture |
 | Formules | Jamais exécutées : seuls nombres, noms, cellules `tableau.colonne[n]`, + - * / **, `exp ln log10 sqrt sin cos tan` et `pi` sont interprétés |
+| Ajustements | Un onglet par ajustement. Fait à la demande, puis figé : si les points changent, il est signalé à refaire. Modèles usuels ou formule personnalisée, dont les coefficients demandent alors leur unité |
+| Pondération | Par l'incertitude propre des points, sans remise à l'échelle du χ² ; variance effective pour x ; erreurs communes propagées à part, voir `docs/incertitudes.md` |
+| Indicateurs | Sur les points ou sur l'ajustement. Enregistrés avec méthode, données d'origine, intervalle et position. Utilisables dans un calcul, comme les coefficients (`fit.T12`) |
 | Colonne calculée | Une formule avec `tableau.colonne` se calcule ligne par ligne. Elle s'affiche dans tous les tableaux concernés, en lecture seule et marquée « calculée », mais reste dans `page.json` : les CSV bruts ne changent jamais. Mêmes nombres de lignes exigés |
 | Saisie d'une composante | Une nouvelle composante est préremplie avec k = 2 et la source « None », modifiables. k s'efface pour le type A et les lois non normales. Une composante déjà enregistrée ne change pas |
 | Résultat d'un calcul | Figé à l'enregistrement. Un brouillon le met à jour au tour d'enregistrement suivant ; une page validée le propose, à enregistrer avec son propre motif. La fiche signale un résultat périmé |

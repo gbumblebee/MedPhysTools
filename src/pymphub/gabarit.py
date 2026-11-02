@@ -15,6 +15,7 @@ import tomli_w
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pymphub.page import (
+    Ajustement,
     ColonneCalculee,
     ColonneIdentifiant,
     ColonneIncertitude,
@@ -22,6 +23,7 @@ from pymphub.page import (
     Fichier,
     GrandeurDerivee,
     Identifiant,
+    Indicateur,
     Nom,
     Page,
     Scalaire,
@@ -178,7 +180,9 @@ def creer_gabarit(
             resultat[nom_grandeur] = VariableIdentifiant(nom=grandeur.nom)
         elif isinstance(grandeur, Fichier):
             resultat[nom_grandeur] = VariableFichier(nom=grandeur.nom)
-        elif isinstance(grandeur, (GrandeurDerivee, ColonneCalculee)):
+        elif isinstance(
+            grandeur, (GrandeurDerivee, ColonneCalculee, Ajustement, Indicateur)
+        ):
             raise ValueError(
                 f"« {nom_grandeur} » est un résultat de calcul : choisir plutôt les "
                 "grandeurs mesurées dont il dépend."

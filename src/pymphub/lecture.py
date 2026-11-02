@@ -32,6 +32,7 @@ from pymphub.page import (
     Fichier,
     GrandeurDerivee,
     Identifiant,
+    Indicateur,
     Page,
     Scalaire,
     Tableau,
@@ -125,7 +126,7 @@ class Mesures(Mapping[str, "MesureLue | Identifiant | Tableau | Fichier"]):
                 nom, budget, grandeur.horodatage, grandeur.commentaire
             )
             return self._lues[nom]
-        if isinstance(grandeur, GrandeurDerivee):
+        if isinstance(grandeur, (GrandeurDerivee, Indicateur)):
             self._lues[nom] = MesureLue(
                 nom, grandeur.budget(), commentaire=grandeur.commentaire
             )

@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
 from pymphub.archive import Archive
 from pymphub.graphes import (
     GrapheImpossible,
+    ajustements_du_tableau,
+    courbes_a_relire,
     preparer_graphe,
     reglages_par_defaut,
     tableaux_tracables,
@@ -66,6 +68,8 @@ def dessiner(
         donnees = {}
         if reglages.tableau in tableaux_tracables(page):
             donnees[reglages.tableau] = archive.lire_tableau(page.id, reglages.tableau)
+        for courbe in courbes_a_relire(page, reglages):
+            donnees[courbe] = archive.lire_tableau(page.id, courbe)
         toile.tracer(preparer_graphe(page, donnees, reglages, k))
     except (GrapheImpossible, ValueError, KeyError, OSError) as erreur:
         toile.signaler(message_erreur(erreur))
@@ -95,6 +99,8 @@ class EditeurGraphes(EditeurOnglet):
         self.liste_y.setMaximumHeight(130)
         self.champ_y_3d = QComboBox()
         self.champ_z = QComboBox()
+        self.liste_courbes = QListWidget()
+        self.liste_courbes.setMaximumHeight(70)
         self.log_x = QCheckBox("Échelle log en x")
         self.log_y = QCheckBox("Échelle log en y")
         self.log_z = QCheckBox("Échelle log en z")
@@ -121,6 +127,7 @@ class EditeurGraphes(EditeurOnglet):
         self.formulaire.addRow("y", self.liste_y)
         self.formulaire.addRow("y ", self.champ_y_3d)
         self.formulaire.addRow("z", self.champ_z)
+        self.formulaire.addRow("Ajustements", self.liste_courbes)
         self.formulaire.addRow("k =", self.champ_k)
         gauche = QVBoxLayout()
         gauche.addLayout(self.formulaire)
@@ -149,6 +156,7 @@ class EditeurGraphes(EditeurOnglet):
         for liste in (self.champ_x, self.champ_y_3d, self.champ_z):
             liste.currentIndexChanged.connect(self._reglage_change)
         self.liste_y.itemChanged.connect(self._reglage_change)
+        self.liste_courbes.itemChanged.connect(self._reglage_change)
         for case in (
             self.log_x,
             self.log_y,
@@ -187,6 +195,17 @@ class EditeurGraphes(EditeurOnglet):
                 Qt.CheckState.Checked if nom in coches else Qt.CheckState.Unchecked
             )
             self.liste_y.addItem(element)
+        self.liste_courbes.clear()
+        cochees = reglages.courbes if reglages is not None else ()
+        for ajustement in ajustements_du_tableau(self.page, table):
+            element = QListWidgetItem(ajustement.nom)
+            element.setFlags(element.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            element.setCheckState(
+                Qt.CheckState.Checked
+                if ajustement.nom in cochees
+                else Qt.CheckState.Unchecked
+            )
+            self.liste_courbes.addItem(element)
         if reglages is None:
             return
         self.champ_x.setCurrentText(reglages.x)
@@ -219,6 +238,7 @@ class EditeurGraphes(EditeurOnglet):
             (self.liste_y, not trois_d),
             (self.champ_y_3d, trois_d),
             (self.champ_z, trois_d),
+            (self.liste_courbes, not trois_d and self.liste_courbes.count() > 0),
         ):
             self.formulaire.setRowVisible(champ, visible)
         self.log_z.setVisible(trois_d)
@@ -258,6 +278,13 @@ class EditeurGraphes(EditeurOnglet):
             barres=self.barres.isChecked(),
             relier=self.relier.isChecked(),
             surface=trois_d and self.surface.isChecked(),
+            courbes=()
+            if trois_d
+            else tuple(
+                self.liste_courbes.item(rang).text()
+                for rang in range(self.liste_courbes.count())
+                if self.liste_courbes.item(rang).checkState() == Qt.CheckState.Checked
+            ),
         )
 
     def _proposer_z(self) -> None:

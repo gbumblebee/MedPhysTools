@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from pymphub.page import (
+    Ajustement,
     ColonneCalculee,
     ColonneIncertitude,
     ColonneNumerique,
@@ -46,6 +47,16 @@ class Axe:
 
 
 @dataclass(frozen=True)
+class CourbeAjustee:
+    """La fonction d'un ajustement, à superposer aux points avec sa bande ± k·u."""
+
+    nom: str
+    x: tuple[float, ...]
+    y: tuple[float, ...]
+    elargies: tuple[float, ...]
+
+
+@dataclass(frozen=True)
 class DonneesGraphe:
     """Tout ce qu'il faut pour dessiner, au facteur k choisi."""
 
@@ -55,6 +66,7 @@ class DonneesGraphe:
     y: tuple[Axe, ...]
     z: Axe | None
     avertissements: tuple[str, ...]
+    courbes: tuple[CourbeAjustee, ...] = ()
 
 
 def _colonnes_calculees(page: Page, tableau: str) -> list[ColonneCalculee]:
@@ -67,14 +79,31 @@ def _colonnes_calculees(page: Page, tableau: str) -> list[ColonneCalculee]:
 
 def tableaux_tracables(page: Page) -> dict[str, list[str]]:
     """Les tableaux de la page et leurs colonnes numériques, celles qu'on peut tracer."""
+    courbes = {g.courbe for g in page.mesures if isinstance(g, Ajustement)}
     return {
         grandeur.nom: [
             c.nom for c in grandeur.colonnes if isinstance(c, ColonneNumerique)
         ]
         + [c.nom for c in _colonnes_calculees(page, grandeur.nom)]
         for grandeur in page.mesures
-        if isinstance(grandeur, Tableau)
+        if isinstance(grandeur, Tableau) and grandeur.nom not in courbes
     }
+
+
+def ajustements_du_tableau(page: Page, tableau: str) -> list[Ajustement]:
+    """Les ajustements faits sur ce tableau, dont la courbe peut se superposer aux points."""
+    return [
+        g for g in page.mesures if isinstance(g, Ajustement) and g.tableau == tableau
+    ]
+
+
+def courbes_a_relire(page: Page, reglages: ReglagesGraphe) -> list[str]:
+    """Les tableaux de courbes qu'il faut relire pour ce graphe."""
+    return [
+        a.courbe
+        for a in ajustements_du_tableau(page, reglages.tableau)
+        if a.nom in reglages.courbes
+    ]
 
 
 def reglages_par_defaut(page: Page, onglet: OngletGraphes) -> ReglagesGraphe | None:
@@ -176,6 +205,50 @@ def _axe_calcule(
             for u in colonne.incertitudes_types
         ),
     )
+
+
+def _courbes_du_graphe(
+    page: Page,
+    tableaux: Mapping[str, pd.DataFrame],
+    reglages: ReglagesGraphe,
+    k: float,
+    x: Axe,
+    y: Axe,
+    avertissements: list[str],
+) -> tuple[CourbeAjustee, ...]:
+    """Prépare les courbes demandées, dans les unités des axes. Une courbe sans sens est écartée."""
+    resultat: list[CourbeAjustee] = []
+    for ajustement in ajustements_du_tableau(page, reglages.tableau):
+        if ajustement.nom not in reglages.courbes:
+            continue
+        donnees = tableaux.get(ajustement.courbe)
+        if (
+            donnees is None
+            or not sont_compatibles(ajustement.unite_x, x.unite)
+            or not sont_compatibles(ajustement.unite_y, y.unite)
+        ):
+            avertissements.append(
+                f"La courbe de « {ajustement.nom} » ne peut pas s'afficher sur ces axes."
+            )
+            continue
+        resultat.append(
+            CourbeAjustee(
+                nom=ajustement.nom,
+                x=tuple(
+                    convertir(float(v), ajustement.unite_x, x.unite)
+                    for v in donnees["x"]
+                ),
+                y=tuple(
+                    convertir(float(v), ajustement.unite_y, y.unite)
+                    for v in donnees["y"]
+                ),
+                elargies=tuple(
+                    convertir_ecart(k * float(u), ajustement.unite_y, y.unite)
+                    for u in donnees["u_y"]
+                ),
+            )
+        )
+    return tuple(resultat)
 
 
 def _masquer(axe: Axe, masque: list[bool]) -> Axe:
@@ -282,6 +355,11 @@ def preparer_graphe(
     y = [axe(nom, premiere) for nom in y_noms]
     z = axe(reglages.z, None) if reglages.mode == "3d" else None
     x, y, z, avertissements = _appliquer_log(x, y, z, reglages)
+    courbes = (
+        _courbes_du_graphe(page, tableaux, reglages, k, x, y[0], avertissements)
+        if reglages.mode == "2d"
+        else ()
+    )
 
     indeterminees = sum(
         math.isnan(u) for a in (x, *y, *(() if z is None else (z,))) for u in a.elargies
@@ -291,4 +369,4 @@ def preparer_graphe(
             f"{indeterminees} barre(s) d'erreur indéterminée(s) : incertitude relative "
             "sur une valeur nulle."
         )
-    return DonneesGraphe(reglages, k, x, tuple(y), z, tuple(avertissements))
+    return DonneesGraphe(reglages, k, x, tuple(y), z, tuple(avertissements), courbes)

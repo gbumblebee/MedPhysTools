@@ -42,6 +42,7 @@ from pymphub.edition import (
 )
 from pymphub.importation import ResultatImport, ValeurImportee
 from pymphub.interface import (  # noqa: F401 - déclarent leur type d'onglet
+    onglet_ajustements,
     onglet_calculs,
     onglet_fichiers,
     onglet_graphes,

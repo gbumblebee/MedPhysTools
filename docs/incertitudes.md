@@ -89,6 +89,52 @@ Une formule comme `A0 * exp(-ln(2) * t / T12)` se calcule sur les valeurs enregi
 - **Budget.** Il donne la part de chaque source dans l'incertitude du résultat. Une erreur compensée y figure à 0.
 - **Colonnes.** `tableau.colonne` sans numéro de ligne fait de la formule un calcul de colonne : chaque ligne donne une valeur et son incertitude, calculées comme ci-dessus. Les tableaux concernés doivent avoir le même nombre de lignes. Une ligne impossible, comme une division par zéro, reste sans résultat. Le budget d'une ligne se refait à la demande. Les corrélations entre deux lignes d'une colonne ne sont pas gardées dans la page : un calcul qui les combine repart des valeurs brutes.
 
+## Ajustements
+
+**Méthode.** Moindres carrés avec lmfit, sur deux colonnes numériques d'un tableau. Une ligne sans résultat calculé est écartée.
+
+| Hypothèse | Choix | Conséquence |
+|---|---|---|
+| Pondération | Chaque point pèse 1 / u², où u est son incertitude **propre** | Un point précis compte davantage |
+| Échelle de la covariance | Non remise à l'échelle du χ² | Elle reflète les incertitudes déclarées. Si elles sont sous-estimées, celles des coefficients aussi : le χ² réduit le signale au-delà de 3 |
+| Incertitude sur x | Variance effective : u² = u(y)² + (f'(x) · u(x))², en trois passes | Valable si f varie peu sur ± u(x). Pas de régression orthogonale complète |
+| Erreurs communes | Vues par plusieurs lignes, elles sont propagées à part : δθ = C · Jᵀ · W · δy | Elles ne pèsent pas les points, mais elles passent sur les coefficients |
+| Aucun point n'a d'incertitude propre | Moindres carrés sans pondération, covariance tirée de la dispersion | Le χ² n'a alors pas de sens et n'est pas donné |
+| Linéarité | Propagation au premier ordre, autour des coefficients trouvés | Approximative si les incertitudes sont grandes pour un modèle très non linéaire |
+
+**Erreur commune, exemple.** Sur une décroissance dont tous les points portent 1 % du même certificat, ce pourcent passe entièrement sur l'amplitude A et pas du tout sur la période T12, car multiplier tous les points par (1 + ε) ne change pas la forme de la courbe.
+
+**Sont communes** toutes les erreurs vues par plusieurs lignes : un repère `erreur_commune`, mais aussi un scalaire utilisé dans une colonne calculée.
+
+**Incertitude de la fonction ajustée :**
+
+```latex
+u^2\bigl(f(x)\bigr) = g^\mathsf{T} C \, g, \qquad g_i = \frac{\partial f}{\partial \theta_i}(x)
+```
+
+Les covariances y comptent. La matrice C se retrouve à partir des incertitudes et de la corrélation enregistrées.
+
+**Courbe.** Le tableau de courbe a au moins 200 points, sans jamais sortir de l'intervalle des données. Il sert seulement au tracé.
+
+**Résultat figé.** Si les points changent, l'ajustement ne se refait pas seul : la fiche et l'onglet signalent qu'il est à refaire.
+
+## Indicateurs
+
+| Indicateur | Sur les points | Sur la fonction ajustée |
+|---|---|---|
+| Minimum, maximum | Le point extrême, avec son incertitude | Recherche sur une grille, puis affinée |
+| Moyenne | Moyenne **arithmétique** des points | Moyenne de la fonction : intégrale / largeur |
+| Intégrale | Méthode des trapèzes | Intégration numérique |
+| Dérivée | Différence centrée autour du point le plus proche | Différence centrée sur la fonction |
+
+**Incertitude.** Sur les points, le calcul passe par GTC : les erreurs communes et les incertitudes sur x y sont gardées. Une erreur commune ne diminue donc pas avec le nombre de points. Sur la fonction, u²(I) = gᵀ · C · g, où g = dI/dθ est calculé numériquement.
+
+**Limites :**
+- Un extremum des points ne tient pas compte du fait que le plus grand point tend à être surestimé par son propre bruit.
+- La moyenne arithmétique d'un échantillonnage irrégulier n'est pas la moyenne de la fonction.
+- Une incertitude de type A, sur la dispersion de points qui suivent une tendance, n'a pas de sens : elle n'est donc pas calculée ici.
+- Sur la fonction ajustée, l'intervalle ne sort jamais des données.
+
 ## Conversions d'unités
 
 La conversion est linéaire : y = f · x + d. Seul le facteur f s'applique à l'incertitude, jamais le décalage d : 20 ± 0,5 °C donne 293,15 ± 0,5 K. Le facteur de conversion est considéré comme exact.

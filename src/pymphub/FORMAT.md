@@ -57,6 +57,7 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
 - `identifiant` : `valeur` texte, à conserver à l'identique.
 - `tableau` : `fichier` CSV dans `brut/` et description de ses `colonnes`. Une colonne se désigne par `tableau.colonne`. À partir du format 2 de la page, chaque colonne peut porter un `commentaire`.
 - `derivee` et `colonne_calculee` : résultat d'un calcul, décrit plus bas (à partir du format 2 de la page).
+- `ajustement` et `indicateur` : décrits plus bas (à partir du format 2 de la page).
 - `fichier` : fichier brut, avec son mode de stockage :
   - `copie` : dans `objets/`, retrouvé par son empreinte ;
   - `reference_fichier` : chemin externe, empreinte, taille et date ;
@@ -70,7 +71,7 @@ Un onglet de notes liste ses `photos` : `chemin` d'une pièce jointe, `legende` 
 
 ## Onglet de graphes
 
-Un onglet de type `graphes` garde ses `reglages` : `tableau`, `mode` (`2d` ou `3d`), colonnes `x`, `y` (une ou plusieurs) et `z`, échelles `echelle_x`, `echelle_y`, `echelle_z` (`lineaire` ou `log`), `barres`, `relier` et `surface`. Le facteur k n'y figure pas : il se choisit à l'affichage. Sans réglages, les références de `grandeurs` désignent les colonnes à tracer.
+Un onglet de type `graphes` garde ses `reglages` : `tableau`, `mode` (`2d` ou `3d`), colonnes `x`, `y` (une ou plusieurs) et `z`, échelles `echelle_x`, `echelle_y`, `echelle_z` (`lineaire` ou `log`), `barres`, `relier`, `surface` et `courbes`, les ajustements à superposer. Le facteur k n'y figure pas : il se choisit à l'affichage. Sans réglages, les références de `grandeurs` désignent les colonnes à tracer.
 
 ## Résultat d'un calcul
 
@@ -79,6 +80,14 @@ La nature `derivee` garde le résultat d'une formule sur d'autres grandeurs de l
 La nature `colonne_calculee` garde une formule calculée ligne par ligne : `formule`, `unite`, `tableaux` où elle s'affiche, `valeurs` et `incertitudes_types`, avec `null` pour une ligne sans résultat. Ces valeurs sont dans `page.json` : les fichiers CSV restent les valeurs brutes, et ne contiennent jamais de colonne calculée.
 
 Dans une formule, `tableau.colonne` désigne la valeur de la ligne en cours, et `tableau.colonne[3]` une cellule précise, en comptant les lignes à partir de 1. Les composantes de même `erreur_commune` y comptent comme une seule erreur.
+
+## Ajustements et indicateurs
+
+La nature `ajustement` garde un modèle ajusté sur deux colonnes d'un `tableau` : `modele`, `formule`, `x`, `y`, leurs unités, `x_min` et `x_max`, le nombre de `points`, les `parametres` (`nom`, `valeur`, `incertitude_type`, `unite`), la matrice `correlation`, `chi2_reduit`, la `methode` et `empreinte_donnees`. La covariance se déduit des incertitudes et de la corrélation. `courbe` nomme un tableau de colonnes `x`, `y` et `u_y`, plus fin que les données et sans extrapolation, qui sert seulement à retracer la fonction : tout calcul repart des coefficients.
+
+La nature `indicateur` garde un résultat lu sur une courbe : `methode` (`minimum`, `maximum`, `moyenne`, `integrale`, `derivee`), `source` (`points` ou `ajustement`), ses données d'origine (`tableau`, `x`, `y`, `ajustement`), son intervalle (`de`, `a`), `position`, `valeur`, `incertitude_type` et `unite`.
+
+Dans une formule, `ajustement.coefficient` désigne un coefficient, corrélé aux autres.
 
 ## Tableaux CSV
 

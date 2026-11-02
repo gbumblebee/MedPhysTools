@@ -31,10 +31,12 @@ from pymphub.incertitudes import (
     etablir_budget,
 )
 from pymphub.page import (
+    Ajustement,
     ColonneCalculee,
     ColonneIncertitude,
     ColonneNumerique,
     GrandeurDerivee,
+    Indicateur,
     LigneDerivee,
     Page,
     Scalaire,
@@ -155,6 +157,7 @@ class ContexteCalcul:
         self._en_cours: list[str] = []
         # Numéro de la ligne en cours, à partir de 1, pour un calcul de colonne.
         self.ligne: int | None = None
+        self._coefficients: dict[str, dict[str, _Valeur]] = {}
 
     def donnees_tableau(self, tableau: str) -> pd.DataFrame:
         """Relit un tableau une seule fois par calcul."""
@@ -207,6 +210,12 @@ class ContexteCalcul:
             finally:
                 self._en_cours.pop()
                 self.ligne = ligne
+        elif isinstance(trouvee, Indicateur):
+            valeur = _Valeur(
+                GTC.ureal(trouvee.valeur, trouvee.incertitude_type, label=nom),
+                registre.Unit(trouvee.unite),
+            )
+            self.descriptions[nom] = ("", trouvee.methode)
         elif isinstance(trouvee, ColonneCalculee):
             raise ErreurCalcul(
                 f"« {nom} » est une colonne : l'écrire {trouvee.tableaux[0]}.{nom}."
@@ -263,6 +272,37 @@ class ContexteCalcul:
         self._valeurs[cle] = valeur
         return valeur
 
+    def coefficient(self, ajustement: Ajustement, nom: str) -> _Valeur:
+        """Renvoie un coefficient, corrélé aux autres coefficients du même ajustement."""
+        if ajustement.nom not in self._coefficients:
+            valeurs = [
+                GTC.ureal(
+                    p.valeur,
+                    p.incertitude_type,
+                    independent=False,
+                    label=f"{ajustement.nom}.{p.nom}",
+                )
+                for p in ajustement.parametres
+            ]
+            for i, ligne in enumerate(ajustement.correlation):
+                for j in range(i + 1, len(valeurs)):
+                    if (
+                        ligne[j] != 0
+                        and ajustement.parametres[i].incertitude_type > 0
+                        and ajustement.parametres[j].incertitude_type > 0
+                    ):
+                        GTC.set_correlation(ligne[j], valeurs[i], valeurs[j])
+            self._coefficients[ajustement.nom] = {
+                p.nom: _Valeur(v, registre.Unit(p.unite))
+                for p, v in zip(ajustement.parametres, valeurs)
+            }
+        coefficients = self._coefficients[ajustement.nom]
+        if nom not in coefficients:
+            raise ErreurCalcul(
+                f"L'ajustement « {ajustement.nom} » n'a pas de coefficient « {nom} »."
+            )
+        return coefficients[nom]
+
     def _ligne_de_colonne_calculee(
         self, colonne: ColonneCalculee, ligne: int
     ) -> _Valeur:
@@ -286,6 +326,13 @@ def _colonne_calculee(page: Page, tableau: str, nom: str) -> ColonneCalculee | N
             and grandeur.nom == nom
             and tableau in grandeur.tableaux
         ):
+            return grandeur
+    return None
+
+
+def _ajustement_nomme(page: Page, nom: str) -> Ajustement | None:
+    for grandeur in page.mesures:
+        if isinstance(grandeur, Ajustement) and grandeur.nom == nom:
             return grandeur
     return None
 
@@ -442,6 +489,9 @@ def _evaluer(noeud: ast.AST, contexte: ContexteCalcul) -> _Valeur:
     if isinstance(noeud, ast.Attribute):
         if not isinstance(noeud.value, ast.Name):
             raise FormuleRefusee("Une colonne s'écrit tableau.colonne.")
+        ajustement = _ajustement_nomme(contexte.page, noeud.value.id)
+        if ajustement is not None:
+            return contexte.coefficient(ajustement, noeud.attr)
         if contexte.ligne is None:
             raise ErreurCalcul(
                 f"« {noeud.value.id}.{noeud.attr} » est une colonne entière : ce calcul "
@@ -527,22 +577,27 @@ def _terminer(
     return resultat, texte
 
 
-def _references_colonnes(noeud: ast.AST) -> list[tuple[str, str]]:
-    """Les `tableau.colonne` d'une formule, sans ceux suivis d'un numéro de ligne."""
+def _references_colonnes(noeud: ast.AST, page: Page) -> list[tuple[str, str]]:
+    """Les `tableau.colonne` d'une formule, sans ceux suivis d'un numéro de ligne.
+
+    `ajustement.coefficient` s'écrit pareil, mais désigne une seule valeur.
+    """
     if isinstance(noeud, ast.Subscript):
         return []
     if isinstance(noeud, ast.Attribute) and isinstance(noeud.value, ast.Name):
+        if _ajustement_nomme(page, noeud.value.id) is not None:
+            return []
         return [(noeud.value.id, noeud.attr)]
     return [
         reference
         for enfant in ast.iter_child_nodes(noeud)
-        for reference in _references_colonnes(enfant)
+        for reference in _references_colonnes(enfant, page)
     ]
 
 
-def est_calcul_de_colonne(formule: str) -> bool:
+def est_calcul_de_colonne(page: Page, formule: str) -> bool:
     """Indique si une formule porte sur des colonnes entières."""
-    return bool(_references_colonnes(_analyser(formule)))
+    return bool(_references_colonnes(_analyser(formule), page))
 
 
 def calculer(
@@ -627,7 +682,7 @@ def creer_colonne(
     ligne n'aboutit, l'erreur est levée : c'est alors la formule qu'il faut revoir.
     """
     arbre = _analyser(formule)
-    references = _references_colonnes(arbre)
+    references = _references_colonnes(arbre, page)
     if not references:
         raise ErreurCalcul("Cette formule ne porte sur aucune colonne de tableau.")
     tableaux = _tableaux_participants(page, references)
@@ -719,7 +774,7 @@ def creer_resultat(
     commentaire: str = "",
 ) -> GrandeurDerivee | ColonneCalculee:
     """Crée le résultat d'une formule : une colonne si elle vise des colonnes entières."""
-    creer = creer_colonne if est_calcul_de_colonne(formule) else creer_derivee
+    creer = creer_colonne if est_calcul_de_colonne(page, formule) else creer_derivee
     return creer(page, nom, formule, lire_tableau, unite, commentaire)
 
 

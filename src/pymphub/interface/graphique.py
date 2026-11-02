@@ -165,9 +165,23 @@ class ToileGraphe(QWidget):
                 capsize=3,
                 label=serie.libelle,
             )
+        for rang, courbe in enumerate(donnees.courbes, start=len(donnees.y)):
+            couleur = SERIES[rang % len(SERIES)]
+            abscisses, valeurs = _nombres(courbe.x), _nombres(courbe.y)
+            bande = _nombres(courbe.elargies)
+            axes.plot(
+                abscisses,
+                valeurs,
+                color=couleur,
+                linewidth=1.5,
+                label=f"Ajustement {courbe.nom}",
+            )
+            axes.fill_between(
+                abscisses, valeurs - bande, valeurs + bande, color=couleur, alpha=0.15
+            )
         axes.set_xlabel(donnees.x.libelle)
         # Une seule série : le libellé de l'axe suffit, une légende le répéterait.
-        if len(donnees.y) == 1:
+        if len(donnees.y) == 1 and not donnees.courbes:
             axes.set_ylabel(donnees.y[0].libelle)
         else:
             unite = donnees.y[0].unite
@@ -291,4 +305,5 @@ def _avec_avertissement(donnees: DonneesGraphe, message: str) -> DonneesGraphe:
         donnees.y,
         donnees.z,
         (*donnees.avertissements, message),
+        donnees.courbes,
     )

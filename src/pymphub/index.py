@@ -117,7 +117,7 @@ def _textes(valeur: Any) -> Iterator[str]:  # noqa: ANN401 - contenu JSON quelco
 
 
 def _texte_de_grandeur(grandeur: dict[str, Any]) -> Iterator[str]:
-    for champ in ("nom", "commentaire", "type_fichier", "formule"):
+    for champ in ("nom", "commentaire", "type_fichier", "formule", "modele"):
         yield from _textes(grandeur.get(champ))
     if grandeur.get("nature") == "identifiant":
         yield from _textes(grandeur.get("valeur"))

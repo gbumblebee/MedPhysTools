@@ -28,11 +28,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from pymphub.ajustements import etat_resultat
 from pymphub.archive import Archive
 from pymphub.calculs import etat_derivee
 from pymphub.fichiers import ETATS_ALERTE
 from pymphub.graphes import reglages_par_defaut
 from pymphub.historique import CorrectionChamp, corrections_par_champ
+from pymphub.interface.affichage_ajustements import (
+    COLONNES_COEFFICIENTS,
+    COLONNES_INDICATEURS,
+    remplir_coefficients,
+    remplir_correlation,
+    remplir_indicateurs,
+    resume_ajustement,
+)
 from pymphub.interface.photos import (
     BandePhotos,
     DialogueAnnotation,
@@ -45,12 +54,14 @@ from pymphub.interface.texte_en_grand import (
 )
 from pymphub.interface.theme import ALERTE, FOND
 from pymphub.page import (
+    Ajustement,
     ColonneCalculee,
     ColonneIdentifiant,
     Copie,
     Fichier,
     GrandeurDerivee,
     Identifiant,
+    Indicateur,
     OngletGraphes,
     OngletNotes,
     Page,
@@ -179,6 +190,8 @@ class FichePage(QWidget):
         self.bandes_photos: list[BandePhotos] = []
         self.graphes: list[tuple[QWidget, ReglagesGraphe]] = []
         self.alertes_calculs: list[QLabel] = []
+        self.tables_coefficients: list[tuple[QTableWidget, Ajustement]] = []
+        self.table_indicateurs: QTableWidget | None = None
         self.cellules_calculees: list[tuple[QTableWidget, int, ColonneCalculee]] = []
         self.etats: dict[str, str] = {}
         self.alerte_fichiers: QLabel | None = None
@@ -198,6 +211,7 @@ class FichePage(QWidget):
         self.champ_k.valueChanged.connect(self._actualiser_incertitudes)
         self.champ_k.valueChanged.connect(self._tracer_graphes)
         self.champ_k.valueChanged.connect(self._ecrire_cellules_calculees)
+        self.champ_k.valueChanged.connect(self._ecrire_resultats_ajustements)
         ligne_k = QHBoxLayout()
         self.bouton_modifier = QPushButton("Modifier")
         self.bouton_modifier.setEnabled(False)
@@ -261,6 +275,8 @@ class FichePage(QWidget):
         self.bandes_photos = []
         self.graphes = []
         self.alertes_calculs = []
+        self.tables_coefficients = []
+        self.table_indicateurs = None
         self.cellules_calculees = []
         self.etats = {}
         self.alerte_fichiers = None
@@ -302,6 +318,7 @@ class FichePage(QWidget):
         self._signaler_calculs_perimes(self.page, self.page.mesures)
         self._construire_fichiers(self.page)
         self._construire_notes(self.page)
+        self._construire_ajustements(self.page)
         self._construire_graphes(self.page)
         self.disposition_contenu.addStretch()
         self._actualiser_historique()
@@ -394,9 +411,12 @@ class FichePage(QWidget):
             return self.archive.lire_tableau(page.id, nom)
 
         for grandeur in grandeurs:
-            if not isinstance(grandeur, (GrandeurDerivee, ColonneCalculee)):
+            if isinstance(grandeur, (Ajustement, Indicateur)):
+                etat = etat_resultat(page, grandeur, lire_tableau)
+            elif isinstance(grandeur, (GrandeurDerivee, ColonneCalculee)):
+                etat = etat_derivee(page, grandeur, lire_tableau)
+            else:
                 continue
-            etat = etat_derivee(page, grandeur, lire_tableau)
             if etat is not None:
                 alerte = QLabel(f"{grandeur.nom} : {etat}")
                 alerte.setObjectName("alerte")
@@ -442,8 +462,10 @@ class FichePage(QWidget):
             )
 
     def _construire_tableaux(self, archive: Archive, page: Page) -> None:
+        # Le tableau d'une courbe ajustée ne sert qu'à la retracer : le graphe la montre.
+        courbes = {g.courbe for g in page.mesures if isinstance(g, Ajustement)}
         for grandeur in page.mesures:
-            if not isinstance(grandeur, Tableau):
+            if not isinstance(grandeur, Tableau) or grandeur.nom in courbes:
                 continue
             self._ajouter(_titre_de_section(f"Tableau {grandeur.nom}"))
             if grandeur.commentaire:
@@ -627,6 +649,50 @@ class FichePage(QWidget):
         bande.remplacer(vignettes)
         self.bandes_photos.append(bande)
         self._ajouter(bande)
+
+    def _construire_ajustements(self, page: Page) -> None:
+        """Montre les coefficients, leurs corrélations et les indicateurs de la page."""
+        for grandeur in page.mesures:
+            if isinstance(grandeur, Ajustement):
+                self._ajouter(_titre_de_section(f"Ajustement {grandeur.nom}"))
+                resume = QLabel(resume_ajustement(grandeur))
+                resume.setObjectName("discret")
+                resume.setTextFormat(Qt.TextFormat.PlainText)
+                resume.setWordWrap(True)
+                self._ajouter(resume)
+                coefficients = _creer_table(list(COLONNES_COEFFICIENTS), 0)
+                self.tables_coefficients.append((coefficients, grandeur))
+                self._ajouter(coefficients)
+                correlation = _creer_table([""], 0)
+                remplir_correlation(correlation, grandeur)
+                self.tables[f"{grandeur.nom}.correlation"] = correlation
+                self._ajouter(correlation)
+                _hauteur_ajustee(correlation)
+                self.tables[f"{grandeur.nom}.coefficients"] = coefficients
+        indicateurs = [g for g in page.mesures if isinstance(g, Indicateur)]
+        if indicateurs:
+            self._ajouter(_titre_de_section("Indicateurs"))
+            table = _creer_table(list(COLONNES_INDICATEURS), 0)
+            self.table_indicateurs = table
+            afficher_en_grand_colonne(table, 6, "Commentaire")
+            self._ajouter(table)
+        self._ecrire_resultats_ajustements()
+        for table, _grandeur in self.tables_coefficients:
+            _hauteur_ajustee(table)
+        if self.table_indicateurs is not None:
+            _hauteur_ajustee(self.table_indicateurs)
+
+    def _ecrire_resultats_ajustements(self) -> None:
+        """Écrit les incertitudes au facteur k choisi, sans toucher aux données."""
+        k = self.champ_k.value()
+        for table, grandeur in self.tables_coefficients:
+            remplir_coefficients(table, grandeur, k)
+        if self.table_indicateurs is not None:
+            remplir_indicateurs(
+                self.table_indicateurs,
+                [g for g in self.page.mesures if isinstance(g, Indicateur)],
+                k,
+            )
 
     def _construire_graphes(self, page: Page) -> None:
         """Trace les graphes de la page. matplotlib ne se charge que s'il y en a."""

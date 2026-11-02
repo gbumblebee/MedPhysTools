@@ -133,12 +133,34 @@ def test_un_calcul_se_retrouve_a_la_reouverture_sans_modifier_la_page(espace, ed
     ligne = relu.lignes[0]
     assert ligne.nom.text() == "somme"
     assert ligne.formule.text() == "a + b"
-    assert ligne.unite.text() == "MBq"
+    # L'unité automatique ne se fige pas : le champ reste vide, et suit la formule.
+    assert ligne.unite.text() == ""
     assert ligne.commentaire.text() == "Total"
     assert ligne.affichage.text() == "150 ± 3 MBq (2 %)"
     assert not espace.modifications_en_attente()
     assert espace.enregistrer_maintenant()
     assert Depot(espace.archive.racine).tete() == tete
+
+
+def test_l_unite_suit_la_formule_apres_la_reouverture(espace, editeur):
+    remplir(editeur.lignes[0], "somme", "a + b")
+    assert espace.enregistrer_maintenant()
+    assert espace.ouvrir_page(espace.page.id)
+    ligne = espace.editeurs()[-1].lignes[0]
+    ligne.formule.setText("a / b")
+    assert ligne.erreur is None
+    assert ligne.resultat.unite == "1"
+    assert espace.enregistrer_maintenant()
+    assert relue(espace).grandeur("somme").unite == "1"
+
+
+def test_une_unite_vraiment_demandee_reste_dans_le_champ(espace, editeur):
+    remplir(editeur.lignes[0], "somme", "a + b", unite="kBq")
+    assert espace.enregistrer_maintenant()
+    assert espace.ouvrir_page(espace.page.id)
+    ligne = espace.editeurs()[-1].lignes[0]
+    assert ligne.unite.text() == "kBq"
+    assert not espace.modifications_en_attente()
 
 
 def test_l_unite_demandee_est_gardee(espace, editeur):
