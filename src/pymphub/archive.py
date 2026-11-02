@@ -367,13 +367,18 @@ class Archive:
     def nouvel_identifiant(self, date_mesure: datetime, sujet: str) -> str:
         """Propose l'identifiant suivant : date, sujet sans accent, numéro d'ordre.
 
-        Le numéro suit le plus grand numéro de l'archive. Il n'est réservé qu'à la
-        création de la page.
+        Le numéro suit le plus grand numéro de l'archive, y compris ceux des pages
+        supprimées, que l'historique garde : une nouvelle page ne doit jamais hériter de
+        la chronologie d'une ancienne. Il n'est réservé qu'à la création de la page.
         """
+        noms = [dossier.name for dossier in (self.racine / "pages").iterdir()]
+        noms += [
+            infos["Page"]
+            for commit in self._depot.commits()
+            if "Page" in (infos := lire_message(commit.message.decode("utf-8")))
+        ]
         numeros = [
-            int(trouve.group(1))
-            for dossier in (self.racine / "pages").iterdir()
-            if (trouve := _NUMERO_PAGE.search(dossier.name))
+            int(trouve.group(1)) for nom in noms if (trouve := _NUMERO_PAGE.search(nom))
         ]
         numero = max(numeros, default=0) + 1
         return f"{date_mesure.date().isoformat()}_{_en_sujet(sujet)}_{numero:04d}"
@@ -599,6 +604,53 @@ class Archive:
             auteur or page.auteur,
         )
         return page
+
+    def _ignorer_corbeille(self) -> list[str]:
+        """Ajoute `corbeille/` au `.gitignore` d'une archive créée avant son existence.
+
+        Renvoie les fichiers à enregistrer dans le commit.
+        """
+        chemin = self.racine / ".gitignore"
+        texte = chemin.read_text(encoding="utf-8") if chemin.is_file() else ""
+        if "corbeille/" in texte.splitlines():
+            return []
+        ecrire_atomique(chemin, f"{texte}corbeille/\n")
+        return [".gitignore"]
+
+    def supprimer_page(
+        self, id_page: str, motif: str | None = None, auteur: str | None = None
+    ) -> Path:
+        """Retire une page de l'archive et renvoie le dossier où elle est conservée.
+
+        Un brouillon se supprime sans motif ; une page validée ou corrigée en exige un.
+        Le dossier entier part dans `corbeille/<id>/` : ce qui est hors de Git (pièces
+        jointes, fichiers déposés) n'est donc pas perdu, et le renommage se fait d'un seul
+        coup. Git garde `page.json` et les tableaux. `objets/` n'est pas touché : une
+        autre page peut utiliser les mêmes fichiers. Le numéro de la page ne resservira pas.
+        """
+        page = self.lire_page(id_page)
+        motif = normaliser_motif(motif)
+        if page.statut != "brouillon" and motif is None:
+            raise PageRefusee(
+                f"Une page {page.statut} ne se supprime qu'avec un motif."
+            )
+        self._exiger_page_suivie(id_page)
+
+        cible = self.racine / "corbeille" / id_page
+        if cible.exists():
+            raise PageRefusee(
+                f"« corbeille/{id_page} » existe déjà : l'examiner avant de supprimer."
+            )
+        suivis = list(self._depot.fichiers_suivis(f"pages/{id_page}/"))
+        cible.parent.mkdir(exist_ok=True)
+        gitignore = self._ignorer_corbeille()
+        self._dossier_page(id_page).rename(cible)
+        self._depot.enregistrer(
+            message_commit("suppression", id_page, motif),
+            [*suivis, *gitignore],
+            auteur or page.auteur,
+        )
+        return cible
 
     def lire_page(self, id_page: str) -> Page:
         """Relit une page d'après son identifiant."""

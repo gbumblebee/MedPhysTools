@@ -18,7 +18,7 @@ from scenario_activimetre import ID_PAGE, ID_SUIVANTE, MACHINE, construire
 from pymphub import Archive
 from pymphub.historique import corrections_par_champ
 from pymphub.index import Criteres
-from pymphub.interface.espace_archive import EspaceArchive
+from pymphub.interface.espace_archive import DialogueSuppression, EspaceArchive
 from pymphub.interface.fenetre import FenetrePrincipale
 from pymphub.interface.fiche_page import (
     LIGNES_MAX_AFFICHEES,
@@ -880,3 +880,152 @@ def test_le_modele_ne_lit_que_ce_qui_est_affiche(espace, grande_archive, qtbot):
     debut = time.perf_counter()
     espace.modele.index(4999, 1).data()
     assert time.perf_counter() - debut < 0.01
+
+
+# --- Suppression d'une page -----------------------------------------------------------
+
+
+@pytest.fixture
+def sans_dialogue(ouvert, monkeypatch):
+    """Remplace les dialogues de suppression et note les erreurs affichées."""
+    ouvert.erreurs = []
+    monkeypatch.setattr(ouvert, "afficher_erreur", ouvert.erreurs.append)
+    return ouvert
+
+
+def test_le_bouton_supprimer_suit_la_page_affichee(ouvert):
+    assert not ouvert.fiche.bouton_supprimer.isEnabled()
+    fiche = selectionner(ouvert, ID_PAGE)
+    assert fiche.bouton_supprimer.isEnabled()
+    demandes = []
+    fiche.suppression_demandee.connect(demandes.append)
+    fiche.bouton_supprimer.click()
+    assert demandes == [ID_PAGE]
+    fiche.vider()
+    assert not fiche.bouton_supprimer.isEnabled()
+
+
+def test_supprimer_une_page_validee_demande_un_motif(sans_dialogue, qtbot, monkeypatch):
+    espace = sans_dialogue
+    monkeypatch.setattr(espace, "_demander_motif_suppression", lambda _p: "En double")
+    selectionner(espace, ID_PAGE)
+    assert espace.demander_suppression(ID_PAGE)
+    attendre(espace, qtbot)
+
+    assert ids_affiches(espace) == [ID_SUIVANTE]
+    assert espace.fiche.page is None
+    assert espace.non_tracees == []
+    assert espace.erreurs == []
+    derniere = espace.archive.historique(ID_PAGE)[-1]
+    assert (derniere.nature, derniere.motif) == ("suppression", "En double")
+    assert (espace.archive.racine / "corbeille" / ID_PAGE / "page.json").is_file()
+
+
+def test_annuler_le_motif_ne_supprime_rien(sans_dialogue, qtbot, monkeypatch):
+    espace = sans_dialogue
+    monkeypatch.setattr(espace, "_demander_motif_suppression", lambda _p: None)
+    assert not espace.demander_suppression(ID_PAGE)
+    attendre(espace, qtbot)
+    assert ids_affiches(espace) == [ID_SUIVANTE, ID_PAGE]
+
+
+def creer_brouillon(archive):
+    page = Page(
+        id=archive.nouvel_identifiant(datetime(2026, 12, 1, tzinfo=PARIS), "brouillon"),
+        titre="Brouillon",
+        date_mesure=datetime(2026, 12, 1, tzinfo=PARIS),
+        date_saisie=datetime(2026, 12, 1, tzinfo=PARIS),
+        auteur="G.",
+    )
+    archive.creer_page(page)
+    return page.id
+
+
+def test_un_brouillon_demande_une_simple_confirmation(
+    sans_dialogue, qtbot, monkeypatch
+):
+    espace = sans_dialogue
+    id_page = creer_brouillon(espace.archive)
+    monkeypatch.setattr(
+        espace,
+        "_demander_motif_suppression",
+        lambda _p: pytest.fail("Un brouillon ne demande pas de motif."),
+    )
+    reponses = [False, True]
+    monkeypatch.setattr(
+        espace, "_confirmer_suppression_brouillon", lambda _p: reponses.pop(0)
+    )
+    assert not espace.demander_suppression(id_page)
+    assert id_page in espace.archive.identifiants()
+    assert espace.demander_suppression(id_page)
+    attendre(espace, qtbot)
+    assert id_page not in espace.archive.identifiants()
+    assert espace.archive.historique(id_page)[-1].motif is None
+
+
+def test_un_refus_de_suppression_s_explique(sans_dialogue, qtbot, monkeypatch):
+    espace = sans_dialogue
+    monkeypatch.setattr(espace, "_demander_motif_suppression", lambda _p: "Motif")
+    chemin = espace.archive.racine / "pages" / ID_PAGE / "page.json"
+    chemin.write_bytes(chemin.read_bytes() + b"\n")
+    assert not espace.demander_suppression(ID_PAGE)
+    attendre(espace, qtbot)
+    assert len(espace.erreurs) == 1
+    assert "hors du logiciel" in espace.erreurs[0]
+    assert ID_PAGE in espace.archive.identifiants()
+
+
+def test_le_dialogue_exige_le_motif_et_l_identifiant_exact(qtbot, arc):
+    dialogue = DialogueSuppression(arc.lire_page(ID_PAGE))
+    qtbot.addWidget(dialogue)
+    assert not dialogue.bouton_supprimer.isEnabled()
+    dialogue.champ_motif.setText("Saisie en double")
+    assert not dialogue.bouton_supprimer.isEnabled()
+    dialogue.champ_identifiant.setText(ID_PAGE[:-1])
+    assert not dialogue.bouton_supprimer.isEnabled()
+    dialogue.champ_identifiant.setText(ID_PAGE)
+    assert dialogue.bouton_supprimer.isEnabled()
+    dialogue.champ_motif.setText("   ")
+    assert not dialogue.bouton_supprimer.isEnabled()
+    dialogue.champ_motif.setText("Saisie en double")
+    assert dialogue.motif() == "Saisie en double"
+
+
+def test_la_fenetre_referme_la_page_supprimee_dans_la_saisie(qtbot, arc, monkeypatch):
+    fenetre = FenetrePrincipale()
+    qtbot.addWidget(fenetre)
+    fenetre.ouvrir_archive(arc.racine)
+    espace, saisie = fenetre.espace_archive, fenetre.espace_saisie
+    attendre(espace, qtbot)
+    id_page = creer_brouillon(fenetre.archive)
+    autre = creer_brouillon(fenetre.archive)
+    assert saisie.ouvrir_page(id_page)
+    saisie.champ_titre.setText("Modifié à l'écran")
+    saisie.champ_titre.textEdited.emit("Modifié à l'écran")
+    assert saisie._minuteur.isActive()
+    monkeypatch.setattr(espace, "_confirmer_suppression_brouillon", lambda _p: True)
+
+    fenetre._supprimer_page(id_page)
+    attendre(espace, qtbot)
+
+    assert saisie.page is None
+    assert not saisie._minuteur.isActive()
+    assert id_page not in fenetre.archive.identifiants()
+    # Le brouillon était enregistré juste avant sa suppression : rien n'est perdu.
+    assert (
+        json.loads(
+            (fenetre.archive.racine / "corbeille" / id_page / "page.json").read_text(
+                encoding="utf-8"
+            )
+        )["titre"]
+        == "Modifié à l'écran"
+    )
+
+    # Supprimer une autre page laisse en place celle qui est ouverte.
+    assert saisie.ouvrir_page(autre)
+    monkeypatch.setattr(espace, "_demander_motif_suppression", lambda _p: "Motif")
+    fenetre._supprimer_page(ID_SUIVANTE)
+    attendre(espace, qtbot)
+    assert saisie.page is not None
+    assert saisie.page.id == autre
+    espace.arreter()

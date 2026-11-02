@@ -189,3 +189,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Ajustements | Dans le cahier de labo ; courbe suréchantillonnée sans extrapolation en tableau, pour le tracé seulement ; coefficients et corrélations dans `page.json` et dans un onglet dédié |
 | Indicateurs | Minimum, maximum, intégrale, dérivée, etc. enregistrés dans `page.json` |
 | Premier CQ réel | Vers début février 2027 |
+| Suppression d'une page | Brouillon : confirmation. Page validée ou corrigée : motif obligatoire et identifiant à retaper. Commit de nature `suppression`, dossier de la page dans `corbeille/<id>/`, `objets/` non touché, numéro jamais réutilisé |
+| Facteur de Student à l'affichage | Refusé : U = k·u, k = 2 par défaut |
+| Liste déroulante des pages dans Saisie | Refusée : l'espace Archive suffit |
+| Incertitude « identique / propre à chaque ligne » | Refusée : la colonne d'incertitude actuelle convient |

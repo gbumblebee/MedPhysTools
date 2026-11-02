@@ -15,6 +15,7 @@ from dulwich.repo import Repo
 
 CONTENU_GITIGNORE = """\
 objets/
+corbeille/
 index.sqlite
 index.sqlite-*
 pages/*/pieces_jointes/

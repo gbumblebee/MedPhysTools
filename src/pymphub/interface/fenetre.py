@@ -197,6 +197,7 @@ class FenetrePrincipale(QMainWindow):
         self.espace_saisie.page_modifiee.connect(self.espace_archive.page_modifiee)
         self.espace_archive.reprise_effectuee.connect(self.espace_saisie.recharger)
         self.espace_archive.fiche.edition_demandee.connect(self._modifier_page)
+        self.espace_archive.fiche.suppression_demandee.connect(self._supprimer_page)
         self.espace_saisie.fiche_demandee.connect(self._voir_fiche)
         self.espaces.addTab(self.espace_archive, "Archive")
         self.espaces.addTab(self.espace_saisie, "Saisie")
@@ -286,6 +287,15 @@ class FenetrePrincipale(QMainWindow):
         """Ouvre dans l'espace Saisie la page choisie dans l'espace Archive."""
         if self.espace_saisie.ouvrir_page(id_page):
             self.espaces.setCurrentWidget(self.espace_saisie)
+
+    def _supprimer_page(self, id_page: str) -> None:
+        """Supprime une page, sans que l'espace Saisie la réécrive ensuite."""
+        ouverte = self.espace_saisie.page
+        if ouverte is not None and ouverte.id == id_page:
+            # Arrête l'enregistrement automatique : il viserait une page disparue.
+            self.espace_saisie.enregistrer_maintenant()
+        if self.espace_archive.demander_suppression(id_page):
+            self.espace_saisie.page_supprimee(id_page)
 
     def ouvrir_derniere_archive(self) -> bool:
         """Rouvre la dernière archive. Si elle a disparu, l'accueil s'affiche simplement."""

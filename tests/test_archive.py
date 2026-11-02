@@ -19,6 +19,7 @@ from pymphub.archive import (
     PageIntrouvable,
     PageRefusee,
 )
+from pymphub.depot import Depot
 from pymphub.disque import (
     NomInvalide,
     chemin_affichable,
@@ -506,4 +507,142 @@ def test_une_archive_au_chemin_tres_long_fonctionne(tmp_path):
     dossier = arc.creer_page(page(ID_PAGE, scalaire()))
     assert len(str(dossier / "page.json")) > 260
     assert Archive(profond / "ArchiveStage1").lire_page(ID_PAGE).grandeur("activite")
+    assert arc.modifications_non_tracees() == []
+
+
+# --- Suppression d'une page -----------------------------------------------------------
+
+
+@pytest.fixture
+def page_supprimable(arc, tmp_path):
+    """Un brouillon avec une pièce jointe et un fichier déposé, tous deux hors de Git."""
+    identifiant = arc.nouvel_identifiant(HEURE, "à supprimer")
+    page = Page(
+        id=identifiant,
+        titre="À supprimer",
+        date_mesure=HEURE,
+        date_saisie=HEURE,
+        auteur="G.",
+    )
+    arc.creer_page(page)
+    photo = tmp_path / "photo.png"
+    photo.write_bytes(b"pixels")
+    piece = arc.importer_piece_jointe(identifiant, photo)
+    arc.modifier_page(page.model_copy(update={"pieces_jointes": (piece,)}))
+    depose = arc.racine / "pages" / identifiant / "brut" / "serie.bin"
+    depose.parent.mkdir()
+    depose.write_bytes(b"lourd")
+    return identifiant
+
+
+def test_supprimer_un_brouillon_garde_ce_qui_est_hors_de_git(arc, page_supprimable):
+    tete = Depot(arc.racine).tete()
+    cible = arc.supprimer_page(page_supprimable)
+
+    assert cible == arc.racine / "corbeille" / page_supprimable
+    assert (cible / "pieces_jointes" / "photo.png").read_bytes() == b"pixels"
+    assert (cible / "brut" / "serie.bin").read_bytes() == b"lourd"
+    assert not (arc.racine / "pages" / page_supprimable).exists()
+    assert page_supprimable not in arc.identifiants()
+    assert arc.chercher_identifiants() == []
+    assert arc.modifications_non_tracees() == []
+    assert Depot(arc.racine).tete() != tete
+    assert not Depot(arc.racine).fichiers_suivis(f"pages/{page_supprimable}/")
+
+
+def test_la_suppression_est_tracee_et_l_ancienne_version_reste_lisible(
+    arc, page_supprimable
+):
+    tete = Depot(arc.racine).tete()
+    arc.supprimer_page(page_supprimable, auteur="Resp.")
+
+    derniere = arc.historique(page_supprimable)[-1]
+    assert derniere.nature == "suppression"
+    assert derniere.auteur == "Resp."
+    assert arc.version_page(page_supprimable, tete).titre == "À supprimer"
+    with pytest.raises(PageIntrouvable):
+        arc.lire_page(page_supprimable)
+
+
+def test_une_page_validee_ne_se_supprime_pas_sans_motif(arc, page_supprimable):
+    arc.valider_page(page_supprimable)
+    for motif in (None, "", "   "):
+        with pytest.raises(PageRefusee, match="motif"):
+            arc.supprimer_page(page_supprimable, motif)
+    assert arc.lire_page(page_supprimable).statut == "validée"
+
+    arc.supprimer_page(page_supprimable, "  CQ  saisi deux fois ")
+    assert arc.historique(page_supprimable)[-1].motif == "CQ saisi deux fois"
+
+
+def test_une_page_corrigee_exige_aussi_un_motif(arc, page_supprimable):
+    page = arc.valider_page(page_supprimable)
+    arc.modifier_page(page.model_copy(update={"titre": "Autre"}), "Faute")
+    with pytest.raises(PageRefusee, match="corrigée"):
+        arc.supprimer_page(page_supprimable)
+
+
+def test_le_numero_d_une_page_supprimee_ne_resert_pas(arc, page_supprimable):
+    numero = page_supprimable.rsplit("_", 1)[1]
+    arc.supprimer_page(page_supprimable)
+    assert not arc.nouvel_identifiant(HEURE, "à supprimer").endswith(f"_{numero}")
+    assert arc.nouvel_identifiant(HEURE, "à supprimer").endswith(
+        f"_{int(numero) + 1:04d}"
+    )
+
+    # Même si la corbeille a été vidée à la main : c'est l'historique qui fait foi.
+    shutil.rmtree(arc.racine / "corbeille")
+    relue = Archive(arc.racine)
+    assert relue.nouvel_identifiant(HEURE, "x").endswith(f"_{int(numero) + 1:04d}")
+
+
+def test_une_page_changee_hors_du_logiciel_ne_se_supprime_pas(arc, page_supprimable):
+    chemin = arc.racine / "pages" / page_supprimable / "page.json"
+    chemin.write_text(chemin.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    with pytest.raises(PageRefusee, match="hors du logiciel"):
+        arc.supprimer_page(page_supprimable)
+    assert chemin.is_file()
+
+
+def test_la_suppression_ne_touche_pas_au_magasin(arc, tmp_path):
+    source = tmp_path / "s.bin"
+    source.write_bytes(b"brut")
+    fichier = arc.importer_copie(source, "serie")
+    identifiant = arc.nouvel_identifiant(HEURE, "avec objet")
+    arc.creer_page(
+        Page(
+            id=identifiant,
+            titre="Avec objet",
+            date_mesure=HEURE,
+            date_saisie=HEURE,
+            auteur="G.",
+            mesures=(fichier,),
+        )
+    )
+    arc.supprimer_page(identifiant)
+    empreinte = fichier.stockage.empreinte
+    assert (
+        arc.racine / "objets" / empreinte[:2] / empreinte[2:]
+    ).read_bytes() == b"brut"
+
+
+def test_une_corbeille_deja_occupee_n_est_pas_ecrasee(arc, page_supprimable):
+    occupee = arc.racine / "corbeille" / page_supprimable
+    occupee.mkdir(parents=True)
+    (occupee / "garde.txt").write_text("à garder", encoding="utf-8")
+    with pytest.raises(PageRefusee, match="existe déjà"):
+        arc.supprimer_page(page_supprimable)
+    assert (occupee / "garde.txt").read_text(encoding="utf-8") == "à garder"
+    assert page_supprimable in arc.identifiants()
+
+
+def test_une_archive_ancienne_ignore_ensuite_sa_corbeille(arc, page_supprimable):
+    chemin = arc.racine / ".gitignore"
+    ancien = chemin.read_text(encoding="utf-8").replace("corbeille/\n", "")
+    chemin.write_text(ancien, encoding="utf-8")
+    Depot(arc.racine).enregistrer("ancien format", [".gitignore"], "Resp.")
+
+    arc.supprimer_page(page_supprimable)
+
+    assert "corbeille/" in chemin.read_text(encoding="utf-8").splitlines()
     assert arc.modifications_non_tracees() == []

@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDateEdit,
+    QDialog,
+    QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
@@ -45,7 +47,9 @@ from PySide6.QtWidgets import (
 from pymphub.archive import Archive, PageRefusee
 from pymphub.index import Criteres, PageIllisible, ResumePage, ValeursPossibles
 from pymphub.interface.fiche_page import FichePage, formater_date
+from pymphub.interface.messages import message_erreur
 from pymphub.interface.ramasse_miettes import assurer_ramasse_miettes_principal
+from pymphub.page import Page
 
 _DELAI_FRAPPE_MS = 250
 _DATE_VIDE = QDate(1900, 1, 1)
@@ -279,6 +283,58 @@ class Filtres(QWidget):
         self.modifies.emit()
 
 
+class DialogueSuppression(QDialog):
+    """Demande un motif et l'identifiant retapé, avant de supprimer une page validée."""
+
+    def __init__(self, page: Page, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.id_page = page.id
+        self.setWindowTitle("Supprimer la page")
+        self.setMinimumWidth(520)
+        explication = QLabel(
+            f"La page « {page.titre} » est {page.statut}. Elle quittera l'archive : son "
+            "historique reste dans Git et ses pièces jointes vont dans corbeille/."
+        )
+        explication.setWordWrap(True)
+        explication.setTextFormat(Qt.TextFormat.PlainText)
+        self.champ_motif = QLineEdit()
+        self.champ_motif.setPlaceholderText("Pourquoi supprimer cette page ?")
+        self.champ_identifiant = QLineEdit()
+        self.champ_identifiant.setPlaceholderText(page.id)
+
+        formulaire = QFormLayout()
+        formulaire.addRow("Motif (obligatoire)", self.champ_motif)
+        formulaire.addRow("Identifiant à retaper", self.champ_identifiant)
+
+        boutons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.bouton_supprimer = boutons.button(QDialogButtonBox.StandardButton.Ok)
+        self.bouton_supprimer.setText("Supprimer")
+        boutons.button(QDialogButtonBox.StandardButton.Cancel).setText("Annuler")
+        boutons.accepted.connect(self.accept)
+        boutons.rejected.connect(self.reject)
+
+        disposition = QVBoxLayout(self)
+        disposition.addWidget(explication)
+        disposition.addLayout(formulaire)
+        disposition.addWidget(boutons)
+
+        self.champ_motif.textChanged.connect(self._actualiser)
+        self.champ_identifiant.textChanged.connect(self._actualiser)
+        self._actualiser()
+
+    def _actualiser(self) -> None:
+        self.bouton_supprimer.setEnabled(
+            bool(self.champ_motif.text().strip())
+            and self.champ_identifiant.text().strip() == self.id_page
+        )
+
+    def motif(self) -> str:
+        """Renvoie le motif saisi."""
+        return self.champ_motif.text()
+
+
 class EspaceArchive(QWidget):
     """Filtres et liste de pages à gauche, fiche de la page sélectionnée à droite."""
 
@@ -296,6 +352,7 @@ class EspaceArchive(QWidget):
         self._recherche: threading.Thread | None = None
         self._recherche_en_attente = False
         self._verification: threading.Thread | None = None
+        self._verification_en_attente = False
         self._signaux = _Signaux(self)
         self._signaux.recherche_reussie.connect(self._recherche_reussie)
         self._signaux.recherche_echouee.connect(self._recherche_echouee)
@@ -400,6 +457,7 @@ class EspaceArchive(QWidget):
             self._recherche is None
             and self._verification is None
             and not self._recherche_en_attente
+            and not self._verification_en_attente
             and not self._minuteur.isActive()
         )
 
@@ -458,7 +516,10 @@ class EspaceArchive(QWidget):
 
     def lancer_verification(self) -> None:
         """Cherche en arrière-plan les fichiers modifiés hors du logiciel."""
-        if self.archive is None or self._verification is not None:
+        if self.archive is None:
+            return
+        if self._verification is not None:
+            self._verification_en_attente = True
             return
         self._verification = threading.Thread(
             target=_verifier, args=(self._signaux, self.archive), daemon=True
@@ -479,7 +540,8 @@ class EspaceArchive(QWidget):
 
     def _verification_finie(self, archive: Archive) -> None:
         self._verification = None
-        if archive is not self.archive:
+        if self._verification_en_attente or archive is not self.archive:
+            self._verification_en_attente = False
             self.lancer_verification()
             return
         self.verification_terminee.emit()
@@ -543,6 +605,45 @@ class EspaceArchive(QWidget):
         self.actualiser()
         return True
 
+    def _confirmer_suppression_brouillon(self, page: Page) -> bool:
+        reponse = QMessageBox.question(
+            self,
+            "Supprimer le brouillon",
+            f"Supprimer le brouillon « {page.titre} » ? Son historique reste dans Git et "
+            "ses pièces jointes vont dans corbeille/.",
+        )
+        return reponse == QMessageBox.StandardButton.Yes
+
+    def _demander_motif_suppression(self, page: Page) -> str | None:
+        dialogue = DialogueSuppression(page, self)
+        if dialogue.exec() == QDialog.DialogCode.Accepted:
+            return dialogue.motif()
+        return None
+
+    def demander_suppression(self, id_page: str) -> bool:
+        """Supprime une page après confirmation, ou après motif si elle est validée."""
+        if self.archive is None:
+            return False
+        motif = None
+        try:
+            page = self.archive.lire_page(id_page)
+            if page.statut == "brouillon":
+                if not self._confirmer_suppression_brouillon(page):
+                    return False
+            else:
+                motif = self._demander_motif_suppression(page)
+                if motif is None:
+                    return False
+            # Une recherche en cours ne doit pas voir le dossier disparaître sous elle.
+            self._attendre_travaux()
+            self.archive.supprimer_page(id_page, motif)
+        except (PageRefusee, OSError, ValueError, KeyError) as erreur:
+            self.afficher_erreur(message_erreur(erreur))
+            return False
+        self.fiche.vider()
+        self.actualiser()
+        return True
+
     def afficher_page(self, id_page: str) -> None:
         """Affiche la fiche d'une page, sur son onglet de contenu."""
         if self.archive is None:
@@ -568,10 +669,14 @@ class EspaceArchive(QWidget):
         if self.fiche.page is None or self.fiche.page.id != id_page:
             self.fiche.afficher(self.archive, id_page)
 
+    def _attendre_travaux(self) -> None:
+        for travail in (self._recherche, self._verification):
+            if travail is not None:
+                travail.join()
+
     def arreter(self) -> None:
         """Attend la fin des travaux en cours, avant de fermer l'application."""
         self._minuteur.stop()
         self._recherche_en_attente = False
-        for travail in (self._recherche, self._verification):
-            if travail is not None:
-                travail.join()
+        self._verification_en_attente = False
+        self._attendre_travaux()

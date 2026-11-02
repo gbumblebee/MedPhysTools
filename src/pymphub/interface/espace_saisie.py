@@ -376,6 +376,11 @@ class EspaceSaisie(QWidget):
         except _ERREURS_ENREGISTREMENT:
             self.installer(self.archive)
 
+    def page_supprimee(self, id_page: str) -> None:
+        """Referme la page si c'est celle qui vient d'être supprimée."""
+        if self.page is not None and self.page.id == id_page:
+            self.installer(self.archive)
+
     def _charger(self, page: Page) -> None:
         """Affiche une page, sans considérer cet affichage comme une modification."""
         self._minuteur.stop()

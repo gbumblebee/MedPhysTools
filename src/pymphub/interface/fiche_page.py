@@ -139,6 +139,7 @@ class FichePage(QWidget):
     """Affiche une page en lecture seule."""
 
     edition_demandee = Signal(str)
+    suppression_demandee = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -167,8 +168,12 @@ class FichePage(QWidget):
         self.bouton_modifier = QPushButton("Modifier")
         self.bouton_modifier.setEnabled(False)
         self.bouton_modifier.clicked.connect(self._demander_edition)
+        self.bouton_supprimer = QPushButton("Supprimer…")
+        self.bouton_supprimer.setEnabled(False)
+        self.bouton_supprimer.clicked.connect(self._demander_suppression)
         ligne_k.addWidget(self.entete, stretch=1)
         ligne_k.addWidget(self.bouton_modifier)
+        ligne_k.addWidget(self.bouton_supprimer)
         ligne_k.addWidget(QLabel("k ="))
         ligne_k.addWidget(self.champ_k)
 
@@ -196,6 +201,10 @@ class FichePage(QWidget):
         if self.page is not None:
             self.edition_demandee.emit(self.page.id)
 
+    def _demander_suppression(self) -> None:
+        if self.page is not None:
+            self.suppression_demandee.emit(self.page.id)
+
     def _ajouter(self, widget: QWidget) -> None:
         """Ajoute un bloc à la fiche, qui garde toujours sa hauteur nécessaire.
 
@@ -216,6 +225,7 @@ class FichePage(QWidget):
         self.notes = []
         self.entete.setText(message)
         self.bouton_modifier.setEnabled(False)
+        self.bouton_supprimer.setEnabled(False)
         self._vider_contenu()
         self.table_historique.setRowCount(0)
         self._historique_a_jour = False
@@ -243,6 +253,7 @@ class FichePage(QWidget):
 
         self.entete.setText(f"{self.page.titre}  ({self.page.statut})")
         self.bouton_modifier.setEnabled(True)
+        self.bouton_supprimer.setEnabled(True)
         self._construire_informations(self.page)
         self._construire_mesures(self.page)
         self._construire_tableaux(archive, self.page)

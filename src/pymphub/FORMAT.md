@@ -17,6 +17,7 @@ pages/<id>/        une page par CQ :
   brut/              tableaux en CSV
   pieces_jointes/    photos, PDF, notes scannées
   analyses/          une sous-page par exécution d'un module d'analyse
+corbeille/<id>/    dossier complet des pages supprimées, hors de Git
 index.sqlite       cache de recherche : peut être supprimé et reconstruit
 .git/              historique des pages et des fichiers légers
 ```
@@ -24,6 +25,12 @@ index.sqlite       cache de recherche : peut être supprimé et reconstruit
 ## Identifiant d'une page
 
 `AAAA-MM-JJ_sujet_NNNN` : date de la mesure, sujet en minuscules sans accent, puis numéro d'ordre dans l'archive. Exemple : `2026-11-14_activimetre-linearite_0007`.
+
+Un numéro ne resert jamais, même après la suppression d'une page.
+
+## Suppression d'une page
+
+Un commit de nature `suppression` retire `page.json` et les tableaux du dépôt : leur contenu reste lisible dans l'historique. Le dossier de la page part dans `corbeille/<id>/`, avec ses pièces jointes. Le motif est obligatoire pour une page validée ou corrigée. `objets/` ne change pas.
 
 ## page.json
 
