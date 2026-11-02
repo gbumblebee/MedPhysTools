@@ -519,6 +519,8 @@ class EspaceSaisie(QWidget):
         attente = self.modifications_en_attente()
         erreur = self._erreur_de_saisie()
         incompletes = self.saisies_incompletes()
+        for editeur in self.editeurs():
+            editeur.noter_saisies_incompletes(incompletes)
         self.bouton_valider.setVisible(brouillon)
         self.bouton_corriger.setVisible(not brouillon)
         self.bouton_annuler.setVisible(not brouillon)

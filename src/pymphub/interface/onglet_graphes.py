@@ -4,6 +4,8 @@ Les réglages sont gardés dans la page. Le graphe montre la dernière version e
 tableau. Le facteur k ne change que l'affichage, et ne crée donc aucun enregistrement.
 """
 
+from collections.abc import Sequence
+
 from pydantic import ValidationError
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QShowEvent
@@ -50,10 +52,15 @@ def dessiner(
     page: Page,
     reglages: ReglagesGraphe | None,
     k: float,
+    manque: str | None = None,
 ) -> None:
-    """Trace un graphe, ou explique pourquoi c'est impossible, sans jamais planter."""
+    """Trace un graphe, ou explique pourquoi c'est impossible, sans jamais planter.
+
+    `manque` dit ce qui empêche d'enregistrer la page : souvent, c'est ce que le graphe attend.
+    """
     if reglages is None:
-        toile.signaler(_MESSAGE_SANS_TABLEAU)
+        suite = f" Il manque encore : {manque}." if manque else ""
+        toile.signaler(f"{_MESSAGE_SANS_TABLEAU}{suite}")
         return
     try:
         donnees = {}
@@ -75,6 +82,7 @@ class EditeurGraphes(EditeurOnglet):
         self.toile: QWidget | None = None
         self._remplissage = True
         self._a_tracer = True
+        self._manque: str | None = None
         # Tant qu'on ne touche à rien, la page ne change pas : la regarder ne coûte aucun motif.
         self.reglages: ReglagesGraphe | None = getattr(onglet, "reglages", None)
 
@@ -296,6 +304,13 @@ class EditeurGraphes(EditeurOnglet):
             update={"reglages": self.reglages, "grandeurs": ()}
         )
 
+    def noter_saisies_incompletes(self, incompletes: Sequence[str]) -> None:
+        manque = incompletes[0] if incompletes else None
+        if manque != self._manque:
+            self._manque = manque
+            if self.toile is not None and self.toile.donnees is None:
+                self.tracer_si_visible()
+
     def enregistre(self, page: Page) -> None:
         super().enregistre(page)
         self.onglet = self.valeur()
@@ -319,6 +334,7 @@ class EditeurGraphes(EditeurOnglet):
             self.page,
             self._reglages_affiches(),
             self.champ_k.value(),
+            self._manque,
         )
 
     def tracer_si_visible(self) -> None:

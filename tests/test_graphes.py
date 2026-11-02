@@ -731,6 +731,32 @@ def test_sans_tableau_l_onglet_explique_quoi_faire(qtbot, arc, monkeypatch):
     assert espace.enregistrer_maintenant()
 
 
+def test_le_message_dit_ce_qu_il_manque_au_tableau(qtbot, arc, monkeypatch):
+    espace = EspaceSaisie()
+    qtbot.addWidget(espace)
+    espace.installer(arc)
+    assert espace.creer_page(DescriptionPage("Vide", HEURE, "G.", None, ()))
+    tableau = espace.ajouter_onglet("tableau")
+    graphe = espace.ajouter_onglet("graphes")
+    espace.show()
+    qtbot.waitExposed(espace)
+
+    tableau.colonnes[0].nom.setText("heure")
+    assert "le tableau doit avoir un nom" in graphe.toile.message.text()
+    tableau.champ_nom.setText("releves")
+    tableau.colonnes[1].nom.setText("activite")
+    tableau.colonnes[0].unite.setText("h")
+    tableau.colonnes[1].unite.setText("MBq")
+    assert "« heure » n'a pas d'incertitude" in graphe.toile.message.text()
+
+    tableau.colonnes[0].composantes = (HORLOGE,)
+    tableau.colonnes[1].composantes = (CERTIFICAT,)
+    tableau.coller("0\t100\n2\t79")
+    assert espace.enregistrer_maintenant()
+    assert graphe.toile.donnees is not None
+    assert graphe.toile.message.text() == ""
+
+
 # --- Fiche -------------------------------------------------------------------------------
 
 

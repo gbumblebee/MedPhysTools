@@ -104,6 +104,9 @@ class EditeurOnglet(QWidget):
         """Indique si les cellules diffèrent de la dernière version enregistrée."""
         return False
 
+    def noter_saisies_incompletes(self, incompletes: Sequence[str]) -> None:
+        """Prévient l'éditeur de ce qui manque dans la page pour l'enregistrer."""
+
     def renommer(self, titre: str) -> None:
         """Change le titre de l'onglet, sans toucher à ses données."""
         self.onglet = self.onglet.model_copy(update={"titre": titre})
