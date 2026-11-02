@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
+import pandas as pd
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from pymphub.archive import Archive
+from pymphub.calculs import etat_derivee
 from pymphub.fichiers import ETATS_ALERTE
 from pymphub.graphes import reglages_par_defaut
 from pymphub.historique import CorrectionChamp, corrections_par_champ
@@ -46,6 +48,7 @@ from pymphub.page import (
     ColonneIdentifiant,
     Copie,
     Fichier,
+    GrandeurDerivee,
     Identifiant,
     OngletGraphes,
     OngletNotes,
@@ -174,6 +177,7 @@ class FichePage(QWidget):
         self.notes: list[QPlainTextEdit] = []
         self.bandes_photos: list[BandePhotos] = []
         self.graphes: list[tuple[QWidget, ReglagesGraphe]] = []
+        self.alertes_calculs: list[QLabel] = []
         self.etats: dict[str, str] = {}
         self.alerte_fichiers: QLabel | None = None
 
@@ -253,6 +257,7 @@ class FichePage(QWidget):
         self.notes = []
         self.bandes_photos = []
         self.graphes = []
+        self.alertes_calculs = []
         self.etats = {}
         self.alerte_fichiers = None
         self.entete.setText(message)
@@ -323,19 +328,30 @@ class FichePage(QWidget):
         self._ajouter(conteneur)
 
     def _construire_mesures(self, page: Page) -> None:
-        grandeurs = [g for g in page.mesures if isinstance(g, (Scalaire, Identifiant))]
+        grandeurs = [
+            g
+            for g in page.mesures
+            if isinstance(g, (Scalaire, Identifiant, GrandeurDerivee))
+        ]
         if not grandeurs:
             return
         self._ajouter(_titre_de_section("Mesures"))
         table = _creer_table(
-            ["Nom", "Valeur", "Unité", "U", "U relative", "Commentaire"], len(grandeurs)
+            ["Nom", "Valeur", "Unité", "U", "U relative", "Commentaire", "Formule"],
+            len(grandeurs),
         )
         self.table_mesures = table
         afficher_en_grand_colonne(table, 5, "Commentaire")
+        afficher_en_grand_colonne(table, 6, "Formule")
         for ligne, grandeur in enumerate(grandeurs):
             base = f"mesures.{grandeur.nom}"
             table.setItem(ligne, 0, QTableWidgetItem(grandeur.nom))
-            texte_valeur = formater_valeur(grandeur.valeur)
+            # Un nombre saisi s'affiche tel quel ; un résultat de calcul n'a pas 15 chiffres utiles.
+            texte_valeur = (
+                f"{grandeur.valeur:.6g}"
+                if isinstance(grandeur, GrandeurDerivee)
+                else formater_valeur(grandeur.valeur)
+            )
             corrections = self.corrections.get(f"{base}.valeur", ())
             etiquette_valeur = etiquette_tracee(texte_valeur, corrections)
             if (
@@ -346,7 +362,12 @@ class FichePage(QWidget):
                 valeurs = ", ".join(formater_valeur(v) for v in grandeur.repetitions)
                 etiquette_valeur.setToolTip(f"Moyenne de : {valeurs}")
             table.setCellWidget(ligne, 1, etiquette_valeur)
-            if isinstance(grandeur, Scalaire):
+            if isinstance(grandeur, GrandeurDerivee):
+                etiquette_valeur.setToolTip(f"Valeur complète : {grandeur.valeur!r}")
+                formule = QTableWidgetItem(grandeur.formule)
+                formule.setToolTip(grandeur.formule)
+                table.setItem(ligne, 6, formule)
+            if isinstance(grandeur, (Scalaire, GrandeurDerivee)):
                 table.setCellWidget(
                     ligne,
                     2,
@@ -358,6 +379,27 @@ class FichePage(QWidget):
         self._ajouter(table)
         self._actualiser_incertitudes()
         _hauteur_ajustee(table, 30)
+        self._signaler_calculs_perimes(page, grandeurs)
+
+    def _signaler_calculs_perimes(
+        self, page: Page, grandeurs: Sequence[object]
+    ) -> None:
+        """Un résultat enregistré ne change jamais seul : la fiche dit s'il n'est plus à jour."""
+
+        def lire_tableau(nom: str) -> pd.DataFrame:
+            return self.archive.lire_tableau(page.id, nom)
+
+        for grandeur in grandeurs:
+            if not isinstance(grandeur, GrandeurDerivee):
+                continue
+            etat = etat_derivee(page, grandeur, lire_tableau)
+            if etat is not None:
+                alerte = QLabel(f"{grandeur.nom} : {etat}")
+                alerte.setObjectName("alerte")
+                alerte.setTextFormat(Qt.TextFormat.PlainText)
+                alerte.setWordWrap(True)
+                self.alertes_calculs.append(alerte)
+                self._ajouter(alerte)
 
     def _actualiser_incertitudes(self) -> None:
         """Calcule U et U relative au facteur k choisi, sans toucher aux données."""
@@ -367,7 +409,7 @@ class FichePage(QWidget):
         table = self.table_mesures
         for ligne in range(table.rowCount()):
             grandeur = self.page.grandeur(table.item(ligne, 0).text())
-            if not isinstance(grandeur, Scalaire):
+            if not isinstance(grandeur, (Scalaire, GrandeurDerivee)):
                 continue
             budget = grandeur.budget()
             relative = budget.elargie_relative(k)
@@ -375,8 +417,9 @@ class FichePage(QWidget):
                 champ.startswith(f"mesures.{grandeur.nom}.composantes")
                 for champ in self.corrections
             )
+            unite = "" if budget.unite == "1" else f" {budget.unite}"
             element = QTableWidgetItem(
-                f"{budget.elargie(k):.2g} {budget.unite}" + (" *" if corrigee else "")
+                f"{budget.elargie(k):.2g}{unite}" + (" *" if corrigee else "")
             )
             infobulle = "\n".join(
                 f"{ligne_budget.source} : u = {ligne_budget.incertitude_type:.3g} {budget.unite} "

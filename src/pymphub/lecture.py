@@ -24,11 +24,12 @@ import pandas as pd
 from GTC.lib import UncertainReal
 
 from pymphub.historique import EntreeHistorique
-from pymphub.incertitudes import Budget, etablir_budget
+from pymphub.incertitudes import Budget, InfluencesCommunes, etablir_budget
 from pymphub.page import (
     ColonneIncertitude,
     ColonneNumerique,
     Fichier,
+    GrandeurDerivee,
     Identifiant,
     Page,
     Scalaire,
@@ -100,11 +101,15 @@ class Mesures(Mapping[str, "MesureLue | Identifiant | Tableau | Fichier"]):
     """Les grandeurs d'une page, repérées par leur nom.
 
     Un scalaire est renvoyé sous forme de `MesureLue`, toujours le même objet pour une
-    même page. Les autres grandeurs sont renvoyées telles que décrites dans la page.
+    même page. Deux mesures qui partagent un repère d'erreur commune partagent cette erreur
+    dans un calcul. Un résultat de calcul est relu tel qu'il a été enregistré : pour GTC, il
+    devient une mesure indépendante. Les autres grandeurs sont renvoyées telles que décrites
+    dans la page.
     """
 
-    def __init__(self, page: Page) -> None:
+    def __init__(self, page: Page, communes: InfluencesCommunes | None = None) -> None:
         self._page = page
+        self._communes = communes or InfluencesCommunes()
         self._lues: dict[str, MesureLue] = {}
 
     def __getitem__(self, nom: str) -> MesureLue | Identifiant | Tableau | Fichier:
@@ -112,8 +117,16 @@ class Mesures(Mapping[str, "MesureLue | Identifiant | Tableau | Fichier"]):
             return self._lues[nom]
         grandeur = self._page.grandeur(nom)
         if isinstance(grandeur, Scalaire):
+            budget = etablir_budget(
+                grandeur.valeur, grandeur.unite, grandeur.composantes, self._communes
+            )
             self._lues[nom] = MesureLue(
-                nom, grandeur.budget(), grandeur.horodatage, grandeur.commentaire
+                nom, budget, grandeur.horodatage, grandeur.commentaire
+            )
+            return self._lues[nom]
+        if isinstance(grandeur, GrandeurDerivee):
+            self._lues[nom] = MesureLue(
+                nom, grandeur.budget(), commentaire=grandeur.commentaire
             )
             return self._lues[nom]
         return grandeur
@@ -172,7 +185,8 @@ class PageLue:
         self.tags = page.tags
         self.statut = page.statut
         self.onglets = page.onglets
-        self.mesures = Mesures(page)
+        self._communes = InfluencesCommunes()
+        self.mesures = Mesures(page, self._communes)
         self.fichiers = FichiersLus(archive, page)
 
     def tableau(self, nom: str) -> pd.DataFrame:
@@ -187,7 +201,8 @@ class PageLue:
 
         `ligne` est l'indice de la ligne dans le DataFrame, à partir de 0. Les composantes
         de la colonne et celles propres à la cellule sont combinées. Chaque appel crée
-        une nouvelle mesure, indépendante de la précédente pour GTC.
+        une nouvelle mesure, indépendante de la précédente pour GTC, sauf pour ses erreurs
+        communes.
         """
         description = self.contenu.grandeur(tableau)
         if not isinstance(description, Tableau):
@@ -206,7 +221,7 @@ class PageLue:
             if isinstance(c, ColonneIncertitude) and c.composante_de == colonne
         ]
         valeur = float(donnees[colonne].iloc[ligne])
-        budget = etablir_budget(valeur, cible.unite, composantes)
+        budget = etablir_budget(valeur, cible.unite, composantes, self._communes)
         return MesureLue(f"{tableau}.{colonne}[{ligne}]", budget)
 
     def historique(self) -> list[EntreeHistorique]:

@@ -123,7 +123,25 @@ def afficher_en_grand(
 def afficher_en_grand_colonne(
     table: QTableWidget, colonne: int, titre: Titre
 ) -> AffichageEnGrand:
-    """Installe l'action sur une colonne de texte d'une table."""
+    """Installe l'action sur une colonne de texte d'une table.
+
+    Plusieurs colonnes d'une même table peuvent en profiter : elles partagent un seul menu.
+    """
+    existant = table.findChild(AffichageEnGrand)
+    if existant is not None:
+        lire_autre = existant.lire_texte
+        titre_autre = existant.titre
+
+        def lire_les_deux(position: QPoint) -> str:
+            element = table.itemAt(position)
+            if element is not None and element.column() == colonne:
+                existant.titre = titre
+                return element.text()
+            existant.titre = titre_autre
+            return lire_autre(position)
+
+        existant.lire_texte = lire_les_deux
+        return existant
 
     def lire(position: QPoint) -> str:
         element = table.itemAt(position)

@@ -41,8 +41,7 @@ class Composante(BaseModel):
     degrés de liberté infinis.
 
     `erreur_commune` repère une erreur partagée entre plusieurs mesures, par exemple
-    le numéro d'un certificat. Ce champ est conservé, mais pas encore exploité dans
-    les calculs : voir docs/incertitudes.md.
+    le numéro d'un certificat : voir `InfluencesCommunes` et docs/incertitudes.md.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -192,13 +191,72 @@ class Budget:
         )
 
 
+def budget_fige(
+    valeur: float,
+    unite: str,
+    incertitude_type: float,
+    ddl: float | None,
+    lignes: Sequence[LigneBudget],
+) -> Budget:
+    """Reconstruit le budget enregistré d'un résultat de calcul.
+
+    Pour GTC, ce résultat devient une mesure indépendante des grandeurs dont il vient.
+    """
+    degres = math.inf if ddl is None else ddl
+    return Budget(
+        valeur=valeur,
+        unite=unite,
+        lignes=tuple(lignes),
+        gtc=ureal(valeur, incertitude_type, degres),
+    )
+
+
+class ErreurCommuneIncoherente(ValueError):
+    """Un même repère d'erreur commune est déclaré de façon contradictoire."""
+
+
+class InfluencesCommunes:
+    """Les erreurs partagées entre les mesures d'un même calcul, par repère.
+
+    Chaque repère correspond à une seule variable d'écart type 1. Une mesure en reçoit
+    u · e, où u est sa propre incertitude-type pour cette composante. Une erreur relative de
+    1 % sur 100 MBq et sur 50 MBq donne donc 1 · e et 0,5 · e : leur rapport ne dépend plus
+    de e, et l'erreur se compense exactement. La corrélation est supposée complète et de
+    même signe.
+    """
+
+    def __init__(self) -> None:
+        self._variables: dict[str, tuple[UncertainReal, float]] = {}
+
+    def variable(self, composante: Composante) -> UncertainReal:
+        """Renvoie la variable partagée de ce repère, en la créant au premier appel."""
+        repere = composante.erreur_commune
+        ddl = math.inf if composante.ddl is None else composante.ddl
+        if repere not in self._variables:
+            self._variables[repere] = (ureal(0.0, 1.0, ddl, label=repere), ddl)
+        variable, attendu = self._variables[repere]
+        if ddl != attendu:
+            raise ErreurCommuneIncoherente(
+                f"L'erreur commune « {repere} » est déclarée avec des degrés de liberté "
+                f"différents ({attendu} et {ddl}) : c'est une seule erreur, à déclarer "
+                "de la même façon partout."
+            )
+        return variable
+
+
 def etablir_budget(
-    valeur: float, unite: str, composantes: Sequence[Composante]
+    valeur: float,
+    unite: str,
+    composantes: Sequence[Composante],
+    communes: InfluencesCommunes | None = None,
+    etiquette: str = "",
 ) -> Budget:
     """Combine les composantes d'une mesure et renvoie son budget.
 
     L'incertitude est obligatoire : une valeur exacte le déclare par
-    `composante_exacte`.
+    `composante_exacte`. Avec `communes`, les composantes de même repère partagent une seule
+    erreur. Sans lui, chaque budget reste indépendant. `etiquette` préfixe le nom des
+    composantes, pour les reconnaître dans le budget d'un calcul.
     """
     verification = verifier_unite(unite)
     if not verification.valide:
@@ -232,7 +290,10 @@ def etablir_budget(
     gtc = ureal(valeur, 0.0)
     for composante, u in zip(composantes, incertitudes):
         if u > 0:
+            if communes is not None and composante.erreur_commune is not None:
+                gtc = gtc + u * communes.variable(composante)
+                continue
             ddl = math.inf if composante.ddl is None else composante.ddl
-            gtc = gtc + ureal(0.0, u, ddl, label=composante.source)
+            gtc = gtc + ureal(0.0, u, ddl, label=f"{etiquette}{composante.source}")
 
     return Budget(valeur=valeur, unite=unite, lignes=lignes, gtc=gtc)

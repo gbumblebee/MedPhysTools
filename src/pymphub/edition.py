@@ -7,9 +7,17 @@ from datetime import datetime
 from typing import Any
 
 from pymphub.archive import Archive
-from pymphub.page import Fichier, Identifiant, Onglet, Page, Scalaire, Tableau
+from pymphub.page import (
+    Fichier,
+    GrandeurDerivee,
+    Identifiant,
+    Onglet,
+    Page,
+    Scalaire,
+    Tableau,
+)
 
-Grandeur = Scalaire | Identifiant | Tableau | Fichier
+Grandeur = Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee
 _DECIMALES_ANNOTATION = 6
 
 

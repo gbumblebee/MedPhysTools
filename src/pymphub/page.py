@@ -30,7 +30,13 @@ from pydantic import (
 )
 
 from pymphub.disque import verifier_nom_windows
-from pymphub.incertitudes import Budget, Composante, etablir_budget
+from pymphub.incertitudes import (
+    Budget,
+    Composante,
+    LigneBudget,
+    budget_fige,
+    etablir_budget,
+)
 from pymphub.unites import (
     UniteInvalide,
     UnitesIncompatibles,
@@ -323,8 +329,49 @@ class Fichier(_Modele):
     commentaire: str = ""
 
 
+class LigneDerivee(_Modele):
+    """Une ligne du budget d'un calcul, dans l'unité de son résultat."""
+
+    source: str
+    type: str
+    loi: str
+    incertitude_type: float = Field(ge=0, allow_inf_nan=False)
+    ddl: float | None = None
+    contribution_pourcent: float = Field(ge=0, allow_inf_nan=False)
+
+
+class GrandeurDerivee(_Modele):
+    """Le résultat d'un calcul sur d'autres grandeurs, avec sa formule.
+
+    Les valeurs brutes restent des grandeurs à part : une dérivée ne les remplace jamais.
+    Son résultat est figé à l'enregistrement. `ddl` à None signifie des degrés de liberté
+    infinis. Une composante d'erreur commune y apparaît une seule fois.
+    """
+
+    nature: Literal["derivee"] = "derivee"
+    nom: Nom
+    formule: str = Field(min_length=1)
+    valeur: Nombre
+    unite: Unite
+    incertitude_type: float = Field(ge=0, allow_inf_nan=False)
+    ddl: float | None = Field(default=None, gt=0)
+    budget_calcul: tuple[LigneDerivee, ...] = ()
+    commentaire: str = ""
+
+    def budget(self) -> Budget:
+        """Le budget enregistré, sans refaire le calcul."""
+        return budget_fige(
+            self.valeur,
+            self.unite,
+            self.incertitude_type,
+            self.ddl,
+            [LigneBudget(**ligne.model_dump()) for ligne in self.budget_calcul],
+        )
+
+
 Grandeur = Annotated[
-    Scalaire | Identifiant | Tableau | Fichier, Field(discriminator="nature")
+    Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee,
+    Field(discriminator="nature"),
 ]
 
 
@@ -546,7 +593,9 @@ class Page(_Modele):
 
         return self
 
-    def grandeur(self, nom: str) -> Scalaire | Identifiant | Tableau | Fichier:
+    def grandeur(
+        self, nom: str
+    ) -> Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee:
         """Renvoie une grandeur d'après son nom, quel que soit son onglet."""
         for grandeur in self.mesures:
             if grandeur.nom == nom:

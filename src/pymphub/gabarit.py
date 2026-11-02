@@ -19,6 +19,7 @@ from pymphub.page import (
     ColonneIncertitude,
     ColonneNumerique,
     Fichier,
+    GrandeurDerivee,
     Identifiant,
     Nom,
     Page,
@@ -176,6 +177,11 @@ def creer_gabarit(
             resultat[nom_grandeur] = VariableIdentifiant(nom=grandeur.nom)
         elif isinstance(grandeur, Fichier):
             resultat[nom_grandeur] = VariableFichier(nom=grandeur.nom)
+        elif isinstance(grandeur, GrandeurDerivee):
+            raise ValueError(
+                f"« {nom_grandeur} » est un résultat de calcul : choisir plutôt les "
+                "grandeurs mesurées dont il dépend."
+            )
         else:
             resultat[nom_grandeur] = VariableTableau(
                 nom=grandeur.nom,

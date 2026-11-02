@@ -74,7 +74,12 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Barres d'erreur conformes au tableau, à k choisi | `tests/test_graphes.py::test_les_barres_dessinees_correspondent_au_tableau` | Vérifié |
 | Graphe affiché sans OpenGL | `tests/test_graphes.py::test_un_graphe_s_affiche_sans_opengl` | Vérifié hors écran ; à confirmer sur un PC d'hôpital |
 | Annotations à part de la photo | `tests/test_page.py::test_les_annotations_sont_enregistrees_a_part_de_la_photo` | Vérifié |
-| Repère d'erreur commune conservé | `tests/test_page.py::test_l_erreur_commune_est_conservee_dans_une_page` | Vérifié ; pas utilisé en calcul |
+| Repère d'erreur commune conservé | `tests/test_page.py::test_l_erreur_commune_est_conservee_dans_une_page` | Vérifié |
+| Rapport de deux mesures à certificat commun | `tests/test_calculs.py::test_le_rapport_garde_seulement_les_erreurs_propres` | Vérifié à la main |
+| Formule de décroissance : valeur, U et budget | `tests/test_calculs.py::test_la_formule_de_decroissance_donne_valeur_u_et_budget` | Vérifié à la main |
+| Une formule n'exécute pas de code | `tests/test_calculs.py::test_une_formule_interdite_est_refusee_sans_rien_executer` | Vérifié |
+| Une dérivée garde sa formule sans remplacer de valeur brute | `tests/test_calculs.py::test_une_derivee_ne_remplace_aucune_valeur_brute` | Vérifié |
+| L'archive figée du format 1 se relit | `tests/test_format_1.py::test_toutes_les_pages_se_relisent` | Vérifié |
 
 ## Gabarits
 

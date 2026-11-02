@@ -56,6 +56,7 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
 - `scalaire` : `valeur` numérique, `unite` et `composantes` d'incertitude, toutes obligatoires. À partir du format 2 de la page, `repetitions` garde les valeurs brutes de mesures répétées, dont `valeur` est la moyenne.
 - `identifiant` : `valeur` texte, à conserver à l'identique.
 - `tableau` : `fichier` CSV dans `brut/` et description de ses `colonnes`. Une colonne se désigne par `tableau.colonne`. À partir du format 2 de la page, chaque colonne peut porter un `commentaire`.
+- `derivee` : résultat d'un calcul, décrit plus bas (à partir du format 2 de la page).
 - `fichier` : fichier brut, avec son mode de stockage :
   - `copie` : dans `objets/`, retrouvé par son empreinte ;
   - `reference_fichier` : chemin externe, empreinte, taille et date ;
@@ -70,6 +71,12 @@ Un onglet de notes liste ses `photos` : `chemin` d'une pièce jointe, `legende` 
 ## Onglet de graphes
 
 Un onglet de type `graphes` garde ses `reglages` : `tableau`, `mode` (`2d` ou `3d`), colonnes `x`, `y` (une ou plusieurs) et `z`, échelles `echelle_x`, `echelle_y`, `echelle_z` (`lineaire` ou `log`), `barres`, `relier` et `surface`. Le facteur k n'y figure pas : il se choisit à l'affichage. Sans réglages, les références de `grandeurs` désignent les colonnes à tracer.
+
+## Résultat d'un calcul
+
+La nature `derivee` garde le résultat d'une formule sur d'autres grandeurs de la page : `formule`, `valeur`, `unite`, `incertitude_type`, `ddl` (`null` signifie infinis) et `budget_calcul`, la part de chaque source dans l'incertitude. Le résultat est figé à l'enregistrement. Les valeurs brutes restent à part : une dérivée ne les remplace jamais.
+
+Dans une formule, une cellule de tableau s'écrit `tableau.colonne[3]`, en comptant les lignes à partir de 1. Les composantes de même `erreur_commune` y comptent comme une seule erreur.
 
 ## Tableaux CSV
 
@@ -90,7 +97,7 @@ Un fichier d'empreinte SHA-256 `3fa9c2…` se trouve dans `objets/3f/a9c2…`, s
 | `k` | facteur de la valeur déclarée, pour une loi normale |
 | `ddl` | degrés de liberté ; `null` signifie infinis |
 | `source` | origine de la composante |
-| `erreur_commune` | repère d'une erreur partagée entre plusieurs mesures, ou `null` |
+| `erreur_commune` | repère d'une erreur partagée entre plusieurs mesures d'une page, ou `null` ; elle compte alors comme une seule erreur |
 
 Les composantes d'une mesure se combinent en somme quadratique. L'incertitude élargie vaut k · u_c, le facteur k étant choisi à l'affichage et jamais stocké.
 
