@@ -336,6 +336,7 @@ class PieceJointe(_Modele):
 
     chemin: CheminPieceJointe
     empreinte: Empreinte
+    commentaire: str = ""
 
 
 class Annotation(_Modele):

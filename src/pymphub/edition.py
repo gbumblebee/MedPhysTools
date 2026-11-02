@@ -88,9 +88,9 @@ def point_normalise(
     )
 
 
-def nom_de_fichier_libre(stem: str, pris: Iterable[str]) -> str:
-    """Propose un nom de grandeur pour un fichier, libre dans la page."""
-    base = suggerer_nom(stem) or "fichier"
+def nom_libre(texte: str, pris: Iterable[str], defaut: str = "fichier") -> str:
+    """Propose un nom de grandeur libre dans la page : rien n'est jamais écrasé."""
+    base = suggerer_nom(texte) or defaut
     occupes = set(pris)
     nom = base
     numero = 1

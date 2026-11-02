@@ -5,6 +5,7 @@ Une photo n'est jamais écrite : ses annotations sont dans `page.json`, en coord
 """
 
 import math
+from collections import OrderedDict
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -45,6 +46,9 @@ from pymphub.page import Annotation, PhotoAnnotee
 
 _COTE_VIGNETTE = 150
 _HAUTEUR_MIN_BANDE = 110
+# L'annotation n'a pas de zoom : au-delà, on décoderait des pixels jamais affichés.
+_COTE_MAX_ANNOTATION = 2048
+_VIGNETTES_EN_MEMOIRE = 128
 _LIMITE_MEMOIRE_IMAGE_MO = 1024
 _DISTANCE_MIN_PIXELS = 3.0
 _LONGUEUR_POINTE = 12.0
@@ -96,6 +100,30 @@ def charger_image(chemin: Path, cote_max: int | None = None) -> QImage:
             )
         )
     return lecteur.read()
+
+
+_vignettes: OrderedDict[tuple[str, int, int, int], QImage] = OrderedDict()
+
+
+def charger_vignette(chemin: Path, cote: int = _COTE_VIGNETTE) -> QImage:
+    """Lit une vignette une seule fois, tant que le fichier ne change pas sur le disque.
+
+    Une page se réaffiche à chaque enregistrement : sans cela, toutes ses photos seraient
+    décodées à nouveau à chaque fois.
+    """
+    try:
+        etat = chemin.stat()
+    except OSError:
+        return QImage()
+    cle = (str(chemin), etat.st_mtime_ns, etat.st_size, cote)
+    if cle in _vignettes:
+        _vignettes.move_to_end(cle)
+        return _vignettes[cle]
+    image = charger_image(chemin, cote)
+    _vignettes[cle] = image
+    while len(_vignettes) > _VIGNETTES_EN_MEMOIRE:
+        _vignettes.popitem(last=False)
+    return image
 
 
 def zone_image(taille_image: QSize, largeur: float, hauteur: float) -> QRectF:
@@ -224,7 +252,7 @@ class VignettePhoto(QFrame):
         self.image = QLabel()
         self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image.setFixedSize(_COTE_VIGNETTE, _COTE_VIGNETTE)
-        lue = charger_image(chemin, _COTE_VIGNETTE)
+        lue = charger_vignette(chemin)
         self.lisible = not lue.isNull()
         if self.lisible:
             self.image.setPixmap(rendre_photo(lue, photo.annotations))
@@ -406,7 +434,7 @@ class DialogueAnnotation(QDialog):
         self.resize(1040, 680)
         self.chemin_photo = photo.chemin
         self.toile = ToileAnnotation(
-            charger_image(chemin), photo.annotations, modifiable
+            charger_image(chemin, _COTE_MAX_ANNOTATION), photo.annotations, modifiable
         )
         self.toile.annotation_ajoutee.connect(self._annotation_ajoutee)
         self._mise_a_jour = False

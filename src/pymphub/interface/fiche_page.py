@@ -495,7 +495,7 @@ class FichePage(QWidget):
                 detail = f"{stockage.noeud} — {stockage.series_instance_uid}"
             lignes.append((fichier.nom, etat, nature, detail, fichier.commentaire))
         lignes += [
-            (p.chemin, self.etats[p.chemin], "Pièce jointe", "", "")
+            (p.chemin, self.etats[p.chemin], "Pièce jointe", "", p.commentaire)
             for p in page.pieces_jointes
         ]
         table = _creer_table(

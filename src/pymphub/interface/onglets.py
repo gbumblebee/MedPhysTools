@@ -54,6 +54,8 @@ class EditeurOnglet(QWidget):
 
     modifie = Signal()
     mesure_proposee = Signal(object)
+    # Les valeurs lues par un import, et s'il faut montrer l'onglet qui les reçoit.
+    valeurs_importees = Signal(object, bool)
 
     def __init__(
         self, onglet: Onglet, page: Page | None = None, parent: QWidget | None = None
@@ -78,6 +80,10 @@ class EditeurOnglet(QWidget):
     def grandeurs(self) -> list[Grandeur]:
         """Grandeurs valides saisies dans cet onglet."""
         return []
+
+    def noms_utilises(self) -> list[str]:
+        """Noms déjà pris par cet onglet, y compris ceux d'une saisie incomplète."""
+        return [grandeur.nom for grandeur in self.grandeurs()]
 
     def erreurs(self) -> list[str]:
         """Ce qu'il manque pour que la saisie de cet onglet soit complète."""

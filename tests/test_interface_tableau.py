@@ -2,11 +2,17 @@
 
 import csv
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import openpyxl
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QTableWidgetItem, QTableWidgetSelectionRange
+from PySide6.QtWidgets import (
+    QApplication,
+    QScrollArea,
+    QTableWidgetItem,
+    QTableWidgetSelectionRange,
+)
 
 from pymphub import Archive
 from pymphub.depot import Depot
@@ -24,14 +30,17 @@ from pymphub.importation import (
 )
 from pymphub.incertitudes import Composante
 from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from pymphub.interface.fenetre import DescriptionArchive, FenetrePrincipale
 from pymphub.interface.fiche_page import FichePage
+from pymphub.interface.import_personnalise import FICHIER_IMPORTS
 from pymphub.interface.onglet_scalaires import EditeurScalaires
-from pymphub.interface.onglet_tableau import FICHIER_IMPORTS, EditeurTableau
+from pymphub.interface.onglet_tableau import EditeurTableau
 from pymphub.interface.texte_en_grand import (
     LIBELLE_ACTION,
     AffichageEnGrand,
     DialogueTexte,
 )
+from pymphub.interface.theme import appliquer_theme
 from pymphub.page import Scalaire, Tableau
 
 PARIS = timezone(timedelta(hours=1))
@@ -941,14 +950,16 @@ def test_deviner_la_nature_d_une_colonne(valeurs, attendu):
 def test_un_import_peut_renvoyer_des_lignes():
     grille = executer_import_personnalise(
         "a", lambda _chemin: [["x", "y"], [1, 2.5], [3, None]], None
-    )
+    ).grille
     assert grille.entetes == ["x", "y"]
     assert grille.lignes == [["1", "2.5"], ["3", ""]]
 
 
 def test_un_import_peut_renvoyer_une_grille():
     attendue = Grille(["a"], [["1"]])
-    assert executer_import_personnalise("a", lambda _chemin: attendue, None) == attendue
+    resultat = executer_import_personnalise("a", lambda _chemin: attendue, None)
+    assert resultat.grille == attendue
+    assert resultat.valeurs == ()
 
 
 # --- Commentaire d'une colonne --------------------------------------------------------
@@ -1065,3 +1076,375 @@ def test_le_commentaire_d_une_colonne_s_affiche_en_grand_dans_la_fiche(
     menu = etiquette.findChild(AffichageEnGrand).menu()
     next(a for a in menu.actions() if a.text() == LIBELLE_ACTION).trigger()
     assert ouverts == [("Commentaire de releves.activite", "Lue sur l'afficheur")]
+
+
+# --- Import de scalaires et d'informations ----------------------------------------------
+
+
+def importer(fonction, chemin=Path("mesure.csv")):
+    return executer_import_personnalise("essai", fonction, chemin)
+
+
+def test_le_format_complet_se_lit_entierement():
+    resultat = importer(
+        lambda _c: {
+            "tableau": {"lot": ["007"]},
+            "scalaires": [
+                {
+                    "nom": "Température ambiante",
+                    "valeur": "21,5",
+                    "unite": "degC",
+                    "commentaire": "Sonde",
+                    "composantes": [
+                        {"type": "B", "valeur": 0.5, "unite": "degC", "source": "sonde"}
+                    ],
+                }
+            ],
+            "informations": {"numero_serie": "007"},
+        }
+    )
+    assert resultat.grille == Grille(["lot"], [["007"]])
+    temperature, serie = resultat.valeurs
+    assert temperature.nom == "Température_ambiante"
+    assert temperature.valeur == "21,5"
+    assert temperature.unite == "degC"
+    assert temperature.commentaire == "Sonde"
+    assert temperature.composantes[0].source == "sonde"
+    assert not temperature.identifiant
+    assert (serie.nom, serie.valeur, serie.identifiant) == ("numero_serie", "007", True)
+    assert serie.commentaire == "Importé depuis mesure.csv"
+
+
+def test_sans_tableau_les_valeurs_suffisent():
+    resultat = importer(lambda _c: {"informations": {"lot": "A"}})
+    assert resultat.grille is None
+    assert [v.nom for v in resultat.valeurs] == ["lot"]
+
+
+@pytest.mark.parametrize(
+    "colonnes",
+    [
+        {"tableau": [1, 2]},
+        {"scalaires": [1.5, 2.5]},
+        {"informations": ["a", "b"]},
+        {"tableau": ["a"], "scalaires": ["b"]},
+    ],
+)
+def test_une_colonne_nommee_comme_une_cle_reste_une_colonne(colonnes):
+    resultat = importer(lambda _c: colonnes)
+    assert resultat.grille.entetes == list(colonnes)
+    assert resultat.valeurs == ()
+
+
+@pytest.mark.parametrize(
+    ("renvoye", "attendu"),
+    [
+        ({"scalaire": [{"nom": "a", "valeur": 1}]}, "clé « scalaire » inconnue"),
+        ({"tableau": {"a": [1]}, "infos": {"b": "c"}}, "clé « tableau » inconnue"),
+        ({"scalaires": [{"nom": "a"}]}, "n'a pas de « valeur »"),
+        ({"scalaires": [{"valeur": 1}]}, "n'a pas de « nom »"),
+        ({"scalaires": [{"nom": "a", "valeur": "x"}]}, "n'est pas un nombre"),
+        ({"scalaires": [{"nom": "a", "valeur": True}]}, "n'est pas un nombre"),
+        ({"scalaires": [{"nom": "a", "valeur": float("nan")}]}, "n'est pas un nombre"),
+        ({"scalaires": [{"nom": "a", "valeur": 1, "u": 2}]}, "champ(s) inconnu(s)"),
+        ({"scalaires": [{"nom": "---", "valeur": 1}]}, "pas utilisable"),
+        ({"scalaires": []}, "n'a rien trouvé"),
+        ({"scalaires": [{"nom": "a", "valeur": 1, "composantes": [{}]}]}, "Erreur"),
+    ],
+)
+def test_un_resultat_mal_forme_s_explique(renvoye, attendu):
+    with pytest.raises(ImportImpossible) as erreur:
+        importer(lambda _c: renvoye)
+    assert attendu in str(erreur.value)
+
+
+@pytest.fixture
+def import_complet(tmp_path, monkeypatch):
+    """Prépare une fonction d'import et un fichier à importer ; renvoie ce fichier."""
+
+    def preparer(editeur, renvoye):
+        dossier = tmp_path / "preferences"
+        dossier.mkdir()
+        (dossier / FICHIER_IMPORTS).write_text(
+            f"def importer_essai(chemin):\n    return {renvoye!r}\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("PYMPHUB_CONFIG", str(dossier))
+        source = tmp_path / "mesure.csv"
+        source.write_text("contenu d'origine", encoding="utf-8")
+        monkeypatch.setattr(editeur, "_choisir_import", lambda noms: noms[0])
+        monkeypatch.setattr(editeur, "_choisir_fichier", lambda: str(source))
+        return source
+
+    return preparer
+
+
+SCALAIRE_COMPLET = {
+    "nom": "activite_ref",
+    "valeur": 100.0,
+    "unite": "MBq",
+    "composantes": [
+        {"type": "B", "valeur": 1.0, "unite": "MBq", "source": "certificat"}
+    ],
+}
+
+
+def test_un_import_complet_remplit_le_tableau_et_les_scalaires(
+    espace, editeur, import_complet
+):
+    source = import_complet(
+        editeur,
+        {
+            "tableau": {"lot": ["007", "008"]},
+            "scalaires": [SCALAIRE_COMPLET],
+            "informations": {"numero_serie": "007"},
+        },
+    )
+    assert editeur.demander_import_personnalise()
+    assert editeur.message.text() == (
+        "Tableau : le tableau doit avoir un nom · "
+        "2 valeurs ajoutées à l'onglet de scalaires."
+    )
+    editeur.champ_nom.setText("t")
+
+    assert editeur.lignes_remplies() == [0, 1]
+    # L'onglet de scalaires est créé, et l'onglet du tableau reste affiché.
+    assert espace.onglets.currentWidget() is editeur
+    scalaires = next(e for e in espace.editeurs() if isinstance(e, EditeurScalaires))
+    assert [ligne.nom.text() for ligne in scalaires.lignes] == [
+        "activite_ref",
+        "numero_serie",
+    ]
+
+    assert espace.enregistrer_maintenant()
+    page = relue(espace)
+    assert page.grandeur("activite_ref").valeur == 100.0
+    assert page.grandeur("activite_ref").commentaire == "Importé depuis mesure.csv"
+    assert page.grandeur("numero_serie").valeur == "007"
+    assert isinstance(page.grandeur("t"), Tableau)
+    assert [p.chemin for p in page.pieces_jointes] == ["pieces_jointes/mesure.csv"]
+    copie = espace.archive.racine / "pages" / page.id / "pieces_jointes" / "mesure.csv"
+    assert copie.read_bytes() == source.read_bytes()
+
+
+def test_un_scalaire_importe_sans_incertitude_reste_a_completer(
+    espace, editeur, import_complet
+):
+    import_complet(
+        editeur,
+        {"scalaires": [{"nom": "temperature", "valeur": 21.5, "unite": "degC"}]},
+    )
+    assert editeur.demander_import_personnalise()
+
+    scalaires = espace.onglets.currentWidget()
+    assert isinstance(scalaires, EditeurScalaires)
+    ligne = scalaires.lignes[0]
+    assert ligne.valeur.text() == "21.5"
+    assert ligne.composantes == ()
+    assert espace.saisies_incompletes() == [
+        "temperature : l'incertitude est obligatoire"
+    ]
+    assert espace.enregistrer_maintenant()
+    assert relue(espace).mesures == ()
+
+    ligne.composantes = (
+        Composante(type="B", valeur=0.5, unite="degC", source="sonde"),
+    )
+    scalaires.ligne_modifiee()
+    assert espace.saisies_incompletes() == []
+    assert espace.enregistrer_maintenant()
+    assert relue(espace).grandeur("temperature").valeur == 21.5
+
+
+def test_un_nom_importe_se_lit_depuis_son_debut(espace, editeur, import_complet):
+    import_complet(editeur, {"informations": {"numero_de_serie_tres_long": "A"}})
+    assert editeur.demander_import_personnalise()
+    ligne = espace.onglets.currentWidget().lignes[0]
+    assert ligne.nom.cursorPosition() == 0
+    assert ligne.valeur.cursorPosition() == 0
+    assert ligne.nom.minimumWidth() >= 105
+    assert ligne.valeur.minimumWidth() >= 80
+
+
+@pytest.fixture
+def theme_applique(qapp):
+    """Le thème élargit les champs : une mise en page ne se mesure qu'avec lui."""
+    feuille, style = qapp.styleSheet(), qapp.style().objectName()
+    palette = qapp.palette()
+    appliquer_theme(qapp)
+    yield
+    qapp.setStyleSheet(feuille)
+    qapp.setStyle(style)
+    qapp.setPalette(palette)
+
+
+def test_la_grille_de_scalaires_tient_sans_ascenseur_horizontal(
+    qtbot, tmp_path, import_complet, theme_applique
+):
+    """Le bouton de retrait reste visible, mesuré dans la vraie fenêtre et ses marges."""
+    fenetre = FenetrePrincipale()
+    qtbot.addWidget(fenetre)
+    fenetre.creer_archive(
+        DescriptionArchive(tmp_path / "F", "CHU X", "Resp.", date(2026, 11, 1))
+    )
+    saisie = fenetre.espace_saisie
+    fenetre.espaces.setCurrentWidget(saisie)
+    assert saisie.creer_page(DescriptionPage("CQ", HEURE, "G.", None, ()))
+    tableau = saisie.ajouter_onglet("tableau")
+    import_complet(
+        tableau,
+        {
+            "scalaires": [SCALAIRE_COMPLET],
+            "informations": {"numero_serie": "NS-007"},
+        },
+    )
+    assert tableau.demander_import_personnalise()
+    scalaires = saisie.onglets.currentWidget()
+    fenetre.resize(1300, 800)
+    fenetre.show()
+    qtbot.waitExposed(fenetre)
+    qtbot.wait(200)  # Laisse Qt finir sa mise en page, comme pour une capture.
+    defilement = scalaires.findChild(QScrollArea)
+    assert defilement.horizontalScrollBar().maximum() == 0
+    retirer = scalaires.lignes[-1].bouton_retirer
+    droite = retirer.mapTo(defilement.viewport(), retirer.rect().topRight()).x()
+    assert droite < defilement.viewport().width()
+    fenetre.espace_archive.arreter()
+
+
+def test_un_nom_deja_pris_n_ecrase_rien(espace, editeur, import_complet):
+    import_complet(editeur, {"scalaires": [SCALAIRE_COMPLET]})
+    assert editeur.demander_import_personnalise()
+    assert espace.enregistrer_maintenant()
+    avant = relue(espace).grandeur("activite_ref")
+
+    assert editeur.demander_import_personnalise()
+    scalaires = espace.onglets.currentWidget()
+    assert [ligne.nom.text() for ligne in scalaires.lignes] == [
+        "activite_ref",
+        "activite_ref_2",
+    ]
+    assert espace.enregistrer_maintenant()
+    page = relue(espace)
+    assert page.grandeur("activite_ref") == avant
+    assert page.grandeur("activite_ref_2").valeur == 100.0
+
+
+def test_un_nom_pris_par_le_tableau_ou_une_ligne_incomplete_est_evite(
+    espace, editeur, import_complet
+):
+    editeur.champ_nom.setText("releves")
+    scalaires = espace.ajouter_onglet("scalaires")
+    scalaires.lignes[0].nom.setText("incomplete")
+    espace.onglets.setCurrentWidget(editeur)
+    import_complet(
+        editeur,
+        {"informations": {"releves": "A", "incomplete": "B", "libre": "C"}},
+    )
+    assert editeur.demander_import_personnalise()
+    assert [ligne.nom.text() for ligne in scalaires.lignes] == [
+        "incomplete",
+        "releves_2",
+        "incomplete_2",
+        "libre",
+    ]
+
+
+def test_deux_valeurs_de_meme_nom_dans_un_import_restent_distinctes(
+    espace, editeur, import_complet
+):
+    deux = {**SCALAIRE_COMPLET, "valeur": 200.0}
+    import_complet(editeur, {"scalaires": [SCALAIRE_COMPLET, deux]})
+    assert editeur.demander_import_personnalise()
+    assert espace.enregistrer_maintenant()
+    page = relue(espace)
+    assert page.grandeur("activite_ref").valeur == 100.0
+    assert page.grandeur("activite_ref_2").valeur == 200.0
+
+
+def test_refuser_de_remplacer_le_tableau_n_importe_rien(
+    espace, editeur, import_complet, monkeypatch
+):
+    editeur.coller("1\t2")
+    import_complet(editeur, {"tableau": {"a": [1]}, "scalaires": [SCALAIRE_COMPLET]})
+    monkeypatch.setattr(editeur, "_confirmer_remplacement", lambda: False)
+    assert not editeur.demander_import_personnalise()
+    assert not any(isinstance(e, EditeurScalaires) for e in espace.editeurs())
+    assert espace.pieces.pieces == ()
+
+
+def test_un_import_sans_tableau_laisse_le_tableau_en_place(
+    espace, editeur, import_complet, monkeypatch
+):
+    editeur.coller("1\t2")
+    monkeypatch.setattr(
+        editeur,
+        "_confirmer_remplacement",
+        lambda: pytest.fail("Rien ne remplace ce tableau."),
+    )
+    import_complet(editeur, {"informations": {"lot": "A"}})
+    assert editeur.demander_import_personnalise()
+    assert editeur.lignes_remplies() == [0]
+    assert [p.chemin for p in espace.pieces.pieces] == ["pieces_jointes/mesure.csv"]
+
+
+def test_l_import_depuis_l_onglet_de_scalaires(espace, import_complet):
+    scalaires = espace.ajouter_onglet("scalaires")
+    import_complet(scalaires, {"scalaires": [SCALAIRE_COMPLET]})
+    assert scalaires.demander_import_personnalise()
+    assert espace.onglets.currentWidget() is scalaires
+    # La ligne vide de départ ne reste pas au-dessus des valeurs importées.
+    assert [ligne.nom.text() for ligne in scalaires.lignes] == ["activite_ref"]
+    assert [p.chemin for p in espace.pieces.pieces] == ["pieces_jointes/mesure.csv"]
+    assert scalaires.message_import.text() == ""
+
+
+def test_un_tableau_importe_depuis_les_scalaires_reçoit_son_onglet(
+    espace, import_complet
+):
+    scalaires = espace.ajouter_onglet("scalaires")
+    import_complet(
+        scalaires,
+        {"tableau": {"lot": ["007"]}, "scalaires": [SCALAIRE_COMPLET]},
+    )
+    assert scalaires.demander_import_personnalise()
+    tableau = next(e for e in espace.editeurs() if isinstance(e, EditeurTableau))
+    assert tableau.lignes_remplies() == [0]
+    assert espace.onglets.currentWidget() is tableau
+    assert [ligne.nom.text() for ligne in scalaires.lignes] == ["activite_ref"]
+
+
+def test_une_erreur_d_import_s_affiche_dans_l_onglet_de_scalaires(
+    espace, import_complet
+):
+    scalaires = espace.ajouter_onglet("scalaires")
+    import_complet(scalaires, {"scalaires": [{"nom": "a"}]})
+    assert not scalaires.demander_import_personnalise()
+    assert "n'a pas de « valeur »" in scalaires.message_import.text()
+    assert scalaires.message_import.isVisibleTo(scalaires)
+
+
+def test_un_import_personnalise_refuse_un_dicom_sans_lancer_la_fonction(
+    espace, editeur, import_complet, tmp_path, monkeypatch
+):
+    import_complet(editeur, {"informations": {"patient": "NOM"}})
+    dicom = tmp_path / "patient.dcm"
+    dicom.write_bytes(b"x")
+    monkeypatch.setattr(editeur, "_choisir_fichier", lambda: str(dicom))
+    assert not editeur.demander_import_personnalise()
+    assert "DICOM" in editeur.message.text()
+    assert not any(isinstance(e, EditeurScalaires) for e in espace.editeurs())
+
+
+def test_une_page_validee_garde_ses_valeurs_importees_en_attente_d_un_motif(
+    espace, editeur, import_complet
+):
+    editeur.champ_nom.setText("")
+    assert espace.demander_validation()
+    tableau = espace.ajouter_onglet("tableau")
+    import_complet(tableau, {"scalaires": [SCALAIRE_COMPLET]})
+    assert tableau.demander_import_personnalise()
+    assert espace.modifications_en_attente()
+    assert relue(espace).mesures == ()
+    assert espace.demander_correction()
+    assert relue(espace).statut == "corrigée"
+    assert relue(espace).grandeur("activite_ref").valeur == 100.0

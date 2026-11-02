@@ -4,8 +4,10 @@ Un brouillon s'enregistre tout seul, peu après chaque modification. Une page va
 s'enregistre que par une correction motivée, à la demande de l'utilisateur.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import ValidationError
 from PySide6.QtCore import QDateTime, Qt, QTimer, Signal
@@ -38,6 +40,7 @@ from pymphub.edition import (
     nouvel_id_onglet,
     nouvelle_page,
 )
+from pymphub.importation import ResultatImport, ValeurImportee
 from pymphub.interface import (  # noqa: F401 - déclarent leur type d'onglet
     onglet_fichiers,
     onglet_tableau,
@@ -419,6 +422,9 @@ class EspaceSaisie(QWidget):
         editeur.charger(self.archive)
         editeur.modifie.connect(self._sur_modification)
         editeur.mesure_proposee.connect(self.ajouter_mesure_proposee)
+        editeur.valeurs_importees.connect(self.ajouter_valeurs_importees)
+        if isinstance(editeur, EditeurScalaires):
+            editeur.import_avec_tableau.connect(self._importer_dans_un_nouveau_tableau)
         self.onglets.addTab(editeur, onglet.titre or onglet.type)
         return editeur
 
@@ -652,6 +658,31 @@ class EspaceSaisie(QWidget):
             scalaires = self.ajouter_onglet("scalaires")
         scalaires.ajouter_mesure(mesure)
         self.onglets.setCurrentWidget(scalaires)
+
+    def ajouter_valeurs_importees(
+        self, valeurs: Sequence[ValeurImportee], montrer: bool
+    ) -> None:
+        """Range les valeurs d'un import dans un onglet de scalaires, créé s'il n'existe pas."""
+        courant = self.onglets.currentWidget()
+        scalaires = (
+            courant
+            if isinstance(courant, EditeurScalaires)
+            else next(
+                (e for e in self.editeurs() if isinstance(e, EditeurScalaires)), None
+            )
+        )
+        if scalaires is None:
+            scalaires = self.ajouter_onglet("scalaires")
+        pris = {grandeur.nom for grandeur in self.page.mesures}
+        pris.update(nom for e in self.editeurs() for nom in e.noms_utilises())
+        scalaires.ajouter_valeurs_importees(valeurs, pris)
+        self.onglets.setCurrentWidget(scalaires if montrer else courant)
+
+    def _importer_dans_un_nouveau_tableau(
+        self, resultat: ResultatImport, source: Path
+    ) -> None:
+        """Depuis un onglet de scalaires, un tableau importé reçoit son propre onglet."""
+        self.ajouter_onglet("tableau").appliquer_resultat(resultat, source)
 
     def ajouter_onglet(self, nom_type: str) -> EditeurOnglet:
         """Ajoute un onglet vide à la page et l'affiche."""

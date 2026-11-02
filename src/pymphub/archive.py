@@ -873,7 +873,7 @@ class Archive:
         for piece in page.pieces_jointes:
             if piece.chemin == designation:
                 empreinte = empreinte_fichier(self._dossier_page(page.id) / designation)
-                actualisee = PieceJointe(chemin=piece.chemin, empreinte=empreinte)
+                actualisee = piece.model_copy(update={"empreinte": empreinte})
                 pieces = tuple(
                     actualisee if p.chemin == designation else p
                     for p in page.pieces_jointes

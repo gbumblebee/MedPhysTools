@@ -19,11 +19,14 @@ import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
 from pymphub.edition import lire_nombre, suggerer_nom
+from pymphub.incertitudes import Composante
 from pymphub.unites import verifier_unite
 
 _ENTETE_AVEC_UNITE = re.compile(r"^(.*?)\s*[(\[]([^()\[\]]+)[)\]]\s*$")
 _ZERO_DE_TETE = re.compile(r"^[+-]?0\d")
 _PREFIXE_IMPORT = "importer_"
+_CLES_RESULTAT = {"tableau", "scalaires", "informations"}
+_CLES_SCALAIRE = {"nom", "valeur", "unite", "commentaire", "composantes"}
 _ERREURS_DE_LECTURE = (
     OSError,
     ValueError,
@@ -45,6 +48,26 @@ class Grille:
 
     entetes: list[str]
     lignes: list[list[str]]
+
+
+@dataclass(frozen=True)
+class ValeurImportee:
+    """Un scalaire ou une information lus dans un fichier, encore à vérifier à l'écran."""
+
+    nom: str
+    valeur: str
+    unite: str = ""
+    composantes: tuple[Composante, ...] = ()
+    commentaire: str = ""
+    identifiant: bool = False
+
+
+@dataclass(frozen=True)
+class ResultatImport:
+    """Ce qu'un import personnalisé a trouvé dans un fichier."""
+
+    grille: Grille | None = None
+    valeurs: tuple[ValeurImportee, ...] = ()
 
 
 def _est_nombre(texte: str) -> bool:
@@ -202,6 +225,16 @@ def _grille_personnalisee(resultat: object, nom: str) -> Grille:
     if isinstance(resultat, Grille):
         return resultat
     if isinstance(resultat, Mapping):
+        for cle, valeurs in resultat.items():
+            # Sans cela, une faute de frappe dans « scalaires » donnerait une colonne absurde.
+            if isinstance(valeurs, Mapping) or (
+                isinstance(valeurs, Sequence)
+                and any(isinstance(v, Mapping) for v in valeurs)
+            ):
+                raise ImportImpossible(
+                    f"« {nom} » : clé « {cle} » inconnue. Les clés possibles sont "
+                    "« tableau », « scalaires » et « informations »."
+                )
         colonnes = {
             str(k): [_en_texte(v) for v in valeurs] for k, valeurs in resultat.items()
         }
@@ -221,6 +254,94 @@ def _grille_personnalisee(resultat: object, nom: str) -> Grille:
         f"« {nom} » doit renvoyer un dictionnaire de colonnes ou une liste de lignes, "
         f"pas {type(resultat).__name__}."
     )
+
+
+def _est_format_complet(resultat: object) -> bool:
+    """Distingue `{"tableau": …, "scalaires": …}` d'un simple dictionnaire de colonnes.
+
+    Une colonne peut s'appeler « scalaires », mais elle contient alors des valeurs, et non
+    des dictionnaires.
+    """
+    if not isinstance(resultat, Mapping) or not resultat:
+        return False
+    if not set(resultat) <= _CLES_RESULTAT:
+        return False
+    scalaires = resultat.get("scalaires", ())
+    tableau = resultat.get("tableau")
+    lignes = (
+        isinstance(tableau, Sequence)
+        and not isinstance(tableau, str)
+        and all(
+            isinstance(rang, Sequence) and not isinstance(rang, str) for rang in tableau
+        )
+    )
+    return (
+        isinstance(scalaires, Sequence)
+        and not isinstance(scalaires, str)
+        and all(isinstance(entree, Mapping) for entree in scalaires)
+        and isinstance(resultat.get("informations", {}), Mapping)
+        and (tableau is None or isinstance(tableau, (Mapping, Grille)) or lignes)
+    )
+
+
+def _nom_de_valeur(texte: object, nom: str) -> str:
+    resultat = suggerer_nom(str(texte))
+    if resultat is None:
+        raise ImportImpossible(f"« {nom} » : le nom « {texte} » n'est pas utilisable.")
+    return resultat
+
+
+def _scalaire_importe(
+    entree: Mapping[str, Any], nom: str, origine: str
+) -> ValeurImportee:
+    inconnues = sorted(set(entree) - _CLES_SCALAIRE)
+    if inconnues:
+        raise ImportImpossible(
+            f"« {nom} » : champ(s) inconnu(s) dans un scalaire : {', '.join(inconnues)}."
+        )
+    for champ in ("nom", "valeur"):
+        if champ not in entree:
+            raise ImportImpossible(f"« {nom} » : un scalaire n'a pas de « {champ} ».")
+    valeur = entree["valeur"]
+    texte = _en_texte(valeur)
+    if isinstance(valeur, bool) or not _est_nombre(texte):
+        raise ImportImpossible(
+            f"« {nom} » : la valeur de « {entree['nom']} » n'est pas un nombre : {valeur!r}."
+        )
+    return ValeurImportee(
+        nom=_nom_de_valeur(entree["nom"], nom),
+        valeur=texte,
+        unite=str(entree.get("unite", "")).strip(),
+        composantes=tuple(
+            Composante.model_validate(c) for c in entree.get("composantes", ())
+        ),
+        commentaire=str(entree.get("commentaire") or origine),
+    )
+
+
+def _resultat_personnalise(resultat: object, nom: str, chemin: Path) -> ResultatImport:
+    """Lit ce que renvoie un import : le format complet, ou le tableau seul."""
+    if not _est_format_complet(resultat):
+        return ResultatImport(grille=_grille_personnalisee(resultat, nom))
+    origine = f"Importé depuis {chemin.name}"
+    tableau = resultat.get("tableau")
+    grille = None if tableau is None else _grille_personnalisee(tableau, nom)
+    valeurs = [
+        _scalaire_importe(entree, nom, origine)
+        for entree in resultat.get("scalaires", ())
+    ]
+    valeurs += [
+        ValeurImportee(
+            nom=_nom_de_valeur(cle, nom),
+            valeur=_en_texte(valeur).strip(),
+            commentaire=origine,
+            identifiant=True,
+        )
+        for cle, valeur in resultat.get("informations", {}).items()
+    ]
+    if grille is None and not valeurs:
+        raise ImportImpossible(f"« {nom} » n'a rien trouvé dans « {chemin.name} ».")
+    return ResultatImport(grille, tuple(valeurs))
 
 
 def charger_imports_personnalises(fichier: Path) -> dict[str, Callable[[Path], Any]]:
@@ -251,10 +372,10 @@ def charger_imports_personnalises(fichier: Path) -> dict[str, Callable[[Path], A
 
 def executer_import_personnalise(
     nom: str, fonction: Callable[[Path], Any], chemin: Path
-) -> Grille:
+) -> ResultatImport:
     """Exécute un import personnalisé. Son erreur est expliquée, sans plantage."""
     try:
-        return _grille_personnalisee(fonction(chemin), nom)
+        return _resultat_personnalise(fonction(chemin), nom, chemin)
     except ImportImpossible:
         raise
     except (Exception, SystemExit) as erreur:

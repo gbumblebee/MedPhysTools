@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from pymphub.archive import TAILLE_MAX_VERIFICATION, Archive
-from pymphub.edition import Grandeur, nom_de_fichier_libre
+from pymphub.edition import Grandeur, nom_libre
 from pymphub.fichiers import ETATS_ALERTE
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
@@ -215,10 +215,10 @@ class EditeurFichiers(EditeurOnglet):
         return element
 
     def _ecrire_ligne(
-        self, rang: int, cellules: Sequence[str], modifiable: bool
+        self, rang: int, cellules: Sequence[str], nom_modifiable: bool
     ) -> None:
         nom, stockage, detail, etat, commentaire = cellules
-        self.table.setItem(rang, _NOM, self._element(nom, modifiable))
+        self.table.setItem(rang, _NOM, self._element(nom, nom_modifiable))
         self.table.setItem(rang, _STOCKAGE, self._element(stockage))
         self.table.setItem(rang, _DETAIL, self._element(detail))
         element_etat = self._element(etat)
@@ -226,7 +226,7 @@ class EditeurFichiers(EditeurOnglet):
             element_etat.setForeground(QColor(ALERTE))
             element_etat.setToolTip(message_etat(etat))
         self.table.setItem(rang, _ETAT, element_etat)
-        self.table.setItem(rang, _COMMENTAIRE, self._element(commentaire, modifiable))
+        self.table.setItem(rang, _COMMENTAIRE, self._element(commentaire, True))
 
     def _decrire_lien(self, lien: LienFichier) -> tuple[str, str, str, str, str]:
         stockage = lien.fichier.stockage
@@ -241,22 +241,38 @@ class EditeurFichiers(EditeurOnglet):
 
     def _remplir(self) -> None:
         """Réécrit la table : liens d'abord, puis pièces jointes."""
+        if self._remplissage:
+            return  # Le changement vient de cette table : elle est déjà à jour.
         self._remplissage = True
         pieces = self._pieces_listees()
         self.table.setRowCount(len(self.liens) + len(pieces))
         for rang, lien in enumerate(self.liens):
-            self._ecrire_ligne(rang, self._decrire_lien(lien), modifiable=True)
+            self._ecrire_ligne(rang, self._decrire_lien(lien), nom_modifiable=True)
         for rang, piece in enumerate(pieces, start=len(self.liens)):
             self._ecrire_ligne(
                 rang,
-                (piece.chemin, "Pièce jointe", "", self.pieces.etat(piece), ""),
-                modifiable=False,
+                (
+                    piece.chemin,
+                    "Pièce jointe",
+                    "",
+                    self.pieces.etat(piece),
+                    piece.commentaire,
+                ),
+                nom_modifiable=False,
             )
         self._remplissage = False
         self.table.resizeColumnsToContents()
 
     def _cellule_changee(self, element: QTableWidgetItem) -> None:
-        if self._remplissage or element.row() >= len(self.liens):
+        if self._remplissage:
+            return
+        if element.row() >= len(self.liens):
+            piece = self._pieces_listees()[element.row() - len(self.liens)]
+            if element.column() == _COMMENTAIRE:
+                # Réécrire la table ici détruirait la case en cours de modification.
+                self._remplissage = True
+                self.pieces.commenter(piece.chemin, element.text())
+                self._remplissage = False
             return
         lien = self.liens[element.row()]
         if element.column() == _NOM:
@@ -308,7 +324,7 @@ class EditeurFichiers(EditeurOnglet):
 
     def _ajouter_lien(self, chemin: Path, copie: bool) -> None:
         pris = [g.nom for g in self.page.mesures] + [lien.nom for lien in self.liens]
-        nom = nom_de_fichier_libre(chemin.stem, pris)
+        nom = nom_libre(chemin.stem, pris)
         try:
             if not chemin.is_file():
                 raise FichierRefuse(f"« {chemin.name} » n'est pas un fichier.")

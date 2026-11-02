@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
-    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -35,16 +34,16 @@ from pymphub.edition import Grandeur, lire_nombre
 from pymphub.importation import (
     Grille,
     ImportImpossible,
-    charger_imports_personnalises,
+    ResultatImport,
     decouper_entete,
     deviner_nature,
     en_grille,
-    executer_import_personnalise,
     lire_fichier,
     lire_presse_papiers,
     noms_uniques,
 )
 from pymphub.incertitudes import Composante, repetitions
+from pymphub.interface.import_personnalise import ImportPersonnalise
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglet_scalaires import (
     DialogueIncertitudes,
@@ -52,7 +51,6 @@ from pymphub.interface.onglet_scalaires import (
     _nombre_ecrit,
 )
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
-from pymphub.interface.preferences import dossier_preferences
 from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import (
     ColonneIdentifiant,
@@ -77,7 +75,6 @@ _NATURES = (
     ("Identifiant", "identifiant"),
     ("Incertitude de…", "incertitude"),
 )
-FICHIER_IMPORTS = "imports_personnalises.py"
 
 
 class ConfigurationColonne:
@@ -239,7 +236,7 @@ class ConfigurationColonne:
         )
 
 
-class EditeurTableau(EditeurOnglet):
+class EditeurTableau(ImportPersonnalise, EditeurOnglet):
     """Édite un tableau : sa description et ses cellules."""
 
     def __init__(
@@ -584,6 +581,10 @@ class EditeurTableau(EditeurOnglet):
             resultat[nom] = valeurs
         return resultat
 
+    def noms_utilises(self) -> list[str]:
+        nom = self.champ_nom.text().strip()
+        return [nom] if nom else []
+
     def _texte_csv(self) -> str:
         return ecrire_csv(self.tableau_saisi(), self.donnees())
 
@@ -648,26 +649,11 @@ class EditeurTableau(EditeurOnglet):
 
     # --- Import -----------------------------------------------------------------------
 
-    def _choisir_fichier(self) -> str:
-        chemin, _filtre = QFileDialog.getOpenFileName(
-            self,
-            "Importer un tableau",
-            "",
-            "Tableaux (*.csv *.txt *.tsv *.xlsx);;Tous (*)",
-        )
-        return chemin
-
     def _confirmer_remplacement(self) -> bool:
         reponse = QMessageBox.question(
             self, "Importer", "Remplacer le contenu actuel de ce tableau ?"
         )
         return reponse == QMessageBox.StandardButton.Yes
-
-    def _choisir_import(self, noms: Sequence[str]) -> str | None:
-        nom, accepte = QInputDialog.getItem(
-            self, "Import personnalisé", "Import :", list(noms)
-        )
-        return nom if accepte else None
 
     def _signaler(self, message: str) -> None:
         self.message.setText(message)
@@ -691,48 +677,36 @@ class EditeurTableau(EditeurOnglet):
 
     def demander_import_personnalise(self) -> bool:
         """Propose les fonctions du fichier d'imports de l'utilisateur."""
-        fichier = dossier_preferences() / FICHIER_IMPORTS
-        try:
-            fonctions = charger_imports_personnalises(fichier)
-        except ImportImpossible as erreur:
-            self._signaler(str(erreur))
-            return False
-        if not fonctions:
-            self._signaler(
-                f"Aucun import personnalisé : écrire des fonctions importer_… dans {fichier}."
+        obtenu = self.executer_import()
+        return obtenu is not None and self.appliquer_resultat(*obtenu)
+
+    def appliquer_resultat(self, resultat: ResultatImport, source: Path) -> bool:
+        """Remplit le tableau et envoie les scalaires et les informations à la page."""
+        if resultat.grille is not None:
+            if not self._appliquer_import(resultat.grille, source):
+                return False
+        else:
+            self._joindre_source(source)
+        if resultat.valeurs:
+            self.valeurs_importees.emit(resultat.valeurs, resultat.grille is None)
+            nombre = len(resultat.valeurs)
+            annonce = (
+                f"{nombre} valeur{'s' if nombre > 1 else ''} ajoutée"
+                f"{'s' if nombre > 1 else ''} à l'onglet de scalaires."
             )
-            return False
-        nom = self._choisir_import(sorted(fonctions))
-        if nom is None:
-            return False
-        chemin = self._choisir_fichier()
-        if not chemin:
-            return False
-        try:
-            grille = executer_import_personnalise(nom, fonctions[nom], Path(chemin))
-        except ImportImpossible as erreur:
-            self._signaler(str(erreur))
-            return False
-        return self._appliquer_import(grille, Path(chemin))
+            self._signaler(" · ".join(filter(None, (self.erreur(), annonce))))
+        return True
 
     def _appliquer_import(self, grille: Grille, source: Path) -> bool:
         """Remplit le tableau, et garde le fichier d'origine en pièce jointe de la page."""
         if not self.appliquer_grille(grille, source.name):
             return False
-        if self.pieces is None:
-            return True
-        try:
-            piece = self.pieces.joindre(source)
-        except (ValueError, OSError) as erreur:
-            self._signaler(
-                f"Tableau importé, mais « {source.name} » n'a pas pu être joint à la "
-                f"page : {message_erreur(erreur)}"
+        piece = self._joindre_source(source)
+        if piece is not None:
+            self._commentaire = (
+                f"Importé depuis {source.name}, conservé dans {piece.chemin}"
             )
-            return True
-        self._commentaire = (
-            f"Importé depuis {source.name}, conservé dans {piece.chemin}"
-        )
-        self.colonne_modifiee()
+            self.colonne_modifiee()
         return True
 
     def appliquer_grille(self, grille: Grille, origine: str) -> bool:

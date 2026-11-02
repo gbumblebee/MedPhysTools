@@ -5,10 +5,10 @@ et une ligne déjà enregistrée garde sa dernière version valide tant qu'on la
 """
 
 import html
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 
-from PySide6.QtCore import QDateTime, Qt
+from PySide6.QtCore import QDateTime, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -34,8 +34,10 @@ from pymphub.edition import (
     date_saisie_vers_mesure,
     lire_nombre,
     lire_serie,
+    nom_libre,
     suggerer_nom,
 )
+from pymphub.importation import ValeurImportee
 from pymphub.incertitudes import (
     Budget,
     Composante,
@@ -43,6 +45,7 @@ from pymphub.incertitudes import (
     etablir_budget,
     repetitions,
 )
+from pymphub.interface.import_personnalise import ImportPersonnalise
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
 from pymphub.interface.texte_en_grand import afficher_en_grand
@@ -104,6 +107,13 @@ _COLONNES_COMPOSANTE = (
     "",
 )
 _COLONNES_AVANCEES = (0, 6, 8)
+
+
+_LARGEUR_MIN_NOM = 105
+_LARGEUR_MIN_VALEUR = 80
+_LARGEUR_MAX_VALEUR = 110
+_LARGEUR_MAX_UNITE = 80
+_LARGEUR_MIN_COMMENTAIRE = 240
 
 
 class LigneComposante:
@@ -569,9 +579,13 @@ class LigneScalaire:
         self.bouton_maintenant.clicked.connect(
             lambda: self.horodatage.setDateTime(QDateTime.currentDateTime())
         )
+        self.nom.setMinimumWidth(_LARGEUR_MIN_NOM)
+        self.valeur.setMinimumWidth(_LARGEUR_MIN_VALEUR)
+        self.valeur.setMaximumWidth(_LARGEUR_MAX_VALEUR)
+        self.unite.setMaximumWidth(_LARGEUR_MAX_UNITE)
         self.commentaire = QLineEdit()
         self.commentaire.setPlaceholderText("Commentaire")
-        self.commentaire.setMinimumWidth(240)
+        self.commentaire.setMinimumWidth(_LARGEUR_MIN_COMMENTAIRE)
         self.commentaire.textChanged.connect(self._afficher_commentaire_complet)
         afficher_en_grand(
             self.commentaire, lambda: f"Commentaire de {self.nom.text().strip()}"
@@ -853,8 +867,11 @@ class LigneScalaire:
         self._modifiee()
 
 
-class EditeurScalaires(EditeurOnglet):
+class EditeurScalaires(ImportPersonnalise, EditeurOnglet):
     """Édite les scalaires et les identifiants d'un onglet."""
+
+    # Un tableau trouvé dans un fichier part dans un nouvel onglet, créé par l'espace Saisie.
+    import_avec_tableau = Signal(object, object)
 
     def __init__(
         self, onglet: Onglet, page: Page | None = None, parent: QWidget | None = None
@@ -877,7 +894,11 @@ class EditeurScalaires(EditeurOnglet):
         self.bouton_ajouter.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.bouton_ajouter.clicked.connect(self.ajouter_et_aller_a_la_ligne)
         ligne_haut = QHBoxLayout()
+        self.bouton_personnalise = QPushButton("Import personnalisé…")
+        self.bouton_personnalise.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.bouton_personnalise.clicked.connect(self.demander_import_personnalise)
         ligne_haut.addWidget(self.bouton_ajouter)
+        ligne_haut.addWidget(self.bouton_personnalise)
         ligne_haut.addStretch()
         ligne_haut.addWidget(QLabel("k ="))
         ligne_haut.addWidget(self.champ_k)
@@ -906,8 +927,15 @@ class EditeurScalaires(EditeurOnglet):
         defilement.setWidgetResizable(True)
         defilement.setWidget(self.conteneur)
 
+        self.message_import = QLabel("")
+        self.message_import.setObjectName("alerte")
+        self.message_import.setWordWrap(True)
+        self.message_import.setTextFormat(Qt.TextFormat.PlainText)
+        self.message_import.setVisible(False)
+
         disposition = QVBoxLayout(self)
         disposition.addLayout(ligne_haut)
+        disposition.addWidget(self.message_import)
         disposition.addWidget(defilement)
 
         self._references_conservees: list[str] = []
@@ -1000,6 +1028,62 @@ class EditeurScalaires(EditeurOnglet):
         ligne.origine = None
         self.ligne_modifiee()
         return ligne
+
+    # --- Import personnalisé --------------------------------------------------------------
+
+    def _signaler(self, message: str) -> None:
+        self.message_import.setText(message)
+        self.message_import.setVisible(bool(message))
+
+    def demander_import_personnalise(self) -> bool:
+        """Importe un fichier : ses scalaires et ses informations arrivent ici."""
+        obtenu = self.executer_import()
+        if obtenu is None:
+            return False
+        resultat, source = obtenu
+        self._signaler("")
+        if resultat.grille is not None:
+            self.import_avec_tableau.emit(resultat, source)
+            return True
+        self._joindre_source(source)
+        self.valeurs_importees.emit(resultat.valeurs, True)
+        return True
+
+    def ajouter_valeurs_importees(
+        self, valeurs: Sequence[ValeurImportee], noms_pris: Iterable[str]
+    ) -> None:
+        """Ajoute des valeurs lues dans un fichier, sans jamais écraser une mesure.
+
+        Un nom déjà pris devient `nom_2`. Une valeur sans incertitude ou sans unité reste à
+        compléter : elle s'affiche, mais ne s'enregistre pas.
+        """
+        pris = set(noms_pris)
+        for ligne in [ligne for ligne in self.lignes if ligne.est_vide()]:
+            self.retirer_ligne(ligne)
+        self._chargement = True
+        for importee in valeurs:
+            nom = nom_libre(importee.nom, pris)
+            pris.add(nom)
+            ligne = self.ajouter_ligne()
+            if importee.identifiant:
+                ligne.nature.setCurrentIndex(1)
+            ligne.nom.setText(nom)
+            # Le début d'un nom trop long reste visible, et non sa fin.
+            ligne.nom.setCursorPosition(0)
+            ligne.valeur.setText(importee.valeur)
+            ligne.valeur.setCursorPosition(0)
+            ligne.unite.setText(importee.unite)
+            ligne.composantes = importee.composantes
+            ligne.commentaire.setText(importee.commentaire)
+            ligne.commentaire.setCursorPosition(0)
+            ligne.actualiser()
+        self._chargement = False
+        self.ligne_modifiee()
+
+    def noms_utilises(self) -> list[str]:
+        return [
+            ligne.nom.text().strip() for ligne in self.lignes if not ligne.est_vide()
+        ]
 
     def ligne_modifiee(self) -> None:
         if not self._chargement:

@@ -190,6 +190,8 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Indicateurs | Minimum, maximum, intégrale, dérivée, etc. enregistrés dans `page.json` |
 | Premier CQ réel | Vers début février 2027 |
 | Pièces jointes | Copiées dans le dossier de la page dès qu'on les joint, hors de Git. Deux fichiers de même nom sont gardés (`image_2.png`). Retirer une pièce laisse le fichier sur le disque, car l'historique y renvoie |
+| Import personnalisé | Peut renvoyer un tableau, des scalaires et des informations. Une valeur sans incertitude reste à compléter ; un nom déjà pris devient `nom_2`, rien n'est écrasé |
+| Commentaire d'une pièce jointe | Modifiable dans l'onglet Fichiers ; la légende reste propre à la photo affichée dans une note |
 | Fichier importé dans un tableau | Copié automatiquement en pièce jointe ; le commentaire du tableau dit où |
 | DICOM avant l'étape 9 | Refusés par l'interface, en pièce jointe comme en lien, d'après l'extension ou la marque `DICM` |
 | Vérification à l'affichage | Empreinte calculée jusqu'à 100 Mo ; au-delà, l'état affiché est « non vérifié » |

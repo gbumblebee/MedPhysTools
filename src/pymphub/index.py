@@ -148,6 +148,8 @@ def _texte_de_page(page: dict[str, Any]) -> str:
         morceaux.extend(_textes(page.get(champ)))
     for grandeur in page.get("mesures", []):
         morceaux.extend(_texte_de_grandeur(grandeur))
+    for piece in page.get("pieces_jointes", []):
+        morceaux.extend(_textes(piece.get("commentaire")))
     for onglet in page.get("onglets", []):
         for champ in ("titre", "texte"):
             morceaux.extend(_textes(onglet.get(champ)))

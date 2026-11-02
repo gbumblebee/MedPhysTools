@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from pymphub import page as page_module
-from pymphub.edition import nom_de_fichier_libre, point_normalise
+from pymphub.edition import nom_libre, point_normalise
 from pymphub.page import (
     VERSION_SCHEMA,
     Annotation,
@@ -545,7 +545,7 @@ def test_un_point_d_annotation_reste_dans_l_image(ecran, attendu):
 
 
 def test_le_nom_d_un_fichier_lie_est_utilisable_et_libre():
-    assert nom_de_fichier_libre("Export constructeur", []) == "Export_constructeur"
-    assert nom_de_fichier_libre("2026 essai", []) == "g_2026_essai"
-    assert nom_de_fichier_libre("---", []) == "fichier"
-    assert nom_de_fichier_libre("a", ["a", "a_2"]) == "a_3"
+    assert nom_libre("Export constructeur", []) == "Export_constructeur"
+    assert nom_libre("2026 essai", []) == "g_2026_essai"
+    assert nom_libre("---", []) == "fichier"
+    assert nom_libre("a", ["a", "a_2"]) == "a_3"

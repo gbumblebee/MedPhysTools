@@ -70,10 +70,22 @@ class PiecesDeLaPage(QObject):
             raise FichierRefuse(f"« {chemin.name} » n'est pas un fichier.")
         refuser_dicom(chemin)
         piece = self.archive.joindre_fichier(self.id_page, chemin)
-        if piece not in self.pieces:
-            self.pieces = (*self.pieces, piece)
-            self.changees.emit()
+        for existante in self.pieces:
+            if existante.chemin == piece.chemin:
+                return existante
+        self.pieces = (*self.pieces, piece)
+        self.changees.emit()
         return piece
+
+    def commenter(self, chemin: str, commentaire: str) -> None:
+        """Change le commentaire d'une pièce jointe."""
+        self.pieces = tuple(
+            p.model_copy(update={"commentaire": commentaire})
+            if p.chemin == chemin
+            else p
+            for p in self.pieces
+        )
+        self.changees.emit()
 
     def retirer(self, chemin: str) -> None:
         """Retire une pièce de la page. Le fichier reste : l'historique y renvoie encore."""

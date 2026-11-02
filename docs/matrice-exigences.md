@@ -64,6 +64,10 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Fichier altéré signalé à l'affichage | `tests/test_interface_photos.py::test_un_fichier_altere_est_signale` | Vérifié |
 | Fichier manquant signalé à l'affichage | `tests/test_interface_photos.py::test_un_fichier_manquant_est_signale_sans_plantage` | Vérifié |
 | Aucun DICOM avant la pseudonymisation | `tests/test_interface_photos.py::test_un_dicom_n_entre_pas_dans_l_archive` | Vérifié dans l'interface ; l'API Python ne le refuse pas |
+| Commentaire d'une pièce jointe | `tests/test_interface_photos.py::test_commenter_une_piece_jointe` | Vérifié |
+| Import personnalisé de scalaires et d'informations | `tests/test_interface_tableau.py::test_un_import_complet_remplit_le_tableau_et_les_scalaires` | Vérifié |
+| Une valeur importée sans incertitude ne s'enregistre pas | `tests/test_interface_tableau.py::test_un_scalaire_importe_sans_incertitude_reste_a_completer` | Vérifié |
+| Un import n'écrase aucune mesure | `tests/test_interface_tableau.py::test_un_nom_deja_pris_n_ecrase_rien` | Vérifié |
 | Fichier importé conservé en pièce jointe | `tests/test_interface_photos.py::test_le_fichier_importe_devient_une_piece_jointe` | Vérifié |
 | Suppression d'une page tracée, numéro jamais réutilisé | `tests/test_archive.py::test_le_numero_d_une_page_supprimee_ne_resert_pas` | Vérifié |
 | Annotations à part de la photo | `tests/test_page.py::test_les_annotations_sont_enregistrees_a_part_de_la_photo` | Vérifié |
