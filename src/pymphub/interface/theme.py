@@ -17,6 +17,17 @@ DESACTIVE = "#a7b0bb"
 ALERTE = "#a4372a"
 ANNOTATION = "#d7263d"
 ANNOTATION_CHOISIE = "#e08e00"
+# Ordre fixe des séries d'un graphe : une série garde sa couleur, quel que soit le filtre.
+SERIES = (
+    "#2a78d6",
+    "#eb6834",
+    "#1baf7a",
+    "#eda100",
+    "#e87ba4",
+    "#008300",
+    "#6250d6",
+    "#e34948",
+)
 
 FEUILLE_DE_STYLE = f"""
 QWidget {{ font-size: 10pt; }}

@@ -70,6 +70,9 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Un import n'écrase aucune mesure | `tests/test_interface_tableau.py::test_un_nom_deja_pris_n_ecrase_rien` | Vérifié |
 | Fichier importé conservé en pièce jointe | `tests/test_interface_photos.py::test_le_fichier_importe_devient_une_piece_jointe` | Vérifié |
 | Suppression d'une page tracée, numéro jamais réutilisé | `tests/test_archive.py::test_le_numero_d_une_page_supprimee_ne_resert_pas` | Vérifié |
+| Réglages d'un graphe retrouvés après réouverture | `tests/test_graphes.py::test_les_reglages_se_retrouvent_apres_reouverture` | Vérifié |
+| Barres d'erreur conformes au tableau, à k choisi | `tests/test_graphes.py::test_les_barres_dessinees_correspondent_au_tableau` | Vérifié |
+| Graphe affiché sans OpenGL | `tests/test_graphes.py::test_un_graphe_s_affiche_sans_opengl` | Vérifié hors écran ; à confirmer sur un PC d'hôpital |
 | Annotations à part de la photo | `tests/test_page.py::test_les_annotations_sont_enregistrees_a_part_de_la_photo` | Vérifié |
 | Repère d'erreur commune conservé | `tests/test_page.py::test_l_erreur_commune_est_conservee_dans_une_page` | Vérifié ; pas utilisé en calcul |
 

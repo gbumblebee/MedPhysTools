@@ -1081,6 +1081,7 @@ source = { editable = "." }
 dependencies = [
     { name = "dulwich" },
     { name = "gtc" },
+    { name = "matplotlib" },
     { name = "numpy" },
     { name = "openpyxl" },
     { name = "pandas" },
@@ -1102,6 +1103,7 @@ dev = [
 requires-dist = [
     { name = "dulwich", specifier = ">=1.2.20" },
     { name = "gtc", specifier = ">=1.5.1" },
+    { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "numpy", specifier = ">=2.5.4" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pandas", specifier = ">=3.1.0" },

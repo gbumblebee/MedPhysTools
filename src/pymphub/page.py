@@ -401,6 +401,33 @@ class OngletDonnees(Onglet):
         return list(self.grandeurs)
 
 
+class ReglagesGraphe(_Modele):
+    """Ce qu'un onglet de graphes trace. Le facteur k n'en fait pas partie : il s'affiche.
+
+    Les colonnes sont celles d'un seul tableau : leurs lignes se correspondent. Un nom
+    absent n'invalide pas la page, pour que renommer une colonne ne bloque aucune saisie :
+    le graphe demande alors de choisir une autre colonne.
+    """
+
+    tableau: str = Field(min_length=1)
+    mode: Literal["2d", "3d"] = "2d"
+    x: str = Field(min_length=1)
+    y: tuple[str, ...] = Field(min_length=1)
+    z: str | None = None
+    echelle_x: Literal["lineaire", "log"] = "lineaire"
+    echelle_y: Literal["lineaire", "log"] = "lineaire"
+    echelle_z: Literal["lineaire", "log"] = "lineaire"
+    barres: bool = True
+    relier: bool = True
+    surface: bool = False
+
+
+class OngletGraphes(OngletDonnees):
+    """Un onglet qui trace des colonnes d'un tableau, selon des réglages gardés dans la page."""
+
+    reglages: ReglagesGraphe | None = None
+
+
 class OngletNotes(Onglet):
     """Un onglet de commentaires et de photos annotées."""
 
@@ -429,7 +456,7 @@ enregistrer_type_onglet("scalaires", OngletDonnees)
 enregistrer_type_onglet("tableau", OngletDonnees)
 enregistrer_type_onglet("fichiers", OngletDonnees)
 enregistrer_type_onglet("dicom", OngletDonnees)
-enregistrer_type_onglet("graphes", OngletDonnees)
+enregistrer_type_onglet("graphes", OngletGraphes)
 
 
 def _lire_onglet(onglet: Any) -> Any:  # noqa: ANN401 - donnée brute validée par pydantic

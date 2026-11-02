@@ -67,6 +67,10 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
 
 Un onglet de notes liste ses `photos` : `chemin` d'une pièce jointe, `legende` et `annotations`. L'image n'est jamais modifiée : tout est dans `page.json`. Une annotation a une `forme` (`point`, `fleche`, `rectangle`, `ellipse`, `trace`), des `points` et un `texte`. Les coordonnées vont de 0 à 1, à partir du coin haut gauche, sur l'image redressée selon son orientation EXIF.
 
+## Onglet de graphes
+
+Un onglet de type `graphes` garde ses `reglages` : `tableau`, `mode` (`2d` ou `3d`), colonnes `x`, `y` (une ou plusieurs) et `z`, échelles `echelle_x`, `echelle_y`, `echelle_z` (`lineaire` ou `log`), `barres`, `relier` et `surface`. Le facteur k n'y figure pas : il se choisit à l'affichage. Sans réglages, les références de `grandeurs` désignent les colonnes à tracer.
+
 ## Tableaux CSV
 
 UTF-8, virgule comme séparateur, point décimal, fins de ligne LF et une ligne d'en-tête. Le type de chaque colonne se lit dans `page.json`, jamais dans le CSV : une colonne d'identifiants reste du texte, même si elle contient `007`.

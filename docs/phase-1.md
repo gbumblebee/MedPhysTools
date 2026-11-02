@@ -1,6 +1,6 @@
 # Phase 1 — Saisie : découpage en étapes
 
-**État : étapes 0 à 5 codées, jalon « premier essai réel » à faire.** Premier CQ réel complet prévu vers début février 2027.
+**État : étapes 0 à 6 codées, jalon « premier essai réel » à faire.** Premier CQ réel complet prévu vers début février 2027.
 
 **Objectif :** une application Qt avec les espaces Archive et Saisie, pour tenir un cahier de labo libre à la place du tableur.
 
@@ -190,6 +190,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Indicateurs | Minimum, maximum, intégrale, dérivée, etc. enregistrés dans `page.json` |
 | Premier CQ réel | Vers début février 2027 |
 | Pièces jointes | Copiées dans le dossier de la page dès qu'on les joint, hors de Git. Deux fichiers de même nom sont gardés (`image_2.png`). Retirer une pièce laisse le fichier sur le disque, car l'historique y renvoie |
+| Graphes | matplotlib en 2D et en 3D : même code, aucun appel à OpenGL, et les mêmes figures pour les rapports. Un seul axe y par graphe, des unités incompatibles sont refusées. Un graphe par onglet, 8 séries au plus. Le graphe montre la dernière version enregistrée du tableau |
 | Import personnalisé | Peut renvoyer un tableau, des scalaires et des informations. Une valeur sans incertitude reste à compléter ; un nom déjà pris devient `nom_2`, rien n'est écrasé |
 | Commentaire d'une pièce jointe | Modifiable dans l'onglet Fichiers ; la légende reste propre à la photo affichée dans une note |
 | Fichier importé dans un tableau | Copié automatiquement en pièce jointe ; le commentaire du tableau dit où |

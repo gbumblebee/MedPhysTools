@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from pymphub.archive import Archive
 from pymphub.fichiers import ETATS_ALERTE
+from pymphub.graphes import reglages_par_defaut
 from pymphub.historique import CorrectionChamp, corrections_par_champ
 from pymphub.interface.photos import (
     BandePhotos,
@@ -46,10 +47,12 @@ from pymphub.page import (
     Copie,
     Fichier,
     Identifiant,
+    OngletGraphes,
     OngletNotes,
     Page,
     PhotoAnnotee,
     ReferenceFichier,
+    ReglagesGraphe,
     Scalaire,
     Tableau,
 )
@@ -58,6 +61,7 @@ from pymphub.page import (
 LIGNES_MAX_AFFICHEES = 500
 _LONGUEUR_MAX_TEXTE = 120
 _LARGEUR_MAX_COLONNE = 280
+_HAUTEUR_GRAPHE = 340
 
 
 def formater_valeur(valeur: Any) -> str:  # noqa: ANN401 - contenu JSON quelconque
@@ -169,6 +173,7 @@ class FichePage(QWidget):
         self.table_mesures: QTableWidget | None = None
         self.notes: list[QPlainTextEdit] = []
         self.bandes_photos: list[BandePhotos] = []
+        self.graphes: list[tuple[QWidget, ReglagesGraphe]] = []
         self.etats: dict[str, str] = {}
         self.alerte_fichiers: QLabel | None = None
 
@@ -185,6 +190,7 @@ class FichePage(QWidget):
             "Facteur d'élargissement : il change seulement l'affichage."
         )
         self.champ_k.valueChanged.connect(self._actualiser_incertitudes)
+        self.champ_k.valueChanged.connect(self._tracer_graphes)
         ligne_k = QHBoxLayout()
         self.bouton_modifier = QPushButton("Modifier")
         self.bouton_modifier.setEnabled(False)
@@ -246,6 +252,7 @@ class FichePage(QWidget):
         self.table_mesures = None
         self.notes = []
         self.bandes_photos = []
+        self.graphes = []
         self.etats = {}
         self.alerte_fichiers = None
         self.entete.setText(message)
@@ -285,6 +292,7 @@ class FichePage(QWidget):
         self._construire_tableaux(archive, self.page)
         self._construire_fichiers(self.page)
         self._construire_notes(self.page)
+        self._construire_graphes(self.page)
         self.disposition_contenu.addStretch()
         self._actualiser_historique()
 
@@ -544,6 +552,33 @@ class FichePage(QWidget):
         bande.remplacer(vignettes)
         self.bandes_photos.append(bande)
         self._ajouter(bande)
+
+    def _construire_graphes(self, page: Page) -> None:
+        """Trace les graphes de la page. matplotlib ne se charge que s'il y en a."""
+        for onglet in page.onglets:
+            if not isinstance(onglet, OngletGraphes):
+                continue
+            reglages = reglages_par_defaut(page, onglet)
+            if reglages is None:
+                continue
+            from pymphub.interface.onglet_graphes import (  # noqa: PLC0415
+                creer_toile,
+            )
+
+            self._ajouter(_titre_de_section(onglet.titre or "Graphe"))
+            toile = creer_toile(interactif=False)
+            toile.setFixedHeight(_HAUTEUR_GRAPHE)
+            self.graphes.append((toile, reglages))
+            self._ajouter(toile)
+        self._tracer_graphes()
+
+    def _tracer_graphes(self) -> None:
+        if not self.graphes:
+            return
+        from pymphub.interface.onglet_graphes import dessiner  # noqa: PLC0415
+
+        for toile, reglages in self.graphes:
+            dessiner(toile, self.archive, self.page, reglages, self.champ_k.value())
 
     def _montrer_dialogue(self, dialogue: QDialog) -> None:
         dialogue.exec()

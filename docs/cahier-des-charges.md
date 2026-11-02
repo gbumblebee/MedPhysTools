@@ -411,7 +411,7 @@ Une seule application de bureau PySide6 à trois espaces (Archive, Saisie, Hub) 
 
 - PySide6 (licence LGPL) plutôt que PyQt6 (GPL), pour garder le choix de licence du projet.
 - magicgui pour générer les formulaires des modules depuis les annotations de type.
-- pyqtgraph pour l'affichage d'images DICOM et de courbes interactives rapides ; matplotlib pour les graphes 3D et les figures des rapports.
+- pyqtgraph pour l'affichage d'images DICOM ; matplotlib pour les graphes 2D et 3D, sans OpenGL, et pour les figures des rapports.
 - Lancement d'outils externes (3D Slicer, ImageJ/Fiji) en sous-processus quand un module en a besoin.
 
 **Ergonomie**
