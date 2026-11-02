@@ -1,6 +1,6 @@
 # Phase 1 — Saisie : découpage en étapes
 
-**État : étapes 0 à 8 codées, jalon « premier essai réel » à faire.** Premier CQ réel complet prévu vers début février 2027.
+**État : étapes 0 à 10 codées, jalon « premier essai réel » à faire. Le DICOM n'a encore été essayé que sur des fichiers synthétiques.** Premier CQ réel complet prévu vers début février 2027.
 
 **Objectif :** une application Qt avec les espaces Archive et Saisie, pour tenir un cahier de labo libre à la place du tableur.
 
@@ -14,7 +14,7 @@ Référence : [cahier des charges](cahier-des-charges.md), sections 6, 11 et 14.
 - Une étape n'est terminée que si ses critères sont couverts par des tests et si `uv run pytest` et `uv run ruff check .` passent.
 - La logique métier reste dans le cœur et se teste sans Qt. L'interface se teste sans écran, avec `pytest-qt`.
 - L'interface est sobre, moderne et pratique. Chaque valeur affiche son unité et son incertitude.
-- **Aucun DICOM de patient n'entre dans une archive avant l'étape 9.**
+- **Un DICOM n'entre dans une archive que par l'onglet DICOM**, qui le pseudonymise par défaut. Les pièces jointes, les liens et l'import personnalisé le refusent.
 
 ## Jalons
 
@@ -212,3 +212,13 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Facteur de Student à l'affichage | Refusé : U = k·u, k = 2 par défaut |
 | Liste déroulante des pages dans Saisie | Refusée : l'espace Archive suffit |
 | Incertitude « identique / propre à chaque ligne » | Refusée : la colonne d'incertitude actuelle convient |
+| Stockage d'une série DICOM | Une série devient un zip compressé sans perte dans `objets/`, aux noms neutres (`00001.dcm`), décrit dans la page par `dicom` (traitement, modalité, UID, empreinte des pixels). Le nom d'origine n'est conservé nulle part |
+| Balises retirées | Identité, personnes (tout élément de type « nom de personne »), institution, textes libres, balises privées, surcouches et courbes, à tous les niveaux. Restent les UID, les données techniques, la machine et **les dates d'examen**, utiles au CQ. Le poids, l'âge et le sexe partent aussi : le SUV n'est donc pas recalculé |
+| Noms de structures | Les noms de ROI (`ROIName`) restent, indispensables à la lecture d'un RTSTRUCT. Un nom de patient saisi dans un nom de ROI ne serait pas détecté |
+| Fantôme | Conservé octet pour octet, après confirmation si ses balises ressemblent à celles d'un patient. Le visualiseur n'affiche qu'une liste fermée de balises techniques, même pour un fantôme |
+| Référence DICOM | Trois choix à l'import : pseudonymiser, fantôme, ou UID seuls sans copie, avec le nœud saisi par l'utilisateur. Une référence ne s'affiche pas : l'accès au PACS est hors phase 1 |
+| Affichage des images | QPainter et numpy plutôt que pyqtgraph : rien de plus à installer, et le visualiseur reste indépendant des pages et de l'archive pour resservir au CQ |
+| Vue 3D | Calculée sur le processeur, sans OpenGL, sur un volume réduit à 96³ et dans un fil à part : environ 0,1 s par image. C'est un aperçu : les valeurs se lisent sur les coupes |
+| Superposition | Dose et structures seulement si leur Frame of Reference UID est celui de l'image. Sinon, rien n'est superposé et le visualiseur le dit |
+| Dose | Dose = valeur stockée × `DoseGridScaling`. Un fichier sans ce facteur est refusé plutôt qu'affiché en entiers bruts |
+| Cache des empreintes | `objets/.cache_empreintes.json`, hors Git, par taille et date du fichier. Calculé en fil de fond à l'ouverture d'un onglet DICOM. Une modification qui conserverait taille et date ne serait pas vue à l'affichage |

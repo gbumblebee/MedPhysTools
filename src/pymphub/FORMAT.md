@@ -99,6 +99,24 @@ UTF-8, virgule comme séparateur, point décimal, fins de ligne LF et une ligne 
 
 Un fichier d'empreinte SHA-256 `3fa9c2…` se trouve dans `objets/3f/a9c2…`, sans extension. Son nom d'origine se lit dans le champ `nom_origine` de `page.json`. Ces fichiers ne sont pas dans Git : seule leur empreinte y est versionnée.
 
+## Séries DICOM
+
+Une série importée est une grandeur `fichier` de `type_fichier` `dicom`, stockée en `copie`. Son objet dans `objets/` est un zip compressé sans perte, dont les membres portent des noms neutres (`00001.dcm`, dans l'ordre des SOP Instance UID). Le champ facultatif `dicom` la décrit :
+
+| Champ | Contenu |
+|---|---|
+| `mode` | `pseudonymise` ou `fantome` (fichiers conservés octet pour octet) |
+| `modalite` | Modalité DICOM : `CT`, `RTDOSE`, `RTSTRUCT`… |
+| `study_instance_uid`, `series_instance_uid` | UID de l'étude et de la série |
+| `frame_of_reference_uid` | Repère commun, facultatif : il relie une dose et des structures à une image |
+| `fichiers` | Nombre de fichiers de la série |
+| `empreinte_pixels` | SHA-256 des pixels dans l'ordre des SOP Instance UID ; absente sans pixels, comme pour un RTSTRUCT |
+| `avertissements` | Remarques faites à l'import |
+
+`empreinte` du stockage porte sur le zip, `empreinte_pixels` sur les seuls pixels : celle-ci ne change pas si les balises sont réécrites.
+
+`objets/.cache_empreintes.json` retient les empreintes déjà calculées. Il n'est pas versionné et peut être supprimé : il se reconstruit.
+
 ## Composante d'incertitude
 
 | Champ | Contenu |

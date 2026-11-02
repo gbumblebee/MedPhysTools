@@ -611,7 +611,9 @@ class FichePage(QWidget):
         for fichier in fichiers:
             stockage = fichier.stockage
             etat = self.etats.get(fichier.nom, "—")
-            if isinstance(stockage, Copie):
+            if fichier.dicom is not None:
+                nature, detail = "Copie DICOM", fichier.dicom.resume
+            elif isinstance(stockage, Copie):
                 nature, detail = "Copie", stockage.nom_origine
             elif isinstance(stockage, ReferenceFichier):
                 nature, detail = "Référence fichier", stockage.chemin
@@ -636,6 +638,16 @@ class FichePage(QWidget):
         self.tables["__fichiers__"] = table
         self._ajouter(table)
         _hauteur_ajustee(table)
+        if any(f.dicom is not None for f in fichiers):
+            self.bouton_dicom = QPushButton("Voir les séries DICOM…")
+            self.bouton_dicom.clicked.connect(self.voir_series_dicom)
+            self._ajouter(self.bouton_dicom)
+
+    def voir_series_dicom(self) -> None:
+        """Ouvre les séries DICOM de la page dans le visualiseur, sans rien pouvoir y changer."""
+        from pymphub.interface.onglet_dicom import DialogueSeries  # noqa: PLC0415
+
+        DialogueSeries(self.archive, self.page, self).exec()
 
     def _construire_notes(self, page: Page) -> None:
         for onglet in page.onglets:

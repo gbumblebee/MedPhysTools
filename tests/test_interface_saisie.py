@@ -32,7 +32,15 @@ from pymphub.interface.onglets import (
     retirer_onglet_declare,
     types_disponibles,
 )
-from pymphub.page import Onglet, OngletNotes, Page, depuis_json
+from pymphub.page import (
+    Onglet,
+    OngletDonnees,
+    OngletNotes,
+    Page,
+    depuis_json,
+    enregistrer_type_onglet,
+    retirer_type_onglet,
+)
 
 PARIS = timezone(timedelta(hours=1))
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=PARIS)
@@ -616,32 +624,36 @@ def test_renommer_un_type_inconnu_garde_ses_donnees(page_avec_onglet_inconnu):
 
 
 def test_un_type_connu_sans_editeur_garde_ses_donnees(espace):
-    espace.archive.creer_page(
-        Page.model_validate(
-            {
-                "id": "2026-11-14_cq_0001",
-                "titre": "CQ",
-                "date_mesure": HEURE,
-                "date_saisie": HEURE,
-                "auteur": "G.",
-                "mesures": [scalaire()],
-                "onglets": [
-                    {"id": "a", "type": "notes", "titre": "A"},
-                    {
-                        "id": "b",
-                        "type": "dicom",
-                        "titre": "B",
-                        "grandeurs": ["activite"],
-                    },
-                ],
-            }
+    enregistrer_type_onglet("sans_editeur", OngletDonnees)
+    try:
+        espace.archive.creer_page(
+            Page.model_validate(
+                {
+                    "id": "2026-11-14_cq_0001",
+                    "titre": "CQ",
+                    "date_mesure": HEURE,
+                    "date_saisie": HEURE,
+                    "auteur": "G.",
+                    "mesures": [scalaire()],
+                    "onglets": [
+                        {"id": "a", "type": "notes", "titre": "A"},
+                        {
+                            "id": "b",
+                            "type": "sans_editeur",
+                            "titre": "B",
+                            "grandeurs": ["activite"],
+                        },
+                    ],
+                }
+            )
         )
-    )
-    espace.ouvrir_page("2026-11-14_cq_0001")
-    assert isinstance(espace.onglets.widget(1), EditeurLectureSeule)
-    editeur_notes(espace).texte.setPlainText("x")
-    espace.enregistrer_maintenant()
-    assert relue(espace).onglets[1].grandeurs == ("activite",)
+        espace.ouvrir_page("2026-11-14_cq_0001")
+        assert isinstance(espace.onglets.widget(1), EditeurLectureSeule)
+        editeur_notes(espace).texte.setPlainText("x")
+        espace.enregistrer_maintenant()
+        assert relue(espace).onglets[1].grandeurs == ("activite",)
+    finally:
+        retirer_type_onglet("sans_editeur")
 
 
 def test_l_editeur_de_notes_garde_les_photos(qtbot):

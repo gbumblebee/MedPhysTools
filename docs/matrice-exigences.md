@@ -63,7 +63,30 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Annotation au même endroit quelle que soit la taille d'affichage | `tests/test_interface_photos.py::test_une_annotation_reste_au_meme_endroit_quelle_que_soit_la_taille` | Vérifié |
 | Fichier altéré signalé à l'affichage | `tests/test_interface_photos.py::test_un_fichier_altere_est_signale` | Vérifié |
 | Fichier manquant signalé à l'affichage | `tests/test_interface_photos.py::test_un_fichier_manquant_est_signale_sans_plantage` | Vérifié |
-| Aucun DICOM avant la pseudonymisation | `tests/test_interface_photos.py::test_un_dicom_n_entre_pas_dans_l_archive` | Vérifié dans l'interface ; l'API Python ne le refuse pas |
+| Aucun DICOM hors de l'onglet DICOM | `tests/test_interface_photos.py::test_un_dicom_n_entre_pas_dans_l_archive` | Vérifié dans l'interface ; l'API Python `importer_copie` ne le refuse pas |
+| Import sans option : pseudonymisé | `tests/test_dicom_import.py::test_un_import_sans_option_particuliere_est_pseudonymise` | Vérifié sur fichiers synthétiques |
+| Fantôme identique octet pour octet | `tests/test_dicom_import.py::test_un_fichier_fantome_reste_identique` | Vérifié |
+| Fantôme qui ressemble à un patient : avertissement | `tests/test_interface_dicom.py::test_un_fantome_suspect_demande_confirmation_et_peut_etre_annule` | Vérifié |
+| Aucune balise de la liste dans la copie | `tests/test_dicom_import.py::test_aucune_balise_de_la_liste_ne_reste_dans_la_copie` | Vérifié |
+| Aucun octet identifiant dans la copie | `tests/test_dicom_import.py::test_aucun_octet_identifiant_ne_reste_dans_la_copie` | Vérifié sur fichiers synthétiques |
+| Aucun nom de fichier dans `page.json`, Git ou l'index | `tests/test_dicom_import.py::test_aucun_nom_de_fichier_n_atteint_l_archive` | Vérifié |
+| Pixels identiques, empreinte comprise | `tests/test_dicom_import.py::test_les_pixels_restent_identiques_empreinte_comprise` | Vérifié |
+| Limite du texte incrusté affichée | `tests/test_interface_dicom.py::test_l_onglet_s_ouvre_avec_ses_commandes_visibles` | Vérifié |
+| CT : pente et ordonnée | `tests/test_volumes.py::test_le_scanner_applique_pente_et_ordonnee` | Vérifié |
+| Dose : DoseGridScaling | `tests/test_volumes.py::test_la_dose_multiplie_les_entiers_par_le_dose_grid_scaling` | Vérifié |
+| TEP : pente propre à chaque coupe | `tests/test_volumes.py::test_chaque_coupe_de_tep_a_sa_propre_pente` | Vérifié |
+| TEMP : valeurs et positions | `tests/test_volumes.py::test_la_temp_lit_la_pente_reelle_et_les_positions_du_detecteur` | Vérifié |
+| 4D en fichiers séparés | `tests/test_volumes.py::test_une_serie_4d_en_fichiers_separes_se_range_par_phase_et_par_coupe` | Vérifié |
+| 4D en multi-images amélioré | `tests/test_volumes.py::test_une_serie_4d_amelioree_lit_tout_image_par_image` | Vérifié |
+| Formats compressés | `tests/test_volumes.py::test_une_serie_compressee_donne_les_memes_valeurs` | Vérifié : RLE, JPEG 2000 et JPEG-LS sans perte |
+| Orientation radiologique | `tests/test_volumes.py::test_un_patient_acquis_en_sens_inverse_reste_bien_oriente` | Vérifié |
+| Structures sur une coupe | `tests/test_volumes.py::test_en_coronal_un_contour_axial_donne_le_segment_attendu` | Vérifié |
+| Valeur physique lue à la souris | `tests/test_interface_dicom.py::test_la_souris_lit_la_valeur_physique_et_son_unite` | Vérifié |
+| Fichier non pris en charge : message clair | `tests/test_interface_dicom.py::test_un_fichier_non_pris_en_charge_s_explique_sans_planter` | Vérifié |
+| Décodage impossible : message clair | `tests/test_interface_dicom.py::test_un_decodage_impossible_s_explique_sans_planter` | Vérifié |
+| Balises identifiantes non affichées | `tests/test_interface_dicom.py::test_les_balises_identifiantes_ne_s_affichent_jamais` | Vérifié |
+| Grosse série sans bloquer l'interface | `tests/test_interface_dicom.py::test_une_grosse_serie_ne_bloque_pas_l_interface` | Vérifié avec une lecture ralentie ; pas encore sur une vraie grosse série |
+| Cache des empreintes | `tests/test_dicom_import.py::test_le_cache_evite_de_relire_une_grosse_serie` | Vérifié |
 | Commentaire d'une pièce jointe | `tests/test_interface_photos.py::test_commenter_une_piece_jointe` | Vérifié |
 | Import personnalisé de scalaires et d'informations | `tests/test_interface_tableau.py::test_un_import_complet_remplit_le_tableau_et_les_scalaires` | Vérifié |
 | Une valeur importée sans incertitude ne s'enregistre pas | `tests/test_interface_tableau.py::test_un_scalaire_importe_sans_incertitude_reste_a_completer` | Vérifié |
@@ -162,6 +185,5 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Performances sur un partage réseau | Jamais mesurées | Avec le poste Windows |
 | Données patient dans les noms de fichiers et les DICOM | **Non traité** : ne pas importer de données patient | Avant les premiers DICOM réels, en phase 1 |
 | Calculs avec les erreurs communes entre mesures | Repère stocké, calcul à faire | À décider ; nécessaire pour des rapports exacts |
-| Compression des DICOM et empreinte des pixels | Non implémentées (`pydicom` absent) | Phase 1 |
 | Vérification globale d'intégrité | Non implémentée ; contrôle à l'accès seulement | Phase 3 |
 | Données réelles | Scénario à valeurs fictives | Premier CQ réel, en phase 1 |

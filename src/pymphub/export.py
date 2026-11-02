@@ -422,7 +422,9 @@ class _Ecrivain:
         for f in fichiers:
             self.montrees.add(f.nom)
             stockage = f.stockage
-            if isinstance(stockage, Copie):
+            if f.dicom is not None:
+                nature, detail = "Copie DICOM", f.dicom.resume
+            elif isinstance(stockage, Copie):
                 nature, detail = "Copie", stockage.nom_origine
             elif isinstance(stockage, ReferenceFichier):
                 nature, detail = "Référence fichier", stockage.chemin
