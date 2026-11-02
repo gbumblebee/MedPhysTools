@@ -317,6 +317,32 @@ class ReferenceDicom(_Modele):
     empreinte_pixels: Empreinte | None = None
 
 
+class DicomImporte(_Modele):
+    """Ce qu'il faut savoir d'une série DICOM copiée dans le magasin.
+
+    `mode` garde le choix fait à l'import : `pseudonymise` retire les balises identifiantes,
+    `fantome` conserve les fichiers tels quels. L'empreinte des pixels ne change pas avec les
+    balises. Rien d'identifiant ne figure ici, seulement des UID et des données techniques.
+    """
+
+    mode: Literal["pseudonymise", "fantome"]
+    modalite: str = Field(min_length=1)
+    study_instance_uid: UidDicom
+    series_instance_uid: UidDicom
+    frame_of_reference_uid: UidDicom | None = None
+    fichiers: int = Field(gt=0)
+    empreinte_pixels: Empreinte | None = None
+    avertissements: tuple[str, ...] = ()
+
+    @property
+    def traitement(self) -> str:
+        return "Pseudonymisé" if self.mode == "pseudonymise" else "Fantôme, tel quel"
+
+    @property
+    def resume(self) -> str:
+        return f"{self.modalite}, {self.fichiers} fichier(s), {self.traitement.lower()}"
+
+
 class Fichier(_Modele):
     """Un fichier brut : DICOM, image, export constructeur."""
 
@@ -327,6 +353,7 @@ class Fichier(_Modele):
     ]
     type_fichier: str = ""
     commentaire: str = ""
+    dicom: DicomImporte | None = None
 
 
 class LigneDerivee(_Modele):

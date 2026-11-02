@@ -5,10 +5,13 @@ utilisée par plusieurs pages n'y est donc stockée qu'une fois, et ne peut pas 
 sans que cela se voie.
 """
 
+import contextlib
 import hashlib
+import json
 import os
 import stat
 import tempfile
+import threading
 from pathlib import Path
 from typing import Literal
 
@@ -72,6 +75,57 @@ def etat_fichier(
         return "manquant"
     except OSError:
         return "illisible"
+
+
+class CacheEmpreintes:
+    """Garde l'empreinte des gros fichiers, tant que leur taille et leur date ne changent pas.
+
+    Recalculer l'empreinte d'une grosse série prendrait trop de temps à chaque affichage. Le
+    cache est un simple confort, hors de Git : supprimé ou abîmé, il se reconstruit.
+    """
+
+    def __init__(self, chemin: Path) -> None:
+        self.chemin = chemin
+        self._verrou = threading.Lock()
+
+    def _lire(self) -> dict[str, list]:
+        try:
+            contenu = json.loads(self.chemin.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return contenu if isinstance(contenu, dict) else {}
+
+    @staticmethod
+    def _etat(fichier: Path) -> list[int]:
+        etat = fichier.stat()
+        return [etat.st_size, etat.st_mtime_ns]
+
+    def connue(self, fichier: Path) -> str | None:
+        """Renvoie l'empreinte gardée, si le fichier n'a pas bougé depuis son calcul."""
+        try:
+            attendu = self._etat(fichier)
+        except OSError:
+            return None
+        with self._verrou:
+            entree = self._lire().get(fichier.name)
+        if isinstance(entree, list) and len(entree) == 3 and entree[:2] == attendu:
+            return entree[2]
+        return None
+
+    def calculer(self, fichier: Path) -> str:
+        """Renvoie l'empreinte d'un fichier : celle du cache, ou un calcul qu'il retient."""
+        connue = self.connue(fichier)
+        if connue is not None:
+            return connue
+        etat = self._etat(fichier) if fichier.exists() else None
+        empreinte = empreinte_fichier(fichier)
+        if etat is not None:
+            with self._verrou:
+                contenu = self._lire()
+                contenu[fichier.name] = [*etat, empreinte]
+                with contextlib.suppress(OSError):
+                    self.chemin.write_text(json.dumps(contenu), encoding="utf-8")
+        return empreinte
 
 
 def semble_dicom(chemin: Path) -> bool:

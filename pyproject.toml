@@ -19,7 +19,10 @@ dependencies = [
     "pandas>=3.1.0",
     "pint>=0.26.2",
     "pydantic>=2.14.2",
+    "pydicom>=3.0.2",
     "pyside6-essentials>=6.12.0",
+    "python-gdcm>=3.2.6",
+    "scipy>=1.18.1",
     "tomli-w>=1.2.0",
 ]
 
@@ -33,6 +36,9 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "metrolopy>=1.1.1",
+    "pyjpegls>=1.5.1",
+    "pylibjpeg>=2.1.0",
+    "pylibjpeg-openjpeg>=2.6.0",
     "pypdf>=6.21.4",
     "pytest>=9.2.0",
     "pytest-qt>=4.5.0",

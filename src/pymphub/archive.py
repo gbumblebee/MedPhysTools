@@ -29,6 +29,7 @@ from pymphub.disque import (
     verifier_nom_windows,
 )
 from pymphub.fichiers import (
+    CacheEmpreintes,
     EtatFichier,
     FichierAltere,
     FichierManquant,
@@ -242,6 +243,9 @@ class Archive:
         self.configuration = _lire_configuration(self.racine)
         self._depot = Depot(self.racine)
         self._index = Index(self.racine / "index.sqlite", self.racine / "pages")
+        self.cache_empreintes = CacheEmpreintes(
+            self.racine / "objets" / ".cache_empreintes.json"
+        )
 
     @classmethod
     def creer(
@@ -823,6 +827,10 @@ class Archive:
         chemin = self.emplacement_fichier(fichier)
         if chemin is None:
             return None
+        # Une grosse série déjà vérifiée n'a pas à être relue pour afficher son état.
+        connue = self.cache_empreintes.connue(chemin)
+        if connue is not None:
+            return "intact" if connue == fichier.stockage.empreinte else "altéré"
         return etat_fichier(chemin, fichier.stockage.empreinte, taille_max)
 
     def etats_fichiers(

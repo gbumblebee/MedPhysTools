@@ -13,7 +13,7 @@ from pymphub.page import Page, PieceJointe
 
 MESSAGE_DICOM = (
     "« {nom} » est un fichier DICOM : il pourrait contenir des données de patient. "
-    "Son import arrivera avec la pseudonymisation."
+    "L'importer dans un onglet DICOM, qui le pseudonymise."
 )
 
 

@@ -126,6 +126,9 @@ def _texte_de_grandeur(grandeur: dict[str, Any]) -> Iterator[str]:
     for colonne in grandeur.get("colonnes", []):
         yield from _textes(colonne.get("nom"))
         yield from _textes(colonne.get("commentaire"))
+    dicom = grandeur.get("dicom")
+    if isinstance(dicom, dict):
+        yield from _textes(dicom.get("modalite"))
     stockage = grandeur.get("stockage")
     if isinstance(stockage, dict):
         for champ in ("nom_origine", "description", "chemin", "noeud"):
