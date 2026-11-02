@@ -92,6 +92,9 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Indicateur relu avec méthode, données, intervalle et incertitude | `tests/test_ajustements.py::test_un_indicateur_se_relit_avec_sa_methode_ses_donnees_et_son_intervalle` | Vérifié |
 | Ajustement et indicateur ne modifient aucune valeur brute | `tests/test_interface_ajustements.py::test_un_ajustement_ne_touche_a_aucune_valeur_brute` | Vérifié |
 | Chaque indicateur vérifié sur une fonction connue | `tests/test_ajustements.py::test_chaque_indicateur_sur_la_parabole_ajustee` | Vérifié |
+| Un tag de note suit la valeur, et la note ne garde que le tag | `tests/test_tags.py::test_la_note_garde_le_tag_et_l_affichage_suit_la_valeur` | Vérifié |
+| Un tag cassé se voit | `tests/test_tags.py::test_un_tag_casse_se_voit_sans_arreter_le_reste` | Vérifié |
+| Capture d'un graphe gardée dans la page et signalée si les données changent | `tests/test_interface_notes.py::test_une_capture_signale_que_le_tableau_a_change` | Vérifié |
 | L'archive figée du format 1 se relit | `tests/test_format_1.py::test_toutes_les_pages_se_relisent` | Vérifié |
 
 ## Gabarits

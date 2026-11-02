@@ -245,6 +245,7 @@ class VignettePhoto(QFrame):
         etat: str,
         modifiable: bool,
         parent: QWidget | None = None,
+        remarque: str = "",
     ) -> None:
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -260,9 +261,10 @@ class VignettePhoto(QFrame):
             self.image.setText("Aperçu impossible")
         self.image.setToolTip(photo.chemin)
 
-        self.alerte = QLabel(message_etat(etat))
+        self.alerte = QLabel(" ".join(filter(None, (message_etat(etat), remarque))))
         self.alerte.setObjectName("alerte")
         self.alerte.setWordWrap(True)
+        self.alerte.setFixedWidth(_COTE_VIGNETTE)
         self.alerte.setVisible(bool(self.alerte.text()))
         self.legende = QLabel(photo.legende)
         self.legende.setTextFormat(Qt.TextFormat.PlainText)

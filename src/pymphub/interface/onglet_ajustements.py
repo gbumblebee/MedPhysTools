@@ -47,7 +47,7 @@ from pymphub.interface.affichage_ajustements import (
     resume_ajustement,
 )
 from pymphub.interface.messages import message_erreur
-from pymphub.interface.onglet_graphes import creer_toile
+from pymphub.interface.onglet_graphes import capturer_graphe, creer_toile
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
 from pymphub.interface.panneau_indicateurs import PanneauIndicateurs
 from pymphub.interface.texte_en_grand import afficher_en_grand
@@ -156,6 +156,11 @@ class EditeurAjustements(EditeurOnglet):
         self.bouton_reglages = QPushButton("Masquer les réglages")
         self.bouton_reglages.setCheckable(True)
         self.bouton_reglages.toggled.connect(self._replier_reglages)
+        self.bouton_capture = QPushButton("Capturer dans les notes")
+        self.bouton_capture.setToolTip(
+            "Garde une image figée de ce graphe dans la page, et l'insère dans les notes"
+        )
+        self.bouton_capture.clicked.connect(self.demander_capture)
 
         self.champ_k = QDoubleSpinBox()
         self.champ_k.setRange(0.1, 10.0)
@@ -222,6 +227,7 @@ class EditeurAjustements(EditeurOnglet):
         zone = QWidget()
         ligne = QHBoxLayout(zone)
         ligne.setContentsMargins(0, 0, 0, 0)
+        ligne.addWidget(self.bouton_capture)
         ligne.addWidget(self.bouton_reglages)
         ligne.addWidget(QLabel("k ="))
         ligne.addWidget(self.champ_k)
@@ -517,6 +523,23 @@ class EditeurAjustements(EditeurOnglet):
         self.alerte.setText(" ".join(messages))
         self.alerte.setVisible(bool(messages))
         self.panneau.afficher()
+
+    def demander_capture(self) -> None:
+        """Garde une image de ce graphe dans la page, et l'insère dans les notes."""
+        if self.ajustement is None or self.toile is None:
+            self._signaler("Aucun graphe à capturer pour l'instant.")
+            return
+        self.vues.setCurrentIndex(0)
+        message = capturer_graphe(
+            self.toile,
+            self,
+            self.ajustement.tableau,
+            self.lire_tableau,
+            self.champ_k.value(),
+        )
+        self.coefficients.setText(
+            f"{ecrire_coefficients(self.ajustement, self.champ_k.value())} — {message}"
+        )
 
     def _zone_de_dessin(self) -> QWidget:
         if self.toile is None:

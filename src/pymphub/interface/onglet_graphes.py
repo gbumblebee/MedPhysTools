@@ -4,7 +4,10 @@ Les réglages sont gardés dans la page. Le graphe montre la dernière version e
 tableau. Le facteur k ne change que l'affichage, et ne crée donc aucun enregistrement.
 """
 
-from collections.abc import Sequence
+import tempfile
+from collections.abc import Callable, Sequence
+from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 from pydantic import ValidationError
@@ -19,17 +22,19 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from pymphub.archive import Archive
-from pymphub.edition import Grandeur
+from pymphub.edition import Grandeur, suggerer_nom
 from pymphub.graphes import (
     GrapheImpossible,
     ajustements_du_tableau,
     courbes_a_relire,
+    empreinte_tableau,
     preparer_graphe,
     reglages_par_defaut,
     tableaux_tracables,
@@ -37,7 +42,15 @@ from pymphub.graphes import (
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
 from pymphub.interface.panneau_indicateurs import PanneauIndicateurs
-from pymphub.page import Indicateur, Onglet, OngletGraphes, Page, ReglagesGraphe
+from pymphub.page import (
+    CaptureGraphe,
+    Indicateur,
+    Onglet,
+    OngletGraphes,
+    Page,
+    PhotoAnnotee,
+    ReglagesGraphe,
+)
 
 _LARGEUR_REGLAGES = 270
 _MESSAGE_SANS_TABLEAU = (
@@ -77,6 +90,41 @@ def dessiner(
         toile.tracer(preparer_graphe(page, donnees, reglages, k))
     except (GrapheImpossible, ValueError, KeyError, OSError) as erreur:
         toile.signaler(message_erreur(erreur))
+
+
+def capturer_graphe(
+    toile: QWidget,
+    editeur: EditeurOnglet,
+    tableau: str,
+    lire_tableau: Callable[[str], pd.DataFrame],
+    k: float,
+) -> str:
+    """Enregistre le graphe en image, le joint à la page et propose de l'insérer aux notes.
+
+    Renvoie un message pour l'utilisateur. L'image reste figée : son origine permet de
+    signaler plus tard que le tableau a changé. Sa légende dit d'où elle vient.
+    """
+    if editeur.pieces is None or toile is None or toile.donnees is None:
+        return "Aucun graphe à capturer pour l'instant."
+    maintenant = datetime.now()
+    titre = editeur.onglet.titre or "Graphe"
+    nom = f"graphe_{suggerer_nom(titre) or 'capture'}_{maintenant:%Y%m%d_%H%M%S}.png"
+    try:
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = Path(dossier) / nom
+            toile.enregistrer_image(chemin)
+            piece = editeur.pieces.joindre(chemin)
+        empreinte = empreinte_tableau(editeur.page, tableau, lire_tableau(tableau))
+    except (ValueError, KeyError, OSError) as erreur:
+        return f"Capture impossible : {message_erreur(erreur)}"
+    editeur.capture_proposee.emit(
+        PhotoAnnotee(
+            chemin=piece.chemin,
+            legende=f"{titre}, capturé le {maintenant:%d/%m/%Y %H:%M}, k = {k:g}",
+            capture=CaptureGraphe(tableau=tableau, empreinte_donnees=empreinte),
+        )
+    )
+    return "Capture ajoutée à l'onglet de notes."
 
 
 class EditeurGraphes(EditeurOnglet):
@@ -146,6 +194,16 @@ class EditeurGraphes(EditeurOnglet):
         ):
             gauche.addWidget(case)
         gauche.addWidget(indication)
+        self.bouton_capture = QPushButton("Capturer dans les notes")
+        self.bouton_capture.setToolTip(
+            "Garde une image figée de ce graphe dans la page, et l'insère dans les notes"
+        )
+        self.bouton_capture.clicked.connect(self.demander_capture)
+        self.message_capture = QLabel("")
+        self.message_capture.setObjectName("discret")
+        self.message_capture.setWordWrap(True)
+        gauche.addWidget(self.bouton_capture)
+        gauche.addWidget(self.message_capture)
         gauche.addStretch()
         conteneur = QWidget()
         conteneur.setLayout(gauche)
@@ -419,6 +477,22 @@ class EditeurGraphes(EditeurOnglet):
         self.tracer_si_visible()
 
     # --- Dessin ---------------------------------------------------------------------------
+
+    def demander_capture(self) -> None:
+        """Garde une image de ce graphe dans la page, et l'insère dans les notes."""
+        reglages = self._reglages_affiches()
+        if reglages is None or self.toile is None:
+            self.message_capture.setText("Aucun graphe à capturer pour l'instant.")
+            return
+        self.message_capture.setText(
+            capturer_graphe(
+                self.toile,
+                self,
+                reglages.tableau,
+                self.lire_tableau,
+                self.champ_k.value(),
+            )
+        )
 
     def _zone_toile(self) -> QWidget:
         if self.toile is None:

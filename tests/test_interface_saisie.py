@@ -206,7 +206,12 @@ def test_ouvrir_une_page_ne_laisse_aucun_widget_en_trop(ouverte):
     # Sans passage par la boucle d'événements : un widget remplacé y resterait visible.
     ouverte.ouvrir_page(identifiant(ouverte))
     ouverte.ouvrir_page(identifiant(ouverte))
-    assert ouverte.edition.findChildren(QComboBox) == [ouverte.champ_machine]
+    hors_onglets = [
+        liste
+        for liste in ouverte.edition.findChildren(QComboBox)
+        if not ouverte.onglets.isAncestorOf(liste)
+    ]
+    assert hors_onglets == [ouverte.champ_machine]
 
 
 def test_la_liste_propose_les_machines_et_selectionne_celle_de_la_page(espace):

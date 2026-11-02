@@ -198,6 +198,7 @@ La saisie se fait directement sur ordinateur, en page libre par défaut ou à pa
 - Horodatage de la mesure distinct de l'horodatage de saisie ; bouton « maintenant ».
 - Pièces jointes par glisser-déposer : photos (vignettes visibles dans la page), PDF, exports constructeurs.
 - Annotation des photos : les annotations sont enregistrées à part, l'image d'origine n'est jamais modifiée.
+- Capture d'un graphe dans un onglet de notes, en image figée. Tags dans le texte des notes (`{{activite}}`), remplacés à l'affichage par la valeur, son incertitude et son unité.
 - Liens vers des fichiers bruts, en copie dans `objets/` ou en référence. Un fichier altéré ou manquant est signalé à l'affichage.
 - Un fichier importé dans un tableau est copié automatiquement en pièce jointe de la page.
 - Association manuelle fichier ↔ entrée attendue : on dépose les fichiers dans `brut/` puis on choisit, pour chaque entrée du gabarit, le fichier correspondant.

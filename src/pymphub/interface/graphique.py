@@ -5,6 +5,7 @@ Ce module est lourd à charger : il ne s'importe qu'au moment d'afficher un grap
 
 import math
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 from matplotlib.axes import Axes
@@ -25,6 +26,8 @@ from pymphub.interface.theme import BORDURE, SERIES, SURFACE, TEXTE, TEXTE_DISCR
 _MARQUEURS = ("o", "s", "^", "D", "v", "P", "X", "*")
 _DISTANCE_SURVOL_PIXELS = 14.0
 _TAILLE_POLICE = 9
+_RESOLUTION_CAPTURE = 200
+_FORMAT_CAPTURE = (8.0, 5.0)
 _PLANCHER_LOG = 10.0  # Une barre qui passerait sous zéro s'arrête à valeur / 10.
 
 
@@ -116,6 +119,19 @@ class ToileGraphe(QWidget):
         disposition.addWidget(self.canevas, stretch=1)
         if interactif:
             disposition.addWidget(self.lecture)
+
+    def enregistrer_image(self, chemin: Path) -> None:
+        """Écrit le graphe en image, assez nette pour l'imprimer.
+
+        Son format est fixe : il ne doit pas dépendre de la taille de la fenêtre à cet instant.
+        """
+        taille = self.figure.get_size_inches().copy()
+        self.figure.set_size_inches(*_FORMAT_CAPTURE, forward=False)
+        try:
+            self.figure.savefig(chemin, dpi=_RESOLUTION_CAPTURE, facecolor=SURFACE)
+        finally:
+            self.figure.set_size_inches(*taille, forward=False)
+            self.canevas.draw_idle()
 
     def signaler(self, message: str) -> None:
         """Remplace le graphe par une explication."""

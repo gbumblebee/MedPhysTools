@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QTableWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -57,7 +58,7 @@ class AffichageEnGrand(QObject):
         widget.customContextMenuRequested.connect(self._montrer_menu)
 
     def _menu_habituel(self) -> QMenu:
-        if isinstance(self.widget, (QLineEdit, QPlainTextEdit)):
+        if isinstance(self.widget, (QLineEdit, QPlainTextEdit, QTextEdit)):
             return self.widget.createStandardContextMenu()
         menu = QMenu(self.widget)
         if isinstance(self.widget, QLabel):
@@ -102,7 +103,7 @@ class AffichageEnGrand(QObject):
 
 
 def afficher_en_grand(
-    widget: QLineEdit | QPlainTextEdit | QLabel,
+    widget: QLineEdit | QPlainTextEdit | QTextEdit | QLabel,
     titre: Titre,
     lire_texte: Callable[[], str] | None = None,
 ) -> AffichageEnGrand:
@@ -113,7 +114,7 @@ def afficher_en_grand(
     """
     if lire_texte is not None:
         lire = lire_texte
-    elif isinstance(widget, QPlainTextEdit):
+    elif isinstance(widget, (QPlainTextEdit, QTextEdit)):
         lire = widget.toPlainText
     else:
         lire = widget.text

@@ -6,6 +6,7 @@ chaque cellule. Toutes les séries partagent un seul axe : elles sont converties
 l'unité de la première, et des unités incompatibles sont refusées.
 """
 
+import hashlib
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -86,6 +87,14 @@ def _colonnes_calculees(page: Page, tableau: str) -> list[ColonneCalculee]:
         for g in page.mesures
         if isinstance(g, ColonneCalculee) and tableau in g.tableaux
     ]
+
+
+def empreinte_tableau(page: Page, tableau: str, donnees: pd.DataFrame) -> str:
+    """Résume un tableau et ses colonnes calculées : elle change dès qu'une valeur change."""
+    calcul = hashlib.sha256(donnees.to_csv(index=False).encode("utf-8"))
+    for colonne in _colonnes_calculees(page, tableau):
+        calcul.update(repr((colonne.nom, colonne.valeurs)).encode("utf-8"))
+    return calcul.hexdigest()
 
 
 def tableaux_tracables(page: Page) -> dict[str, list[str]]:

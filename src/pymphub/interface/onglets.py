@@ -10,13 +10,15 @@ et ses données restent intactes.
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import pandas as pd
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -24,12 +26,14 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from pymphub.archive import Archive
 from pymphub.edition import Grandeur
+from pymphub.graphes import empreinte_tableau, tableaux_tracables
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.photos import (
     BandePhotos,
@@ -40,13 +44,20 @@ from pymphub.interface.photos import (
 from pymphub.interface.pieces import PiecesDeLaPage, chemins_deposes
 from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import (
+    Ajustement,
+    CaptureGraphe,
+    GrandeurDerivee,
+    Identifiant,
+    Indicateur,
     Onglet,
     OngletNotes,
     Page,
     PhotoAnnotee,
+    Scalaire,
     enregistrer_type_onglet,
     retirer_type_onglet,
 )
+from pymphub.tags import decouper_note, note_en_html
 
 
 class EditeurOnglet(QWidget):
@@ -56,6 +67,8 @@ class EditeurOnglet(QWidget):
     mesure_proposee = Signal(object)
     # Les valeurs lues par un import, et s'il faut montrer l'onglet qui les reçoit.
     valeurs_importees = Signal(object, bool)
+    # La photo d'une capture, à insérer dans un onglet de notes.
+    capture_proposee = Signal(object)
 
     def __init__(
         self, onglet: Onglet, page: Page | None = None, parent: QWidget | None = None
@@ -135,6 +148,23 @@ class EditeurLectureSeule(EditeurOnglet):
         disposition.addWidget(self.contenu)
 
 
+def remarque_de_capture(
+    page: Page,
+    capture: CaptureGraphe,
+    lire_tableau: Callable[[str], pd.DataFrame],
+) -> str:
+    """Dit si le tableau a changé depuis une capture : l'image, elle, ne bouge pas."""
+    try:
+        empreinte = empreinte_tableau(
+            page, capture.tableau, lire_tableau(capture.tableau)
+        )
+    except (ValueError, KeyError, OSError):
+        return f"Capture : le tableau « {capture.tableau} » n'est plus lisible."
+    if empreinte != capture.empreinte_donnees:
+        return f"Capture ancienne : « {capture.tableau} » a changé depuis."
+    return ""
+
+
 class ZoneNotes(QPlainTextEdit):
     """Le texte des notes : un fichier déposé dessus est joint, au lieu d'écrire son chemin."""
 
@@ -168,14 +198,27 @@ class EditeurNotes(EditeurOnglet):
         self, onglet: Onglet, page: Page | None = None, parent: QWidget | None = None
     ) -> None:
         super().__init__(onglet, page, parent)
+        self.archive: Archive | None = None
         self.photos: list[PhotoAnnotee] = list(getattr(onglet, "photos", ()))
         self.texte = ZoneNotes(getattr(onglet, "texte", ""))
         self.texte.setPlaceholderText(
-            "Montage, conditions, remarques… Déposez ici une photo ou un fichier."
+            "Montage, conditions, remarques… Déposez ici une photo ou un fichier. "
+            "Une valeur de la page s'insère avec {{nom}}."
         )
         afficher_en_grand(self.texte, lambda: self.onglet.titre or "Notes")
         self.texte.textChanged.connect(self.modifie)
         self.texte.fichiers_deposes.connect(self.ajouter_fichiers)
+
+        self.apercu = QTextEdit()
+        self.apercu.setReadOnly(True)
+        self.apercu.setVisible(False)
+        self.bouton_apercu = QPushButton("Aperçu")
+        self.bouton_apercu.setCheckable(True)
+        self.bouton_apercu.setToolTip("Montre les valeurs à la place des tags {{nom}}")
+        self.bouton_apercu.toggled.connect(self._basculer_apercu)
+        self.insertion = QComboBox()
+        self.insertion.setToolTip("Insère une valeur de la page, qui se mettra à jour")
+        self.insertion.activated.connect(self._inserer_choix)
 
         self.bande = BandePhotos()
         self.bande.setAcceptDrops(True)
@@ -187,16 +230,79 @@ class EditeurNotes(EditeurOnglet):
         self.bouton_photo.clicked.connect(self.demander_fichiers)
         ligne = QHBoxLayout()
         ligne.addWidget(self.message, stretch=1)
+        ligne.addWidget(self.insertion)
+        ligne.addWidget(self.bouton_apercu)
         ligne.addWidget(self.bouton_photo)
 
         disposition = QVBoxLayout(self)
         disposition.addWidget(self.texte, stretch=1)
+        disposition.addWidget(self.apercu, stretch=1)
         disposition.addWidget(self.bande)
         disposition.addLayout(ligne)
         self.setAcceptDrops(True)
 
-    def charger(self, _archive: Archive) -> None:
+    def charger(self, archive: Archive) -> None:
+        self.archive = archive
         self._afficher_photos()
+        self._proposer_noms()
+
+    def enregistre(self, page: Page) -> None:
+        super().enregistre(page)
+        self._proposer_noms()
+        self._afficher_photos()
+        self._actualiser_apercu()
+
+    # --- Tags -----------------------------------------------------------------------------
+
+    def _lire_tableau(self, nom: str) -> pd.DataFrame:
+        return self.archive.lire_tableau(self.page.id, nom)
+
+    def _proposer_noms(self) -> None:
+        self.insertion.clear()
+        self.insertion.addItem("Insérer une valeur…")
+        if self.page is None:
+            return
+        for grandeur in self.page.mesures:
+            if isinstance(grandeur, (Scalaire, Identifiant, GrandeurDerivee)):
+                self.insertion.addItem(grandeur.nom)
+            elif isinstance(grandeur, Indicateur):
+                self.insertion.addItem(grandeur.nom)
+                if grandeur.position is not None:
+                    self.insertion.addItem(f"{grandeur.nom}.x")
+            elif isinstance(grandeur, Ajustement):
+                for parametre in grandeur.parametres:
+                    self.insertion.addItem(f"{grandeur.nom}.{parametre.nom}")
+        for tableau, colonnes in tableaux_tracables(self.page).items():
+            for colonne in colonnes:
+                self.insertion.addItem(f"{tableau}.{colonne}[1]")
+
+    def _inserer_choix(self, rang: int) -> None:
+        if rang > 0:
+            self.inserer_tag(self.insertion.itemText(rang))
+        self.insertion.setCurrentIndex(0)
+
+    def inserer_tag(self, nom: str) -> None:
+        """Insère un tag à l'emplacement du curseur."""
+        self.texte.insertPlainText(f"{{{{{nom}}}}}")
+        self.texte.setFocus()
+
+    def rendu_html(self) -> str:
+        """La note telle qu'elle s'affiche, avec les valeurs à la place des tags."""
+        if self.page is None or self.archive is None:
+            return ""
+        morceaux = decouper_note(
+            self.texte.toPlainText(), self.page, self._lire_tableau
+        )
+        return note_en_html(morceaux)
+
+    def _actualiser_apercu(self) -> None:
+        if self.bouton_apercu.isChecked():
+            self.apercu.setHtml(self.rendu_html())
+
+    def _basculer_apercu(self, actif: bool) -> None:
+        self.texte.setVisible(not actif)
+        self.apercu.setVisible(actif)
+        self._actualiser_apercu()
 
     def valeur(self) -> Onglet:
         return self.onglet.model_copy(
@@ -255,6 +361,19 @@ class EditeurNotes(EditeurOnglet):
         self._afficher_photos()
         self.modifie.emit()
 
+    def ajouter_photo(self, photo: PhotoAnnotee) -> None:
+        """Ajoute une photo déjà jointe à la page, comme la capture d'un graphe."""
+        self.photos.append(photo)
+        self._afficher_photos()
+        self.modifie.emit()
+
+    def _remarque(self, photo: PhotoAnnotee) -> str:
+        """Signale qu'une capture ne correspond plus au tableau dont elle vient."""
+        capture = photo.capture
+        if capture is None or self.archive is None or self.page is None:
+            return ""
+        return remarque_de_capture(self.page, capture, self._lire_tableau)
+
     def _afficher_photos(self) -> None:
         if self.pieces is None:
             return
@@ -266,6 +385,7 @@ class EditeurNotes(EditeurOnglet):
                 photo,
                 self.pieces.etat(pieces[photo.chemin]),
                 modifiable=True,
+                remarque=self._remarque(photo),
             )
             vignette.ouverture_demandee.connect(
                 lambda r=rang: self.demander_annotation(r)

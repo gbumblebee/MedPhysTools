@@ -552,12 +552,23 @@ class Annotation(_Modele):
         return points
 
 
+class CaptureGraphe(_Modele):
+    """L'origine d'une photo qui est la capture d'un graphe : elle reste une image figée.
+
+    `empreinte_donnees` permet de signaler que le tableau a changé depuis la capture.
+    """
+
+    tableau: Nom
+    empreinte_donnees: Empreinte
+
+
 class PhotoAnnotee(_Modele):
     """Une pièce jointe affichée dans un onglet de notes, avec ses annotations."""
 
     chemin: CheminPieceJointe
     legende: str = ""
     annotations: tuple[Annotation, ...] = ()
+    capture: CaptureGraphe | None = None
 
 
 # --- Onglets --------------------------------------------------------------------

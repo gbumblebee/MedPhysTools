@@ -2,7 +2,7 @@
 
 import html
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -17,13 +17,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -42,6 +42,7 @@ from pymphub.interface.affichage_ajustements import (
     remplir_indicateurs,
     resume_ajustement,
 )
+from pymphub.interface.onglets import remarque_de_capture
 from pymphub.interface.photos import (
     BandePhotos,
     DialogueAnnotation,
@@ -71,6 +72,7 @@ from pymphub.page import (
     Scalaire,
     Tableau,
 )
+from pymphub.tags import decouper_note, note_en_html, note_en_texte
 
 # Au-delà, la fiche n'affiche que le début du tableau : elle reste ainsi réactive.
 LIGNES_MAX_AFFICHEES = 500
@@ -186,7 +188,8 @@ class FichePage(QWidget):
         self.tables: dict[str, QTableWidget] = {}
         self.commentaires_colonnes: dict[str, QLabel] = {}
         self.table_mesures: QTableWidget | None = None
-        self.notes: list[QPlainTextEdit] = []
+        self.notes: list[QTextEdit] = []
+        self.notes_sources: list[tuple[QTextEdit, str]] = []
         self.bandes_photos: list[BandePhotos] = []
         self.graphes: list[tuple[QWidget, ReglagesGraphe]] = []
         self.alertes_calculs: list[QLabel] = []
@@ -212,6 +215,7 @@ class FichePage(QWidget):
         self.champ_k.valueChanged.connect(self._tracer_graphes)
         self.champ_k.valueChanged.connect(self._ecrire_cellules_calculees)
         self.champ_k.valueChanged.connect(self._ecrire_resultats_ajustements)
+        self.champ_k.valueChanged.connect(self._ecrire_notes)
         ligne_k = QHBoxLayout()
         self.bouton_modifier = QPushButton("Modifier")
         self.bouton_modifier.setEnabled(False)
@@ -272,6 +276,7 @@ class FichePage(QWidget):
         self.commentaires_colonnes = {}
         self.table_mesures = None
         self.notes = []
+        self.notes_sources = []
         self.bandes_photos = []
         self.graphes = []
         self.alertes_calculs = []
@@ -625,14 +630,46 @@ class FichePage(QWidget):
                 continue
             self._ajouter(_titre_de_section(onglet.titre or "Notes"))
             if onglet.texte:
-                texte = QPlainTextEdit(onglet.texte)
+                texte = QTextEdit()
                 texte.setReadOnly(True)
                 texte.setFixedHeight(100)
-                afficher_en_grand(texte, onglet.titre or "Notes")
+                self.notes_sources.append((texte, onglet.texte))
                 self.notes.append(texte)
                 self._ajouter(texte)
+                afficher_en_grand(
+                    texte,
+                    onglet.titre or "Notes",
+                    lambda source=onglet.texte: note_en_texte(
+                        decouper_note(
+                            source,
+                            page,
+                            self._lecteur_tableau(page),
+                            self.champ_k.value(),
+                        )
+                    ),
+                )
             if onglet.photos:
                 self._construire_photos(page, onglet.photos)
+        self._ecrire_notes()
+
+    def _lecteur_tableau(self, page: Page) -> Callable[[str], pd.DataFrame]:
+        return lambda nom: self.archive.lire_tableau(page.id, nom)
+
+    def _ecrire_notes(self) -> None:
+        """Remplace les tags par les valeurs, au facteur k choisi. La note ne change pas."""
+        if self.page is None:
+            return
+        for texte, source in self.notes_sources:
+            texte.setHtml(
+                note_en_html(
+                    decouper_note(
+                        source,
+                        self.page,
+                        self._lecteur_tableau(self.page),
+                        self.champ_k.value(),
+                    )
+                )
+            )
 
     def _construire_photos(self, page: Page, photos: Sequence[PhotoAnnotee]) -> None:
         vignettes: list[VignettePhoto] = []
@@ -642,6 +679,11 @@ class FichePage(QWidget):
                 photo,
                 self.etats[photo.chemin],
                 modifiable=False,
+                remarque=remarque_de_capture(
+                    page, photo.capture, self._lecteur_tableau(page)
+                )
+                if photo.capture is not None
+                else "",
             )
             vignette.ouverture_demandee.connect(lambda p=photo: self.ouvrir_photo(p))
             vignettes.append(vignette)
