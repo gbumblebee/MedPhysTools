@@ -9,7 +9,7 @@ import pytest
 
 from pymphub.archive import Archive
 from pymphub.gabarit import creer_gabarit
-from pymphub.index import CritereInvalide
+from pymphub.index import CritereInvalide, _texte_de_page
 from pymphub.page import Page, vers_json
 
 PARIS = timezone(timedelta(hours=1))
@@ -533,3 +533,20 @@ def test_un_chemin_de_csv_falsifie_ne_sort_pas_de_la_page(arc):
     ]
     chemin.write_text(json.dumps(contenu), encoding="utf-8")
     assert arc.modifications_non_tracees() == [f"pages/{TEP}/page.json"]
+
+
+def test_le_texte_d_une_annotation_se_cherche():
+    page = {
+        "onglets": [
+            {
+                "titre": "Montage",
+                "photos": [
+                    {
+                        "legende": "Vue de face",
+                        "annotations": [{"texte": "Fissure du blindage"}],
+                    }
+                ],
+            }
+        ]
+    }
+    assert "Fissure du blindage" in _texte_de_page(page)

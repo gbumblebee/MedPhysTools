@@ -29,12 +29,14 @@ from pymphub.disque import (
     verifier_nom_windows,
 )
 from pymphub.fichiers import (
+    EtatFichier,
     FichierAltere,
     FichierManquant,
     ReferenceNonResolue,
     chemin_objet,
     copier_dans_le_magasin,
     empreinte_fichier,
+    etat_fichier,
     verifier_empreinte,
 )
 from pymphub.gabarit import Gabarit, depuis_toml, verifier_conformite, vers_toml
@@ -79,6 +81,8 @@ _LONGUEUR_MAX_SUJET = 40
 _FICHIER_CONFIGURATION = "archive.toml"
 _NUMERO_PAGE = re.compile(r"_(\d{4,})$")
 _CHAMPS_FIXES = ("id", "date_saisie", "auteur")
+# Au-delà, un affichage ne calcule pas l'empreinte : il resterait bloqué trop longtemps.
+TAILLE_MAX_VERIFICATION = 100 * 1024 * 1024
 
 
 class ArchiveIntrouvable(Exception):
@@ -772,6 +776,72 @@ class Archive:
                 temporaire.unlink(missing_ok=True)
                 raise
         return PieceJointe(chemin=f"pieces_jointes/{nom_fichier}", empreinte=empreinte)
+
+    def joindre_fichier(self, id_page: str, source: str | Path) -> PieceJointe:
+        """Copie un fichier dans les pièces jointes, sans jamais refuser son nom.
+
+        Deux fichiers différents portent souvent le même nom, comme `image.png`. Le second
+        devient alors `image_2.png`. Un fichier déjà joint n'est pas copié à nouveau.
+        """
+        origine = chemin_long(source)
+        verifier_nom_windows(origine.name)
+        dossier = self._dossier_page(id_page) / "pieces_jointes"
+        empreinte = empreinte_fichier(origine)
+        nom = origine.name
+        numero = 1
+        while (dossier / nom).exists() and empreinte_fichier(
+            dossier / nom
+        ) != empreinte:
+            numero += 1
+            nom = f"{origine.stem}_{numero}{origine.suffix}"
+        return self.importer_piece_jointe(id_page, origine, nom)
+
+    def emplacement_piece_jointe(self, id_page: str, chemin: str) -> Path:
+        """Renvoie où se trouve une pièce jointe, sans vérifier son contenu."""
+        return self._dossier_page(id_page) / chemin
+
+    def emplacement_fichier(self, fichier: Fichier) -> Path | None:
+        """Renvoie où se trouve un fichier brut. Une référence DICOM n'a pas d'emplacement."""
+        stockage = fichier.stockage
+        if isinstance(stockage, Copie):
+            return chemin_objet(self.racine / "objets", stockage.empreinte)
+        if isinstance(stockage, ReferenceFichier):
+            return chemin_long(stockage.chemin)
+        return None
+
+    def etat_piece_jointe(
+        self, id_page: str, piece: PieceJointe, taille_max: int | None = None
+    ) -> EtatFichier:
+        """Dit si une pièce jointe correspond à son empreinte."""
+        chemin = self.emplacement_piece_jointe(id_page, piece.chemin)
+        return etat_fichier(chemin, piece.empreinte, taille_max)
+
+    def etat_fichier_brut(
+        self, fichier: Fichier, taille_max: int | None = None
+    ) -> EtatFichier | None:
+        """Dit si un fichier brut correspond à son empreinte ; None pour une référence DICOM."""
+        chemin = self.emplacement_fichier(fichier)
+        if chemin is None:
+            return None
+        return etat_fichier(chemin, fichier.stockage.empreinte, taille_max)
+
+    def etats_fichiers(
+        self, page: Page, taille_max: int | None = TAILLE_MAX_VERIFICATION
+    ) -> dict[str, EtatFichier]:
+        """Vérifie les fichiers d'une page, pour les signaler à l'affichage.
+
+        La clé est le nom d'un fichier brut ou le chemin d'une pièce jointe. Rien n'est écrit.
+        """
+        etats: dict[str, EtatFichier] = {
+            piece.chemin: self.etat_piece_jointe(page.id, piece, taille_max)
+            for piece in page.pieces_jointes
+        }
+        for grandeur in page.mesures:
+            if isinstance(grandeur, Fichier):
+                etat = self.etat_fichier_brut(grandeur, taille_max)
+                if etat is not None:
+                    etats[grandeur.nom] = etat
+        return etats
 
     def chemin_piece_jointe(self, id_page: str, chemin: str) -> Path:
         """Renvoie le chemin d'une pièce jointe, après avoir vérifié son empreinte."""

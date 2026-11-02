@@ -314,9 +314,10 @@ def test_les_fichiers_sont_listes_sans_chemin_du_magasin(ouvert):
         [table.item(i, j).text() for j in range(table.columnCount())]
         for i in range(table.rowCount())
     ]
-    assert ["export", "Copie", "export_constructeur.txt"] in lignes
-    assert any(ligne[1] == "Référence DICOM" for ligne in lignes)
-    assert any(ligne[1] == "Pièce jointe" for ligne in lignes)
+    assert ["export", "intact", "Copie", "export_constructeur.txt", ""] in lignes
+    assert any(ligne[2] == "Référence DICOM" for ligne in lignes)
+    assert any(ligne[2] == "Pièce jointe" for ligne in lignes)
+    assert not any("objets" in cellule for ligne in lignes for cellule in ligne)
 
 
 def test_les_notes_s_affichent(ouvert):

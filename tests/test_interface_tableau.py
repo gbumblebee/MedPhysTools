@@ -520,7 +520,9 @@ def test_un_import_garde_la_trace_de_son_origine(espace, editeur, tmp_path):
     editeur.champ_nom.setText("t")
     editeur.colonnes[0].composantes = (CERTIFICAT,)
     espace.enregistrer_maintenant()
-    assert relue(espace).grandeur("t").commentaire == "Importé depuis releve.csv"
+    assert relue(espace).grandeur("t").commentaire == (
+        "Importé depuis releve.csv, conservé dans pieces_jointes/releve.csv"
+    )
 
 
 def test_importer_un_fichier_excel(espace, editeur, tmp_path):

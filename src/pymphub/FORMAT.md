@@ -61,6 +61,12 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
   - `reference_fichier` : chemin externe, empreinte, taille et date ;
   - `reference_dicom` : UID DICOM de l'étude, de la série et des instances, avec le nœud DICOM.
 
+## Pièces jointes et photos annotées
+
+`pieces_jointes` donne le `chemin` et l'`empreinte` de chaque fichier de `pieces_jointes/`, qui reste hors de Git. Un fichier retiré d'une page reste sur le disque : les anciennes versions de la page y renvoient encore.
+
+Un onglet de notes liste ses `photos` : `chemin` d'une pièce jointe, `legende` et `annotations`. L'image n'est jamais modifiée : tout est dans `page.json`. Une annotation a une `forme` (`point`, `fleche`, `rectangle`, `ellipse`, `trace`), des `points` et un `texte`. Les coordonnées vont de 0 à 1, à partir du coin haut gauche, sur l'image redressée selon son orientation EXIF.
+
 ## Tableaux CSV
 
 UTF-8, virgule comme séparateur, point décimal, fins de ligne LF et une ligne d'en-tête. Le type de chaque colonne se lit dans `page.json`, jamais dans le CSV : une colonne d'identifiants reste du texte, même si elle contient `007`.

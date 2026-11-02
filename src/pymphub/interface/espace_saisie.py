@@ -38,7 +38,10 @@ from pymphub.edition import (
     nouvel_id_onglet,
     nouvelle_page,
 )
-from pymphub.interface import onglet_tableau  # noqa: F401 - déclare son type d'onglet
+from pymphub.interface import (  # noqa: F401 - déclarent leur type d'onglet
+    onglet_fichiers,
+    onglet_tableau,
+)
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglet_scalaires import EditeurScalaires
 from pymphub.interface.onglets import (
@@ -47,6 +50,7 @@ from pymphub.interface.onglets import (
     creer_onglet,
     types_disponibles,
 )
+from pymphub.interface.pieces import PiecesDeLaPage
 from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import Page, Scalaire
 
@@ -166,6 +170,8 @@ class EspaceSaisie(QWidget):
         self.archive: Archive | None = None
         self.page: Page | None = None
         self._chargement = False
+        self.pieces = PiecesDeLaPage(self)
+        self.pieces.changees.connect(self._sur_modification)
 
         self._minuteur = QTimer(self)
         self._minuteur.setSingleShot(True)
@@ -388,6 +394,7 @@ class EspaceSaisie(QWidget):
         self._minuteur.stop()
         self._chargement = True
         self.page = page
+        self.pieces.charger(self.archive, page, self._pieces_affichees)
         self.identifiant.setText(page.id)
         self.champ_titre.setText(page.titre)
         self.champ_description.setText(page.description)
@@ -408,11 +415,20 @@ class EspaceSaisie(QWidget):
 
     def _ajouter_editeur(self, onglet: object) -> EditeurOnglet:
         editeur = creer_editeur(onglet, self.page)
+        editeur.attacher_pieces(self.pieces)
         editeur.charger(self.archive)
         editeur.modifie.connect(self._sur_modification)
         editeur.mesure_proposee.connect(self.ajouter_mesure_proposee)
         self.onglets.addTab(editeur, onglet.titre or onglet.type)
         return editeur
+
+    def _pieces_affichees(self) -> list[str]:
+        """Les pièces jointes que les onglets affichent : elles ne peuvent pas être retirées."""
+        return [
+            chemin
+            for editeur in self.editeurs()
+            for chemin in editeur.valeur().pieces_jointes_referencees()
+        ]
 
     def editeurs(self) -> list[EditeurOnglet]:
         """Les éditeurs d'onglets, dans l'ordre affiché."""
@@ -431,6 +447,7 @@ class EspaceSaisie(QWidget):
             date_mesure=date_mesure,
             machine=self.champ_machine.currentText().strip() or None,
             onglets=[editeur.valeur() for editeur in self.editeurs()],
+            pieces_jointes=self.pieces.pieces,
             mesures=fusionner_grandeurs(
                 self.page.mesures,
                 [nom for e in self.editeurs() for nom in e.grandeurs_possedees()],
@@ -651,7 +668,8 @@ class EspaceSaisie(QWidget):
         editeur = self.onglets.widget(position)
         question = (
             f"Retirer l'onglet « {self.onglets.tabText(position)} » ? Son texte sera retiré "
-            "de la page mais restera lisible dans l'historique. Les mesures restent."
+            "de la page mais restera lisible dans l'historique. Les mesures et les pièces "
+            "jointes restent."
         )
         if not self._confirmer("Retirer l'onglet", question):
             return False

@@ -13,7 +13,15 @@ from pydantic import ValidationError
 
 from pymphub.archive import Archive, PageRefusee
 from pymphub.depot import Depot
-from pymphub.fichiers import FichierAltere, FichierManquant, ReferenceNonResolue
+from pymphub.disque import NomInvalide
+from pymphub.fichiers import (
+    FichierAltere,
+    FichierManquant,
+    ReferenceNonResolue,
+    empreinte_fichier,
+    etat_fichier,
+    semble_dicom,
+)
 from pymphub.historique import Modification, lire_message
 from pymphub.page import Fichier, Page, ReferenceDicom, Tableau
 from pymphub.tableaux import TableauInvalide, differences_csv, ecrire_csv, lire_csv
@@ -763,3 +771,133 @@ def test_chemin_absolu_de_reference_stocke_sans_prefixe(page_avec_reference, sou
     stockage = page_avec_reference.lire_page(ID_PAGE).grandeur("serie_ct").stockage
     assert not stockage.chemin.startswith("\\\\?\\")
     assert os.path.isabs(stockage.chemin)
+
+
+# --- Pièces jointes de l'interface et états des fichiers ---------------------------------
+
+
+@pytest.fixture
+def page_vide(arc):
+    identifiant = arc.nouvel_identifiant(HEURE, "jointures")
+    page = Page(
+        id=identifiant,
+        titre="Jointures",
+        date_mesure=HEURE,
+        date_saisie=HEURE,
+        auteur="G.",
+    )
+    arc.creer_page(page)
+    return page
+
+
+def ecrire(chemin, contenu):
+    chemin.write_bytes(contenu)
+    return chemin
+
+
+def test_joindre_deux_fichiers_de_meme_nom_garde_les_deux(arc, page_vide, tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    premier = arc.joindre_fichier(page_vide.id, ecrire(tmp_path / "a/i.png", b"un"))
+    second = arc.joindre_fichier(page_vide.id, ecrire(tmp_path / "b/i.png", b"deux"))
+    troisieme = arc.joindre_fichier(page_vide.id, ecrire(tmp_path / "b/j.tar", b"3"))
+    assert premier.chemin == "pieces_jointes/i.png"
+    assert second.chemin == "pieces_jointes/i_2.png"
+    assert troisieme.chemin == "pieces_jointes/j.tar"
+    dossier = arc.racine / "pages" / page_vide.id
+    assert (dossier / premier.chemin).read_bytes() == b"un"
+    assert (dossier / second.chemin).read_bytes() == b"deux"
+
+
+def test_joindre_deux_fois_le_meme_fichier_ne_le_copie_qu_une_fois(
+    arc, page_vide, tmp_path
+):
+    source = ecrire(tmp_path / "i.png", b"un")
+    assert arc.joindre_fichier(page_vide.id, source) == arc.joindre_fichier(
+        page_vide.id, source
+    )
+    dossier = arc.racine / "pages" / page_vide.id / "pieces_jointes"
+    assert sorted(f.name for f in dossier.iterdir()) == ["i.png"]
+
+
+def test_joindre_un_nom_invalide_sous_windows_est_refuse(arc, page_vide, tmp_path):
+    with pytest.raises(NomInvalide):
+        arc.joindre_fichier(page_vide.id, ecrire(tmp_path / "a:b.png", b"x"))
+    assert not (arc.racine / "pages" / page_vide.id / "pieces_jointes").exists()
+
+
+def test_etat_d_un_fichier(tmp_path):
+    chemin = ecrire(tmp_path / "f", b"contenu")
+    empreinte = empreinte_fichier(chemin)
+    assert etat_fichier(chemin, empreinte) == "intact"
+    assert etat_fichier(chemin, empreinte, taille_max=7) == "intact"
+    assert etat_fichier(chemin, empreinte, taille_max=6) == "non vérifié"
+    ecrire(chemin, b"change")
+    assert etat_fichier(chemin, empreinte) == "altéré"
+    chemin.unlink()
+    assert etat_fichier(chemin, empreinte) == "manquant"
+    assert etat_fichier(tmp_path, empreinte) == "manquant"
+    assert etat_fichier(tmp_path / "f" / "dessous", empreinte) == "manquant"
+
+
+def test_un_fichier_illisible_est_signale_sans_erreur(tmp_path, monkeypatch):
+    chemin = ecrire(tmp_path / "f", b"contenu")
+
+    def refuser(_chemin):
+        raise PermissionError("accès refusé")
+
+    monkeypatch.setattr("pymphub.fichiers.empreinte_fichier", refuser)
+    assert etat_fichier(chemin, "0" * 64) == "illisible"
+
+
+def test_etats_des_fichiers_d_une_page(arc, page_vide, tmp_path):
+    piece = arc.joindre_fichier(page_vide.id, ecrire(tmp_path / "i.png", b"image"))
+    copie = arc.importer_copie(ecrire(tmp_path / "c.bin", b"copie"), "copie")
+    source = ecrire(tmp_path / "r.bin", b"reference")
+    reference = arc.referencer_fichier(source, "reference")
+    dicom = Fichier(
+        nom="serie",
+        stockage=ReferenceDicom(
+            study_instance_uid="1.2",
+            series_instance_uid="1.2.3",
+            sop_instance_uids=("1.2.3.4",),
+            noeud="PACS",
+            date=HEURE.date(),
+        ),
+    )
+    page = page_vide.model_copy(
+        update={"pieces_jointes": (piece,), "mesures": (copie, reference, dicom)}
+    )
+    arc.modifier_page(page)
+    tete = Depot(arc.racine).tete()
+
+    assert arc.etats_fichiers(page) == {
+        "pieces_jointes/i.png": "intact",
+        "copie": "intact",
+        "reference": "intact",
+    }
+
+    ecrire(source, b"modifiee")
+    (arc.racine / "pages" / page.id / piece.chemin).unlink()
+    assert arc.etats_fichiers(page) == {
+        "pieces_jointes/i.png": "manquant",
+        "copie": "intact",
+        "reference": "altéré",
+    }
+    assert arc.etats_fichiers(page, taille_max=2)["reference"] == "non vérifié"
+    assert Depot(arc.racine).tete() == tete
+
+
+@pytest.mark.parametrize("nom", ["image.dcm", "IMAGE.DCM", "serie.dicom"])
+def test_un_dicom_se_reconnait_a_son_extension(tmp_path, nom):
+    assert semble_dicom(ecrire(tmp_path / nom, b"court"))
+
+
+def test_un_dicom_se_reconnait_a_sa_marque(tmp_path):
+    assert semble_dicom(ecrire(tmp_path / "IM0001", bytes(128) + b"DICM" + bytes(8)))
+
+
+def test_un_fichier_ordinaire_n_est_pas_un_dicom(tmp_path):
+    assert not semble_dicom(ecrire(tmp_path / "photo.png", bytes(300)))
+    assert not semble_dicom(ecrire(tmp_path / "court.txt", b"DICM"))
+    assert not semble_dicom(tmp_path / "absent.bin")

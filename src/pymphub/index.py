@@ -153,6 +153,8 @@ def _texte_de_page(page: dict[str, Any]) -> str:
             morceaux.extend(_textes(onglet.get(champ)))
         for photo in onglet.get("photos", []):
             morceaux.extend(_textes(photo.get("legende")))
+            for annotation in photo.get("annotations", []):
+                morceaux.extend(_textes(annotation.get("texte")))
     return "\n".join(morceaux)
 
 

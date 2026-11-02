@@ -7,8 +7,10 @@ import pytest
 from pydantic import ValidationError
 
 from pymphub import page as page_module
+from pymphub.edition import nom_de_fichier_libre, point_normalise
 from pymphub.page import (
     VERSION_SCHEMA,
+    Annotation,
     Identifiant,
     Onglet,
     OngletDonnees,
@@ -526,3 +528,24 @@ def test_une_colonne_ecrite_sans_commentaire_se_relit():
         {"nature": "identifiant", "nom": "lot"}
     )
     assert colonne.commentaire == ""
+
+
+@pytest.mark.parametrize(
+    ("ecran", "attendu"),
+    [
+        ((50, 25, 100, 100), (0.5, 0.25)),
+        ((0, 100, 100, 100), (0.0, 1.0)),
+        ((-5, 130, 100, 100), (0.0, 1.0)),
+        ((1, 1, 3, 3), (0.333333, 0.333333)),
+    ],
+)
+def test_un_point_d_annotation_reste_dans_l_image(ecran, attendu):
+    assert point_normalise(*ecran) == attendu
+    Annotation(forme="point", points=(point_normalise(*ecran),))
+
+
+def test_le_nom_d_un_fichier_lie_est_utilisable_et_libre():
+    assert nom_de_fichier_libre("Export constructeur", []) == "Export_constructeur"
+    assert nom_de_fichier_libre("2026 essai", []) == "g_2026_essai"
+    assert nom_de_fichier_libre("---", []) == "fichier"
+    assert nom_de_fichier_libre("a", ["a", "a_2"]) == "a_3"

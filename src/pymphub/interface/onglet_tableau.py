@@ -687,7 +687,7 @@ class EditeurTableau(EditeurOnglet):
         except ImportImpossible as erreur:
             self._signaler(str(erreur))
             return False
-        return self.appliquer_grille(grille, chemin.name)
+        return self._appliquer_import(grille, chemin)
 
     def demander_import_personnalise(self) -> bool:
         """Propose les fonctions du fichier d'imports de l'utilisateur."""
@@ -713,7 +713,27 @@ class EditeurTableau(EditeurOnglet):
         except ImportImpossible as erreur:
             self._signaler(str(erreur))
             return False
-        return self.appliquer_grille(grille, Path(chemin).name)
+        return self._appliquer_import(grille, Path(chemin))
+
+    def _appliquer_import(self, grille: Grille, source: Path) -> bool:
+        """Remplit le tableau, et garde le fichier d'origine en pièce jointe de la page."""
+        if not self.appliquer_grille(grille, source.name):
+            return False
+        if self.pieces is None:
+            return True
+        try:
+            piece = self.pieces.joindre(source)
+        except (ValueError, OSError) as erreur:
+            self._signaler(
+                f"Tableau importé, mais « {source.name} » n'a pas pu être joint à la "
+                f"page : {message_erreur(erreur)}"
+            )
+            return True
+        self._commentaire = (
+            f"Importé depuis {source.name}, conservé dans {piece.chemin}"
+        )
+        self.colonne_modifiee()
+        return True
 
     def appliquer_grille(self, grille: Grille, origine: str) -> bool:
         """Remplace le tableau par une grille importée, en proposant noms, unités et natures.

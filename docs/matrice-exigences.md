@@ -58,6 +58,14 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Ajouter un type d'onglet par une déclaration | `tests/test_page.py::test_ajouter_un_type_d_onglet_ne_demande_qu_une_declaration` | Vérifié dans le cœur ; affichage en phase 1 |
 | Type d'onglet inconnu conservé | `tests/test_page.py::test_un_type_d_onglet_inconnu_est_conserve_intact` | Vérifié |
 | Commentaire propre à chaque colonne d'un tableau | `tests/test_interface_tableau.py::test_chaque_colonne_garde_son_commentaire` | Vérifié |
+| Annoter une photo laisse son fichier identique | `tests/test_interface_photos.py::test_annoter_laisse_le_fichier_d_origine_identique` | Vérifié |
+| Annotations retrouvées après réouverture | `tests/test_interface_photos.py::test_les_annotations_se_retrouvent_apres_reouverture` | Vérifié |
+| Annotation au même endroit quelle que soit la taille d'affichage | `tests/test_interface_photos.py::test_une_annotation_reste_au_meme_endroit_quelle_que_soit_la_taille` | Vérifié |
+| Fichier altéré signalé à l'affichage | `tests/test_interface_photos.py::test_un_fichier_altere_est_signale` | Vérifié |
+| Fichier manquant signalé à l'affichage | `tests/test_interface_photos.py::test_un_fichier_manquant_est_signale_sans_plantage` | Vérifié |
+| Aucun DICOM avant la pseudonymisation | `tests/test_interface_photos.py::test_un_dicom_n_entre_pas_dans_l_archive` | Vérifié dans l'interface ; l'API Python ne le refuse pas |
+| Fichier importé conservé en pièce jointe | `tests/test_interface_photos.py::test_le_fichier_importe_devient_une_piece_jointe` | Vérifié |
+| Suppression d'une page tracée, numéro jamais réutilisé | `tests/test_archive.py::test_le_numero_d_une_page_supprimee_ne_resert_pas` | Vérifié |
 | Annotations à part de la photo | `tests/test_page.py::test_les_annotations_sont_enregistrees_a_part_de_la_photo` | Vérifié |
 | Repère d'erreur commune conservé | `tests/test_page.py::test_l_erreur_commune_est_conservee_dans_une_page` | Vérifié ; pas utilisé en calcul |
 

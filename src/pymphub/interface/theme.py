@@ -15,6 +15,8 @@ ACCENT = "#1f6f8b"
 ACCENT_FONCE = "#185a71"
 DESACTIVE = "#a7b0bb"
 ALERTE = "#a4372a"
+ANNOTATION = "#d7263d"
+ANNOTATION_CHOISIE = "#e08e00"
 
 FEUILLE_DE_STYLE = f"""
 QWidget {{ font-size: 10pt; }}
@@ -61,6 +63,11 @@ QPushButton {{
 }}
 QPushButton:hover {{ border-color: {ACCENT}; }}
 QPushButton:disabled {{ color: {DESACTIVE}; }}
+QPushButton#outil:checked {{
+    background: {ACCENT};
+    border-color: {ACCENT};
+    color: white;
+}}
 QPushButton#principal {{
     background: {ACCENT};
     border-color: {ACCENT};

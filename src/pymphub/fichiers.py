@@ -10,8 +10,15 @@ import os
 import stat
 import tempfile
 from pathlib import Path
+from typing import Literal
 
 _TAILLE_BLOC = 1024 * 1024
+_SUFFIXES_DICOM = {".dcm", ".dicom"}
+_POSITION_MARQUE_DICOM = 128
+
+EtatFichier = Literal["intact", "altéré", "manquant", "illisible", "non vérifié"]
+# Les états à signaler : « non vérifié » dit seulement qu'on n'a pas calculé l'empreinte.
+ETATS_ALERTE: frozenset[str] = frozenset({"altéré", "manquant", "illisible"})
 
 
 class FichierManquant(FileNotFoundError):
@@ -47,6 +54,36 @@ def verifier_empreinte(chemin: Path, attendue: str) -> Path:
             f"au lieu de {attendue}."
         )
     return chemin
+
+
+def etat_fichier(
+    chemin: Path, empreinte: str, taille_max: int | None = None
+) -> EtatFichier:
+    """Dit si un fichier correspond à son empreinte, sans jamais lever d'erreur.
+
+    Au-delà de `taille_max` octets, l'empreinte n'est pas calculée et l'état vaut
+    « non vérifié » : un affichage ne doit pas rester bloqué sur un très gros fichier.
+    """
+    try:
+        if taille_max is not None and chemin.stat().st_size > taille_max:
+            return "non vérifié"
+        return "intact" if empreinte_fichier(chemin) == empreinte else "altéré"
+    except (FichierManquant, FileNotFoundError, NotADirectoryError):
+        return "manquant"
+    except OSError:
+        return "illisible"
+
+
+def semble_dicom(chemin: Path) -> bool:
+    """Reconnaît un fichier DICOM à son extension ou à la marque « DICM » de son en-tête."""
+    if chemin.suffix.lower() in _SUFFIXES_DICOM:
+        return True
+    try:
+        with open(chemin, "rb") as fichier:
+            fichier.seek(_POSITION_MARQUE_DICOM)
+            return fichier.read(4) == b"DICM"
+    except OSError:
+        return False
 
 
 def chemin_objet(magasin: Path, empreinte: str) -> Path:

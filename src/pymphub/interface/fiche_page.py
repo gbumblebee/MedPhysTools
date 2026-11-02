@@ -7,8 +7,10 @@ from datetime import datetime
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
@@ -26,11 +28,19 @@ from PySide6.QtWidgets import (
 )
 
 from pymphub.archive import Archive
+from pymphub.fichiers import ETATS_ALERTE
 from pymphub.historique import CorrectionChamp, corrections_par_champ
+from pymphub.interface.photos import (
+    BandePhotos,
+    DialogueAnnotation,
+    VignettePhoto,
+    message_etat,
+)
 from pymphub.interface.texte_en_grand import (
     afficher_en_grand,
     afficher_en_grand_colonne,
 )
+from pymphub.interface.theme import ALERTE
 from pymphub.page import (
     ColonneIdentifiant,
     Copie,
@@ -38,6 +48,7 @@ from pymphub.page import (
     Identifiant,
     OngletNotes,
     Page,
+    PhotoAnnotee,
     ReferenceFichier,
     Scalaire,
     Tableau,
@@ -134,7 +145,9 @@ def _hauteur_ajustee(table: QTableWidget, lignes_max: int = 15) -> None:
     table.resizeColumnsToContents()
     table.resizeRowsToContents()
     lignes = min(table.rowCount(), lignes_max)
+    # La place de l'ascenseur horizontal est réservée : il masquerait sinon la dernière ligne.
     hauteur = entete.sizeHint().height() + 2 * table.frameWidth()
+    hauteur += table.horizontalScrollBar().sizeHint().height()
     hauteur += sum(table.rowHeight(i) for i in range(lignes))
     table.setFixedHeight(hauteur)
 
@@ -155,6 +168,9 @@ class FichePage(QWidget):
         self.commentaires_colonnes: dict[str, QLabel] = {}
         self.table_mesures: QTableWidget | None = None
         self.notes: list[QPlainTextEdit] = []
+        self.bandes_photos: list[BandePhotos] = []
+        self.etats: dict[str, str] = {}
+        self.alerte_fichiers: QLabel | None = None
 
         self.entete = QLabel("Sélectionnez une page.")
         self.entete.setObjectName("titre_page")
@@ -229,6 +245,9 @@ class FichePage(QWidget):
         self.commentaires_colonnes = {}
         self.table_mesures = None
         self.notes = []
+        self.bandes_photos = []
+        self.etats = {}
+        self.alerte_fichiers = None
         self.entete.setText(message)
         self.bouton_modifier.setEnabled(False)
         self.bouton_supprimer.setEnabled(False)
@@ -260,6 +279,7 @@ class FichePage(QWidget):
         self.entete.setText(f"{self.page.titre}  ({self.page.statut})")
         self.bouton_modifier.setEnabled(True)
         self.bouton_supprimer.setEnabled(True)
+        self.etats = archive.etats_fichiers(self.page)
         self._construire_informations(self.page)
         self._construire_mesures(self.page)
         self._construire_tableaux(archive, self.page)
@@ -371,6 +391,13 @@ class FichePage(QWidget):
             if not isinstance(grandeur, Tableau):
                 continue
             self._ajouter(_titre_de_section(f"Tableau {grandeur.nom}"))
+            if grandeur.commentaire:
+                commentaire = QLabel(grandeur.commentaire)
+                commentaire.setObjectName("discret")
+                commentaire.setTextFormat(Qt.TextFormat.PlainText)
+                commentaire.setWordWrap(True)
+                afficher_en_grand(commentaire, f"Commentaire de {grandeur.nom}")
+                self._ajouter(commentaire)
             try:
                 donnees = archive.lire_tableau(page.id, grandeur.nom)
             except (ValueError, KeyError, OSError) as erreur:
@@ -445,41 +472,94 @@ class FichePage(QWidget):
         if not fichiers and not page.pieces_jointes:
             return
         self._ajouter(_titre_de_section("Fichiers"))
-        lignes: list[tuple[str, str, str]] = []
+        a_signaler = [c for c, etat in self.etats.items() if etat in ETATS_ALERTE]
+        if a_signaler:
+            self.alerte_fichiers = QLabel(
+                "À vérifier : "
+                + " ; ".join(f"{c} ({self.etats[c]})" for c in a_signaler)
+            )
+            self.alerte_fichiers.setObjectName("alerte")
+            self.alerte_fichiers.setTextFormat(Qt.TextFormat.PlainText)
+            self.alerte_fichiers.setWordWrap(True)
+            self._ajouter(self.alerte_fichiers)
+        lignes: list[tuple[str, str, str, str, str]] = []
         for fichier in fichiers:
             stockage = fichier.stockage
+            etat = self.etats.get(fichier.nom, "—")
             if isinstance(stockage, Copie):
-                lignes.append((fichier.nom, "Copie", stockage.nom_origine))
+                nature, detail = "Copie", stockage.nom_origine
             elif isinstance(stockage, ReferenceFichier):
-                lignes.append((fichier.nom, "Référence fichier", stockage.chemin))
+                nature, detail = "Référence fichier", stockage.chemin
             else:
-                lignes.append(
-                    (
-                        fichier.nom,
-                        "Référence DICOM",
-                        f"{stockage.noeud} — {stockage.series_instance_uid}",
-                    )
-                )
-        lignes += [(p.chemin, "Pièce jointe", "") for p in page.pieces_jointes]
-        table = _creer_table(["Nom", "Stockage", "Détail"], len(lignes))
+                nature = "Référence DICOM"
+                detail = f"{stockage.noeud} — {stockage.series_instance_uid}"
+            lignes.append((fichier.nom, etat, nature, detail, fichier.commentaire))
+        lignes += [
+            (p.chemin, self.etats[p.chemin], "Pièce jointe", "", "")
+            for p in page.pieces_jointes
+        ]
+        table = _creer_table(
+            ["Nom", "État", "Stockage", "Détail", "Commentaire"], len(lignes)
+        )
+        afficher_en_grand_colonne(table, 4, "Commentaire")
         for i, ligne in enumerate(lignes):
             for j, texte in enumerate(ligne):
                 table.setItem(i, j, QTableWidgetItem(texte))
+            if ligne[1] in ETATS_ALERTE:
+                table.item(i, 1).setForeground(QColor(ALERTE))
+                table.item(i, 1).setToolTip(message_etat(ligne[1]))
         self.tables["__fichiers__"] = table
         self._ajouter(table)
         _hauteur_ajustee(table)
 
     def _construire_notes(self, page: Page) -> None:
         for onglet in page.onglets:
-            if not isinstance(onglet, OngletNotes) or not onglet.texte:
+            if not isinstance(onglet, OngletNotes) or not (
+                onglet.texte or onglet.photos
+            ):
                 continue
             self._ajouter(_titre_de_section(onglet.titre or "Notes"))
-            texte = QPlainTextEdit(onglet.texte)
-            texte.setReadOnly(True)
-            texte.setFixedHeight(100)
-            afficher_en_grand(texte, onglet.titre or "Notes")
-            self.notes.append(texte)
-            self._ajouter(texte)
+            if onglet.texte:
+                texte = QPlainTextEdit(onglet.texte)
+                texte.setReadOnly(True)
+                texte.setFixedHeight(100)
+                afficher_en_grand(texte, onglet.titre or "Notes")
+                self.notes.append(texte)
+                self._ajouter(texte)
+            if onglet.photos:
+                self._construire_photos(page, onglet.photos)
+
+    def _construire_photos(self, page: Page, photos: Sequence[PhotoAnnotee]) -> None:
+        vignettes: list[VignettePhoto] = []
+        for photo in photos:
+            vignette = VignettePhoto(
+                self.archive.emplacement_piece_jointe(page.id, photo.chemin),
+                photo,
+                self.etats[photo.chemin],
+                modifiable=False,
+            )
+            vignette.ouverture_demandee.connect(lambda p=photo: self.ouvrir_photo(p))
+            vignettes.append(vignette)
+        bande = BandePhotos()
+        bande.remplacer(vignettes)
+        self.bandes_photos.append(bande)
+        self._ajouter(bande)
+
+    def _montrer_dialogue(self, dialogue: QDialog) -> None:
+        dialogue.exec()
+        dialogue.deleteLater()
+
+    def ouvrir_photo(self, photo: PhotoAnnotee) -> None:
+        """Montre une photo en grand avec ses annotations, sans pouvoir les changer."""
+        self._montrer_dialogue(
+            DialogueAnnotation(
+                self.archive.emplacement_piece_jointe(self.page.id, photo.chemin),
+                photo,
+                self.etats[photo.chemin],
+                modifiable=False,
+                parent=self,
+            )
+        )
 
     def _actualiser_historique(self) -> None:
         """Charge la chronologie seulement quand elle est affichée."""

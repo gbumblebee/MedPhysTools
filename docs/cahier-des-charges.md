@@ -198,6 +198,8 @@ La saisie se fait directement sur ordinateur, en page libre par défaut ou à pa
 - Horodatage de la mesure distinct de l'horodatage de saisie ; bouton « maintenant ».
 - Pièces jointes par glisser-déposer : photos (vignettes visibles dans la page), PDF, exports constructeurs.
 - Annotation des photos : les annotations sont enregistrées à part, l'image d'origine n'est jamais modifiée.
+- Liens vers des fichiers bruts, en copie dans `objets/` ou en référence. Un fichier altéré ou manquant est signalé à l'affichage.
+- Un fichier importé dans un tableau est copié automatiquement en pièce jointe de la page.
 - Association manuelle fichier ↔ entrée attendue : on dépose les fichiers dans `brut/` puis on choisit, pour chaque entrée du gabarit, le fichier correspondant.
 - Visualiseur DICOM polyvalent (CT, dose, TEP, TEMP, etc.) : défilement des coupes, fenêtrage, valeurs mises à l'échelle, lecture des principales balises.
 - Suppression d'une page depuis sa fiche : simple confirmation pour un brouillon ; motif obligatoire et identifiant à retaper pour une page validée ou corrigée. La suppression est tracée dans Git, le dossier de la page part dans `corbeille/`, `objets/` n'est pas touché et le numéro de la page n'est jamais réutilisé.

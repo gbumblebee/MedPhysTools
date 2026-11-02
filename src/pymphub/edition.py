@@ -10,6 +10,7 @@ from pymphub.archive import Archive
 from pymphub.page import Fichier, Identifiant, Onglet, Page, Scalaire, Tableau
 
 Grandeur = Scalaire | Identifiant | Tableau | Fichier
+_DECIMALES_ANNOTATION = 6
 
 
 def modifier_champs(page: Page, **champs: Any) -> Page:  # noqa: ANN401
@@ -71,6 +72,32 @@ def nouvelle_page(
         tags=tuple(tags),
         onglets=tuple(onglets),
     )
+
+
+def point_normalise(
+    x: float, y: float, largeur: float, hauteur: float
+) -> tuple[float, float]:
+    """Ramène un point de l'écran entre 0 et 1, pour qu'il ne dépende pas de l'affichage.
+
+    Un point sorti de l'image revient sur son bord. L'arrondi garde un `page.json` lisible,
+    et reste bien plus fin qu'un pixel, même sur une très grande photo.
+    """
+    return (
+        round(min(max(x / largeur, 0.0), 1.0), _DECIMALES_ANNOTATION),
+        round(min(max(y / hauteur, 0.0), 1.0), _DECIMALES_ANNOTATION),
+    )
+
+
+def nom_de_fichier_libre(stem: str, pris: Iterable[str]) -> str:
+    """Propose un nom de grandeur pour un fichier, libre dans la page."""
+    base = suggerer_nom(stem) or "fichier"
+    occupes = set(pris)
+    nom = base
+    numero = 1
+    while nom in occupes:
+        numero += 1
+        nom = f"{base}_{numero}"
+    return nom
 
 
 def lire_nombre(texte: str) -> float:

@@ -1,6 +1,6 @@
 # Phase 1 — Saisie : découpage en étapes
 
-**État : découpage validé, aucun code écrit.** Premier CQ réel prévu vers début février 2027.
+**État : étapes 0 à 5 codées, jalon « premier essai réel » à faire.** Premier CQ réel complet prévu vers début février 2027.
 
 **Objectif :** une application Qt avec les espaces Archive et Saisie, pour tenir un cahier de labo libre à la place du tableur.
 
@@ -189,6 +189,10 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Ajustements | Dans le cahier de labo ; courbe suréchantillonnée sans extrapolation en tableau, pour le tracé seulement ; coefficients et corrélations dans `page.json` et dans un onglet dédié |
 | Indicateurs | Minimum, maximum, intégrale, dérivée, etc. enregistrés dans `page.json` |
 | Premier CQ réel | Vers début février 2027 |
+| Pièces jointes | Copiées dans le dossier de la page dès qu'on les joint, hors de Git. Deux fichiers de même nom sont gardés (`image_2.png`). Retirer une pièce laisse le fichier sur le disque, car l'historique y renvoie |
+| Fichier importé dans un tableau | Copié automatiquement en pièce jointe ; le commentaire du tableau dit où |
+| DICOM avant l'étape 9 | Refusés par l'interface, en pièce jointe comme en lien, d'après l'extension ou la marque `DICM` |
+| Vérification à l'affichage | Empreinte calculée jusqu'à 100 Mo ; au-delà, l'état affiché est « non vérifié » |
 | Suppression d'une page | Brouillon : confirmation. Page validée ou corrigée : motif obligatoire et identifiant à retaper. Commit de nature `suppression`, dossier de la page dans `corbeille/<id>/`, `objets/` non touché, numéro jamais réutilisé |
 | Facteur de Student à l'affichage | Refusé : U = k·u, k = 2 par défaut |
 | Liste déroulante des pages dans Saisie | Refusée : l'espace Archive suffit |
