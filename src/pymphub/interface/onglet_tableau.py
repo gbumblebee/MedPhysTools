@@ -53,6 +53,7 @@ from pymphub.interface.onglet_scalaires import (
 )
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
 from pymphub.interface.preferences import dossier_preferences
+from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import (
     ColonneIdentifiant,
     ColonneIncertitude,
@@ -98,6 +99,9 @@ class ConfigurationColonne:
         self.commentaire = QLineEdit()
         self.commentaire.setPlaceholderText("commentaire")
         self.commentaire.textChanged.connect(self._afficher_commentaire_complet)
+        afficher_en_grand(
+            self.commentaire, lambda: f"Commentaire de {self.nom.text().strip()}"
+        )
         self.bouton_incertitude = QPushButton("Incertitude…")
         self.bouton_incertitude.clicked.connect(self.demander_incertitude)
         # La case partage sa largeur avec la liste des colonnes : le texte doit y tenir.

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
 from pymphub.archive import Archive
 from pymphub.edition import Grandeur
+from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import (
     Onglet,
     OngletNotes,
@@ -107,6 +108,7 @@ class EditeurNotes(EditeurOnglet):
         super().__init__(onglet, page, parent)
         self.texte = QPlainTextEdit(getattr(onglet, "texte", ""))
         self.texte.setPlaceholderText("Montage, conditions, remarques…")
+        afficher_en_grand(self.texte, lambda: self.onglet.titre or "Notes")
         self.texte.textChanged.connect(self.modifie)
         disposition = QVBoxLayout(self)
         disposition.addWidget(self.texte)

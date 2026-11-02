@@ -27,6 +27,10 @@ from PySide6.QtWidgets import (
 
 from pymphub.archive import Archive
 from pymphub.historique import CorrectionChamp, corrections_par_champ
+from pymphub.interface.texte_en_grand import (
+    afficher_en_grand,
+    afficher_en_grand_colonne,
+)
 from pymphub.page import (
     ColonneIdentifiant,
     Copie,
@@ -281,6 +285,10 @@ class FichePage(QWidget):
         for libelle, champ, valeur in valeurs:
             etiquette = etiquette_tracee(valeur, self.corrections.get(champ, ()))
             self.champs[champ] = etiquette
+            if champ == "description":
+                afficher_en_grand(
+                    etiquette, "Description de la page", lambda: page.description
+                )
             formulaire.addRow(libelle, etiquette)
         conteneur = QWidget()
         conteneur.setLayout(formulaire)
@@ -295,6 +303,7 @@ class FichePage(QWidget):
             ["Nom", "Valeur", "Unité", "U", "U relative", "Commentaire"], len(grandeurs)
         )
         self.table_mesures = table
+        afficher_en_grand_colonne(table, 5, "Commentaire")
         for ligne, grandeur in enumerate(grandeurs):
             base = f"mesures.{grandeur.nom}"
             table.setItem(ligne, 0, QTableWidgetItem(grandeur.nom))
@@ -424,6 +433,11 @@ class FichePage(QWidget):
                 Qt.TextInteractionFlag.TextSelectableByMouse
             )
             self.commentaires_colonnes[f"{tableau.nom}.{colonne.nom}"] = commentaire
+            afficher_en_grand(
+                commentaire,
+                f"Commentaire de {tableau.nom}.{colonne.nom}",
+                lambda texte=colonne.commentaire: texte,
+            )
             self._ajouter(commentaire)
 
     def _construire_fichiers(self, page: Page) -> None:
@@ -463,6 +477,7 @@ class FichePage(QWidget):
             texte = QPlainTextEdit(onglet.texte)
             texte.setReadOnly(True)
             texte.setFixedHeight(100)
+            afficher_en_grand(texte, onglet.titre or "Notes")
             self.notes.append(texte)
             self._ajouter(texte)
 

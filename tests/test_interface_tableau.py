@@ -27,6 +27,11 @@ from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
 from pymphub.interface.fiche_page import FichePage
 from pymphub.interface.onglet_scalaires import EditeurScalaires
 from pymphub.interface.onglet_tableau import FICHIER_IMPORTS, EditeurTableau
+from pymphub.interface.texte_en_grand import (
+    LIBELLE_ACTION,
+    AffichageEnGrand,
+    DialogueTexte,
+)
 from pymphub.page import Scalaire, Tableau
 
 PARIS = timezone(timedelta(hours=1))
@@ -1038,3 +1043,23 @@ def test_la_fiche_affiche_les_commentaires_de_colonnes(espace, editeur, qtbot):
         fiche.tables["releves"].horizontalHeaderItem(0).toolTip()
         == "<p>Lue sur l&#x27;afficheur</p>"
     )
+
+
+def test_le_commentaire_d_une_colonne_s_affiche_en_grand_dans_la_fiche(
+    espace, editeur, qtbot, monkeypatch
+):
+    tableau_commente(editeur)
+    assert espace.enregistrer_maintenant()
+    fiche = FichePage()
+    qtbot.addWidget(fiche)
+    fiche.afficher(espace.archive, espace.page.id)
+    ouverts = []
+    monkeypatch.setattr(
+        DialogueTexte,
+        "exec",
+        lambda d: ouverts.append((d.windowTitle(), d.texte.toPlainText())),
+    )
+    etiquette = fiche.commentaires_colonnes["releves.activite"]
+    menu = etiquette.findChild(AffichageEnGrand).menu()
+    next(a for a in menu.actions() if a.text() == LIBELLE_ACTION).trigger()
+    assert ouverts == [("Commentaire de releves.activite", "Lue sur l'afficheur")]

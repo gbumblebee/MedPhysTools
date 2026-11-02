@@ -47,6 +47,7 @@ from pymphub.interface.onglets import (
     creer_onglet,
     types_disponibles,
 )
+from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import Page, Scalaire
 
 _DELAI_ENREGISTREMENT_MS = 800
@@ -227,6 +228,7 @@ class EspaceSaisie(QWidget):
 
         self.champ_titre = QLineEdit()
         self.champ_description = QLineEdit()
+        afficher_en_grand(self.champ_description, "Description de la page")
         self.champ_tags = QLineEdit()
         self.champ_tags.setPlaceholderText("activimetre, Tc99m")
         self.champ_date = _creer_champ_date()

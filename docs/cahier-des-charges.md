@@ -201,6 +201,7 @@ La saisie se fait directement sur ordinateur, en page libre par défaut ou à pa
 - Association manuelle fichier ↔ entrée attendue : on dépose les fichiers dans `brut/` puis on choisit, pour chaque entrée du gabarit, le fichier correspondant.
 - Visualiseur DICOM polyvalent (CT, dose, TEP, TEMP, etc.) : défilement des coupes, fenêtrage, valeurs mises à l'échelle, lecture des principales balises.
 - Suppression d'une page depuis sa fiche : simple confirmation pour un brouillon ; motif obligatoire et identifiant à retaper pour une page validée ou corrigée. La suppression est tracée dans Git, le dossier de la page part dans `corbeille/`, `objets/` n'est pas touché et le numéro de la page n'est jamais réutilisé.
+- Clic droit « Afficher en grand » sur tout ce qui contient une description, un commentaire ou une note.
 - Contrôles à la saisie : unité et incertitude obligatoires, syntaxe de l'unité vérifiée en direct avec suggestion, unité incompatible avec le gabarit quand la page en a un.
 
 **Calculs rapides (post-traitement léger)**

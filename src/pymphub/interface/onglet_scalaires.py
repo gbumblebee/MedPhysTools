@@ -45,6 +45,7 @@ from pymphub.incertitudes import (
 )
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
+from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import Identifiant, Onglet, OngletDonnees, Page, Scalaire
 from pymphub.unites import sont_compatibles, verifier_unite
 
@@ -572,6 +573,9 @@ class LigneScalaire:
         self.commentaire.setPlaceholderText("Commentaire")
         self.commentaire.setMinimumWidth(240)
         self.commentaire.textChanged.connect(self._afficher_commentaire_complet)
+        afficher_en_grand(
+            self.commentaire, lambda: f"Commentaire de {self.nom.text().strip()}"
+        )
         self.bouton_retirer = QPushButton("×")
         self.bouton_retirer.setToolTip("Retirer cette mesure")
         self.bouton_retirer.setFocusPolicy(Qt.FocusPolicy.NoFocus)
