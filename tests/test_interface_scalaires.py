@@ -766,6 +766,9 @@ def test_le_dialogue_exige_une_composante_valide(dialogue):
     assert not dialogue.bouton_ok.isEnabled()
     ligne = dialogue.lignes[0]
     ligne.valeur.setText("1,5")
+    # La source par défaut suffit, mais une source vidée reste refusée.
+    assert dialogue.bouton_ok.isEnabled()
+    ligne.source.clear()
     assert not dialogue.bouton_ok.isEnabled()
     ligne.source.setText("Résolution")
     assert dialogue.bouton_ok.isEnabled()
@@ -841,6 +844,7 @@ def test_un_second_bouton_ajoute_une_ligne(dialogue):
 def test_l_incertitude_type_est_convertie_dans_l_unite_de_la_mesure(dialogue):
     ligne = dialogue.lignes[0]
     ligne.valeur.setText("500")
+    ligne.k.clear()
     ligne.source.setText("s")
     ligne.unite.setText("kBq")
     assert ligne.incertitude_type.text() == "u = 0.5 MBq"
@@ -851,6 +855,7 @@ def test_l_incertitude_type_d_une_composante_relative(qtbot):
     qtbot.addWidget(dialogue)
     ligne = dialogue.lignes[0]
     ligne.valeur.setText("2")
+    ligne.k.clear()
     ligne.source.setText("s")
     ligne.relative.setChecked(True)
     assert ligne.incertitude_type.text() == "u = 4 MBq"
@@ -859,6 +864,7 @@ def test_l_incertitude_type_d_une_composante_relative(qtbot):
 def test_sans_valeur_mesuree_l_incertitude_relative_reste_en_pourcent(dialogue):
     ligne = dialogue.lignes[0]
     ligne.valeur.setText("2")
+    ligne.k.clear()
     ligne.source.setText("s")
     ligne.relative.setChecked(True)
     assert ligne.incertitude_type.text() == "u = 2 %"
@@ -1279,3 +1285,87 @@ def test_deux_saisies_identiques_ne_sont_pas_un_conflit():
 def test_fusionner_ne_touche_pas_au_reste():
     a = _i("a")
     assert fusionner_grandeurs([a], [], []) == [a]
+
+
+# --- Valeurs par défaut d'une composante -------------------------------------------------
+
+
+def test_une_nouvelle_composante_est_preremplie_avec_k_2_et_source_none(dialogue):
+    ligne = dialogue.ajouter_ligne()
+    assert ligne.k.text() == "2"
+    assert ligne.source.text() == "None"
+    ligne.valeur.setText("1")
+    composante = ligne.composante()
+    assert composante.k == 2.0
+    assert composante.source == "None"
+    # Une valeur déclarée à k = 2 donne u = valeur / 2 : l'écran le montre tout de suite.
+    assert ligne.incertitude_type.text().startswith("u = 0.5")
+
+
+def test_les_valeurs_par_defaut_restent_modifiables(dialogue):
+    ligne = dialogue.ajouter_ligne()
+    ligne.valeur.setText("1")
+    ligne.k.setText("3")
+    ligne.source.setText("Certificat")
+    composante = ligne.composante()
+    assert composante.k == 3.0
+    assert composante.source == "Certificat"
+    ligne.k.clear()
+    assert ligne.composante().k == 1.0
+
+
+def test_vider_le_k_pendant_la_frappe_ne_le_remet_pas_a_2(dialogue):
+    ligne = dialogue.ajouter_ligne()
+    ligne.k.clear()
+    assert ligne.k.text() == ""
+    ligne.k.setText("3")
+    ligne.k.setText("")
+    ligne.valeur.setText("1")
+    assert ligne.k.text() == ""
+    assert ligne.composante().k == 1.0
+
+
+def test_le_k_par_defaut_ne_s_applique_qu_a_une_loi_normale(dialogue):
+    ligne = dialogue.ajouter_ligne()
+    ligne.valeur.setText("1")
+    ligne.loi.setCurrentText("rectangulaire")
+    assert ligne.k.text() == ""
+    assert not ligne.k.isEnabled()
+    assert ligne.composante().k == 1.0
+    ligne.loi.setCurrentText("normale")
+    assert ligne.k.text() == "2"
+    assert ligne.k.isEnabled()
+
+
+def test_le_k_par_defaut_ne_s_applique_pas_au_type_a(dialogue):
+    ligne = dialogue.ajouter_ligne()
+    ligne.valeur.setText("1")
+    ligne.ddl.setText("4")
+    ligne.type.setCurrentText("A")
+    assert ligne.k.text() == ""
+    assert not ligne.k.isEnabled()
+    composante = ligne.composante()
+    assert composante.type == "A"
+    assert composante.k == 1.0
+    ligne.type.setCurrentText("B")
+    assert ligne.k.text() == "2"
+
+
+def test_une_composante_deja_declaree_garde_son_k_et_sa_source(dialogue):
+    """k = 1 s'affiche vide : il ne doit surtout pas devenir 2 à la relecture."""
+    declaree = Composante(type="B", valeur=1.0, unite="MBq", source="afficheur")
+    ligne = dialogue.ajouter_ligne(declaree)
+    assert ligne.k.text() == ""
+    assert ligne.source.text() == "afficheur"
+    assert ligne.composante() == declaree
+    ligne.loi.setCurrentText("rectangulaire")
+    ligne.loi.setCurrentText("normale")
+    assert ligne.k.text() == ""
+
+
+def test_un_modele_de_source_ne_reprend_pas_le_k_par_defaut(dialogue):
+    ligne = dialogue.ajouter_modele("Résolution")
+    assert ligne.k.text() == ""
+    ligne.loi.setCurrentText("normale")
+    assert ligne.k.text() == ""
+    assert ligne.source.text().startswith("Résolution")

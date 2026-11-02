@@ -109,6 +109,9 @@ _COLONNES_COMPOSANTE = (
 _COLONNES_AVANCEES = (0, 6, 8)
 
 
+# Ce qui revient le plus souvent à la saisie : on le préremplit, et cela reste modifiable.
+K_PAR_DEFAUT = "2"
+SOURCE_PAR_DEFAUT = "None"
 _LARGEUR_MIN_NOM = 105
 _LARGEUR_MIN_VALEUR = 80
 _LARGEUR_MAX_VALEUR = 110
@@ -159,8 +162,8 @@ class LigneComposante:
         self.erreur_commune = QLineEdit()
         self.erreur_commune.setPlaceholderText("n° de certificat partagé")
         self.erreur_commune.setToolTip(
-            "Repère d'une erreur partagée entre plusieurs mesures. "
-            "Conservé, mais pas encore utilisé dans les calculs."
+            "Repère d'une erreur partagée entre plusieurs mesures de la page : "
+            "dans un calcul, elles partagent alors une seule erreur."
         )
         self.incertitude_type = QLabel("")
         self.incertitude_type.setTextFormat(Qt.TextFormat.PlainText)
@@ -183,7 +186,13 @@ class LigneComposante:
         for colonne, champ in enumerate(self.champs):
             grille.addWidget(champ, rang, colonne)
 
-        if composante is not None:
+        # Une nouvelle ligne reçoit les valeurs par défaut. Une composante déjà déclarée reste
+        # telle quelle : un champ k vide y signifie k = 1, et ne doit pas devenir 2.
+        self._k_par_defaut = composante is None
+        if composante is None:
+            self.k.setText(K_PAR_DEFAUT)
+            self.source.setText(SOURCE_PAR_DEFAUT)
+        else:
             self.type.setCurrentText(composante.type)
             self.valeur.setText(_nombre_ecrit(composante.valeur))
             self.unite.setText(composante.unite or "")
@@ -196,16 +205,28 @@ class LigneComposante:
             self.source.setText(composante.source)
             self.erreur_commune.setText(composante.erreur_commune or "")
         self.relative.toggled.connect(self.actualiser)
-        self.loi.currentIndexChanged.connect(self.actualiser)
+        self.loi.currentIndexChanged.connect(self._loi_changee)
+        self.type.currentIndexChanged.connect(self._loi_changee)
+        self.actualiser()
+
+    def _loi_changee(self) -> None:
+        """Rend le k par défaut en revenant à une loi normale de type B.
+
+        Cela n'arrive qu'ici : pendant la frappe, l'utilisateur doit pouvoir vider le champ.
+        """
+        avec_k = self.loi.currentText() == "normale" and self.type.currentText() == "B"
+        if avec_k and self._k_par_defaut and not self.k.text():
+            self.k.setText(K_PAR_DEFAUT)
         self.actualiser()
 
     def actualiser(self) -> None:
         """Adapte les champs, et affiche l'incertitude-type obtenue."""
         self.unite.setEnabled(not self.relative.isChecked())
-        normale = self.loi.currentText() == "normale"
-        if not normale:
+        # k ne s'applique ni à une autre loi, ni au type A, où la valeur est déjà un écart type.
+        avec_k = self.loi.currentText() == "normale" and self.type.currentText() == "B"
+        if not avec_k:
             self.k.clear()
-        self.k.setEnabled(normale)
+        self.k.setEnabled(avec_k)
         self.incertitude_type.setText(self.texte_incertitude_type())
 
     def texte_incertitude_type(self) -> str:
@@ -233,6 +254,7 @@ class LigneComposante:
     def appliquer_modele(self, nom: str) -> None:
         """Règle la ligne pour une source courante, et indique quoi saisir."""
         modele = MODELES_DE_SOURCE[nom]
+        self._k_par_defaut = False
         self.type.setCurrentText("B")
         self.loi.setCurrentText(modele["loi"])
         self.k.setText(modele["k"])
