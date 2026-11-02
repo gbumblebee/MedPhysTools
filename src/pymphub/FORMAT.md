@@ -56,7 +56,7 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
 - `scalaire` : `valeur` numérique, `unite` et `composantes` d'incertitude, toutes obligatoires. À partir du format 2 de la page, `repetitions` garde les valeurs brutes de mesures répétées, dont `valeur` est la moyenne.
 - `identifiant` : `valeur` texte, à conserver à l'identique.
 - `tableau` : `fichier` CSV dans `brut/` et description de ses `colonnes`. Une colonne se désigne par `tableau.colonne`. À partir du format 2 de la page, chaque colonne peut porter un `commentaire`.
-- `derivee` : résultat d'un calcul, décrit plus bas (à partir du format 2 de la page).
+- `derivee` et `colonne_calculee` : résultat d'un calcul, décrit plus bas (à partir du format 2 de la page).
 - `fichier` : fichier brut, avec son mode de stockage :
   - `copie` : dans `objets/`, retrouvé par son empreinte ;
   - `reference_fichier` : chemin externe, empreinte, taille et date ;
@@ -76,7 +76,9 @@ Un onglet de type `graphes` garde ses `reglages` : `tableau`, `mode` (`2d` ou `3
 
 La nature `derivee` garde le résultat d'une formule sur d'autres grandeurs de la page : `formule`, `valeur`, `unite`, `incertitude_type`, `ddl` (`null` signifie infinis) et `budget_calcul`, la part de chaque source dans l'incertitude. Le résultat est figé à l'enregistrement. Les valeurs brutes restent à part : une dérivée ne les remplace jamais.
 
-Dans une formule, une cellule de tableau s'écrit `tableau.colonne[3]`, en comptant les lignes à partir de 1. Les composantes de même `erreur_commune` y comptent comme une seule erreur.
+La nature `colonne_calculee` garde une formule calculée ligne par ligne : `formule`, `unite`, `tableaux` où elle s'affiche, `valeurs` et `incertitudes_types`, avec `null` pour une ligne sans résultat. Ces valeurs sont dans `page.json` : les fichiers CSV restent les valeurs brutes, et ne contiennent jamais de colonne calculée.
+
+Dans une formule, `tableau.colonne` désigne la valeur de la ligne en cours, et `tableau.colonne[3]` une cellule précise, en comptant les lignes à partir de 1. Les composantes de même `erreur_commune` y comptent comme une seule erreur.
 
 ## Tableaux CSV
 

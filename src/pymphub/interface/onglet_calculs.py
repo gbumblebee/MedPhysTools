@@ -5,6 +5,8 @@ grandeur de la page, avec sa formule : les valeurs brutes ne sont jamais remplac
 facteur k ne change que l'affichage.
 """
 
+from collections.abc import Callable
+
 import pandas as pd
 from pydantic import ValidationError
 from PySide6.QtCore import Qt
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -32,15 +35,18 @@ from pymphub.calculs import (
     CONSTANTES,
     FONCTIONS,
     ErreurCalcul,
-    creer_derivee,
+    budget_de_ligne,
+    creer_resultat,
     meme_resultat,
 )
 from pymphub.edition import Grandeur
+from pymphub.graphes import tableaux_tracables
 from pymphub.incertitudes import Budget
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
 from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import (
+    ColonneCalculee,
     GrandeurDerivee,
     Onglet,
     OngletDonnees,
@@ -53,11 +59,22 @@ _LARGEUR_UNITE = 80
 _LARGEUR_RESULTAT = 230
 _LARGEUR_COMMENTAIRE = 240
 _INDICATION = (
-    "Exemple : A0 * exp(-ln(2) * t / T12). Une cellule de tableau s'écrit "
-    "tableau.colonne[3]. Le calcul utilise la dernière version enregistrée des grandeurs."
+    "Exemples : A0 * exp(-ln(2) * t / T12) sur des scalaires ; decroissance.activite / A0 "
+    "ligne par ligne, qui donne une colonne dans le tableau ; decroissance.activite[3] pour "
+    "une seule cellule. Le calcul utilise la dernière version enregistrée des grandeurs."
 )
 _TITRES = ("Nom", "Formule", "Unité", "Résultat", "", "Commentaire", "")
 _SANS_RESULTAT = "—"
+
+
+def ecrire_colonne(colonne: ColonneCalculee) -> str:
+    """Résume une colonne calculée : ses lignes, ses tableaux et son unité."""
+    nombre = len(colonne.valeurs)
+    unite = "" if colonne.unite == "1" else f" en {colonne.unite}"
+    return (
+        f"{nombre} ligne{'s' if nombre > 1 else ''}{unite}, "
+        f"dans {', '.join(colonne.tableaux)}"
+    )
 
 
 def ecrire_resultat(budget: Budget, k: float) -> str:
@@ -69,18 +86,73 @@ def ecrire_resultat(budget: Budget, k: float) -> str:
 
 
 class DialogueBudget(QDialog):
-    """Montre la part de chaque source dans l'incertitude d'un résultat."""
+    """Montre la part de chaque source dans l'incertitude d'un résultat.
+
+    Pour une colonne calculée, `lire_ligne` donne le budget de chaque ligne.
+    """
 
     def __init__(
-        self, nom: str, budget: Budget, k: float, parent: QWidget | None = None
+        self,
+        nom: str,
+        budget: Budget | None,
+        k: float,
+        parent: QWidget | None = None,
+        lire_ligne: Callable[[int], Budget] | None = None,
+        lignes: int = 0,
     ) -> None:
         super().__init__(parent)
+        self.nom = nom
+        self.k = k
+        self.lire_ligne = lire_ligne
         self.setWindowTitle(f"Budget de {nom}")
         self.setMinimumWidth(640)
-        self.resultat = QLabel(f"{nom} = {ecrire_resultat(budget, k)}, k = {k:g}")
+        self.resultat = QLabel("")
         self.resultat.setObjectName("titre_page")
         self.resultat.setTextFormat(Qt.TextFormat.PlainText)
-        self.table = QTableWidget(len(budget.lignes), 4)
+        self.champ_ligne = QSpinBox()
+        self.champ_ligne.setRange(1, max(lignes, 1))
+        self.table = QTableWidget(0, 4)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        explication = QLabel(
+            "Une erreur commune compensée dans le calcul y figure avec une part nulle."
+        )
+        explication.setObjectName("discret")
+        boutons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        boutons.button(QDialogButtonBox.StandardButton.Close).setText("Fermer")
+        boutons.rejected.connect(self.reject)
+        disposition = QVBoxLayout(self)
+        disposition.addWidget(self.resultat)
+        if lire_ligne is not None:
+            ligne_choix = QHBoxLayout()
+            ligne_choix.addWidget(QLabel("Ligne du tableau"))
+            ligne_choix.addWidget(self.champ_ligne)
+            ligne_choix.addStretch()
+            disposition.addLayout(ligne_choix)
+            self.champ_ligne.valueChanged.connect(self.afficher_ligne)
+        disposition.addWidget(self.table)
+        disposition.addWidget(explication)
+        disposition.addWidget(boutons)
+        if budget is not None:
+            self._remplir(nom, budget)
+        else:
+            self.afficher_ligne(1)
+
+    def afficher_ligne(self, ligne: int) -> None:
+        """Montre le budget d'une ligne, ou explique pourquoi elle n'a pas de résultat."""
+        try:
+            self._remplir(f"{self.nom}, ligne {ligne}", self.lire_ligne(ligne))
+        except ErreurCalcul as erreur:
+            self.table.setRowCount(0)
+            self.resultat.setText(f"Ligne {ligne} : {erreur}")
+
+    def _remplir(self, titre: str, budget: Budget) -> None:
+        self.resultat.setText(
+            f"{titre} = {ecrire_resultat(budget, self.k)}, k = {self.k:g}"
+        )
         self.table.setHorizontalHeaderLabels(
             [
                 "Source",
@@ -89,10 +161,7 @@ class DialogueBudget(QDialog):
                 "Contribution",
             ]
         )
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        entete = self.table.horizontalHeader()
-        entete.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.setRowCount(len(budget.lignes))
         for rang, ligne in enumerate(budget.lignes):
             for colonne, texte in enumerate(
                 (
@@ -103,30 +172,21 @@ class DialogueBudget(QDialog):
                 )
             ):
                 self.table.setItem(rang, colonne, QTableWidgetItem(texte))
-        explication = QLabel(
-            "Une erreur commune compensée dans le calcul y figure avec une part nulle."
-        )
-        explication.setObjectName("discret")
-        boutons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        boutons.button(QDialogButtonBox.StandardButton.Close).setText("Fermer")
-        boutons.rejected.connect(self.reject)
-        disposition = QVBoxLayout(self)
-        disposition.addWidget(self.resultat)
-        disposition.addWidget(self.table)
-        disposition.addWidget(explication)
-        disposition.addWidget(boutons)
 
 
 class LigneCalcul:
     """Une formule et son résultat."""
 
     def __init__(
-        self, editeur: "EditeurCalculs", origine: GrandeurDerivee | None = None
+        self,
+        editeur: "EditeurCalculs",
+        origine: GrandeurDerivee | ColonneCalculee | None = None,
     ) -> None:
         self.editeur = editeur
         self.origine = origine
-        self.resultat: GrandeurDerivee | None = origine
+        self.resultat: GrandeurDerivee | ColonneCalculee | None = origine
         self.erreur: str | None = None
+        self.avertissement: str | None = None
 
         self.nom = QLineEdit(origine.nom if origine else "")
         self.nom.setPlaceholderText("nom")
@@ -193,7 +253,9 @@ class LigneCalcul:
         self.afficher()
         self.editeur.ligne_modifiee()
 
-    def _depuis_l_origine(self, recalculee: GrandeurDerivee) -> GrandeurDerivee:
+    def _depuis_l_origine(
+        self, recalculee: GrandeurDerivee | ColonneCalculee
+    ) -> GrandeurDerivee | ColonneCalculee:
         """Garde le résultat enregistré s'il n'a pas changé : ouvrir une page ne la modifie pas."""
         origine = self.origine
         if (
@@ -214,6 +276,7 @@ class LigneCalcul:
         """Refait le calcul sur la dernière version enregistrée de la page."""
         self.resultat = None
         self.erreur = None
+        self.avertissement = None
         if self.est_vide():
             return
         nom = self.nom.text().strip()
@@ -225,7 +288,7 @@ class LigneCalcul:
             return
         try:
             self.resultat = self._depuis_l_origine(
-                creer_derivee(
+                creer_resultat(
                     self.editeur.page,
                     nom,
                     self.formule.text(),
@@ -238,17 +301,32 @@ class LigneCalcul:
             self.erreur = f"{nom} : {message_erreur(erreur)}"
         except ErreurCalcul as erreur:
             self.erreur = f"{nom} : {erreur}"
+        if isinstance(self.resultat, ColonneCalculee):
+            sans_resultat = [
+                str(rang)
+                for rang, valeur in enumerate(self.resultat.valeurs, start=1)
+                if valeur is None
+            ]
+            if sans_resultat:
+                self.avertissement = (
+                    f"{nom} : pas de résultat aux lignes {', '.join(sans_resultat)} "
+                    "(voir leur budget)."
+                )
 
     def afficher(self) -> None:
         k = self.editeur.champ_k.value()
         if self.resultat is None:
             self.affichage.setText(_SANS_RESULTAT)
             self.bouton_budget.setEnabled(False)
+        elif isinstance(self.resultat, ColonneCalculee):
+            self.affichage.setText(ecrire_colonne(self.resultat))
+            self.bouton_budget.setEnabled(True)
         else:
             self.affichage.setText(ecrire_resultat(self.resultat.budget(), k))
             self.bouton_budget.setEnabled(True)
-        self.message.setText(self.erreur or "")
-        self.message.setVisible(self.erreur is not None)
+        message = self.erreur or self.avertissement
+        self.message.setText(message or "")
+        self.message.setVisible(message is not None)
 
     def demander_budget(self) -> None:
         if self.resultat is not None:
@@ -321,7 +399,7 @@ class EditeurCalculs(EditeurOnglet):
         self._chargement = True
         for reference in getattr(self.onglet, "grandeurs", ()):
             grandeur = next((g for g in self.page.mesures if g.nom == reference), None)
-            if isinstance(grandeur, GrandeurDerivee):
+            if isinstance(grandeur, (GrandeurDerivee, ColonneCalculee)):
                 self.ajouter_ligne(grandeur)
                 self._noms_possedes.append(grandeur.nom)
             else:
@@ -341,6 +419,14 @@ class EditeurCalculs(EditeurOnglet):
             if isinstance(g, (Scalaire, GrandeurDerivee))
         ]
         self.insertion.addItems(noms)
+        if self.page:
+            self.insertion.addItems(
+                [
+                    f"{tableau}.{colonne}"
+                    for tableau, colonnes in tableaux_tracables(self.page).items()
+                    for colonne in colonnes
+                ]
+            )
         self.insertion.addItems([f"{nom}()" for nom in (*sorted(FONCTIONS), "sqrt")])
         self.insertion.addItems(list(CONSTANTES))
 
@@ -364,7 +450,9 @@ class EditeurCalculs(EditeurOnglet):
 
     # --- Lignes ---------------------------------------------------------------------------
 
-    def ajouter_ligne(self, origine: GrandeurDerivee | None = None) -> LigneCalcul:
+    def ajouter_ligne(
+        self, origine: GrandeurDerivee | ColonneCalculee | None = None
+    ) -> LigneCalcul:
         ligne = LigneCalcul(self, origine)
         for colonne, champ in enumerate(ligne.champs()):
             self.grille.addWidget(champ, self._prochain_rang, colonne)
@@ -405,12 +493,23 @@ class EditeurCalculs(EditeurOnglet):
         dialogue.exec()
         dialogue.deleteLater()
 
-    def montrer_budget(self, derivee: GrandeurDerivee) -> None:
-        self._montrer_dialogue(
-            DialogueBudget(
+    def montrer_budget(self, derivee: GrandeurDerivee | ColonneCalculee) -> None:
+        if isinstance(derivee, ColonneCalculee):
+            dialogue = DialogueBudget(
+                derivee.nom,
+                None,
+                self.champ_k.value(),
+                parent=self,
+                lire_ligne=lambda ligne: budget_de_ligne(
+                    self.page, derivee, ligne, self.lire_tableau
+                ),
+                lignes=len(derivee.valeurs),
+            )
+        else:
+            dialogue = DialogueBudget(
                 derivee.nom, derivee.budget(), self.champ_k.value(), parent=self
             )
-        )
+        self._montrer_dialogue(dialogue)
 
     # --- Contrat d'un éditeur -------------------------------------------------------------
 
@@ -471,7 +570,7 @@ class EditeurCalculs(EditeurOnglet):
         for ligne in self.lignes:
             nom = ligne.nom.text().strip()
             enregistree = par_nom.get(nom)
-            if isinstance(enregistree, GrandeurDerivee):
+            if isinstance(enregistree, (GrandeurDerivee, ColonneCalculee)):
                 ligne.origine = enregistree
         self._noms_possedes = [g.nom for g in self._grandeurs_par_ligne()]
         self.recalculer()

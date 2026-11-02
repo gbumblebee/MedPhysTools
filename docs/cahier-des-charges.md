@@ -210,6 +210,7 @@ La saisie se fait directement sur ordinateur, en page libre par défaut ou à pa
 
 - Calculatrice d'expressions sur les grandeurs de la page, avec propagation GUM automatique : `A0 * exp(-ln(2) * t / T12)` donne valeur, incertitude élargie et budget.
 - Dans une formule, les composantes de même repère d'erreur commune comptent comme une seule erreur, et les unités sont suivies. Une formule n'est jamais exécutée comme du code. Une cellule de tableau s'écrit `tableau.colonne[3]`.
+- Une formule peut viser des colonnes entières (`decroissance.activite / A0`) : elle se calcule ligne par ligne et donne une colonne calculée, avec son incertitude, affichée en lecture seule dans chaque tableau concerné. Les fichiers CSV bruts ne changent pas.
 - Graphes rapides : une colonne contre une autre, échelle log, graphes 3D.
 - Ajustements (lmfit), directement dans le cahier de labo : modèles usuels ou personnalisés, évaluation de la fonction ajustée avec son incertitude. Un tableau garde les valeurs de la fonction, suréchantillonnées par rapport aux données mais sans extrapolation, avec leur incertitude : il sert seulement à retracer la courbe. Les coefficients et leur matrice de corrélation restent dans `page.json` et s'affichent dans un onglet dédié ; tout calcul ultérieur repart d'eux.
 - Indicateurs usuels, sur les points ou sur la fonction ajustée : minimum, maximum, moyenne, dérivée, intégrale, etc. Chaque résultat s'enregistre dans `page.json`, avec sa méthode, ses données d'origine, son intervalle et son incertitude.

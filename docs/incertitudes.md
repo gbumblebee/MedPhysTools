@@ -87,6 +87,7 @@ Une formule comme `A0 * exp(-ln(2) * t / T12)` se calcule sur les valeurs enregi
 - **Températures.** Une température en °C passe en kelvins à l'entrée : un rapport n'a de sens qu'ainsi, et un écart garde sa valeur. Le résultat reste en K, car le logiciel ne peut pas distinguer un écart d'une température.
 - **Résultat figé.** Il ne change pas tout seul si une grandeur est corrigée : la fiche le signale, et l'onglet Calculs propose le nouveau résultat, à enregistrer. Sur une page validée, il demande donc son propre motif.
 - **Budget.** Il donne la part de chaque source dans l'incertitude du résultat. Une erreur compensée y figure à 0.
+- **Colonnes.** `tableau.colonne` sans numéro de ligne fait de la formule un calcul de colonne : chaque ligne donne une valeur et son incertitude, calculées comme ci-dessus. Les tableaux concernés doivent avoir le même nombre de lignes. Une ligne impossible, comme une division par zéro, reste sans résultat. Le budget d'une ligne se refait à la demande. Les corrélations entre deux lignes d'une colonne ne sont pas gardées dans la page : un calcul qui les combine repart des valeurs brutes.
 
 ## Conversions d'unités
 

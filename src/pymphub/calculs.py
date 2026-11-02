@@ -6,11 +6,14 @@ sont interprétés. Tout le reste est refusé. Elle ne peut donc pas exécuter d
 
 La propagation est confiée à GTC. Dans un calcul, chaque grandeur est un seul objet, et les
 composantes de même repère d'erreur commune partagent une seule erreur.
+
+Un nom `tableau.colonne` sans numéro de ligne fait de la formule un calcul de colonne : elle
+s'évalue ligne par ligne, et chaque ligne donne une valeur et son incertitude.
 """
 
 import ast
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import GTC
@@ -28,6 +31,7 @@ from pymphub.incertitudes import (
     etablir_budget,
 )
 from pymphub.page import (
+    ColonneCalculee,
     ColonneIncertitude,
     ColonneNumerique,
     GrandeurDerivee,
@@ -149,6 +153,16 @@ class ContexteCalcul:
         self._valeurs: dict[str, _Valeur] = {}
         self._tableaux: dict[str, pd.DataFrame] = {}
         self._en_cours: list[str] = []
+        # Numéro de la ligne en cours, à partir de 1, pour un calcul de colonne.
+        self.ligne: int | None = None
+
+    def donnees_tableau(self, tableau: str) -> pd.DataFrame:
+        """Relit un tableau une seule fois par calcul."""
+        if self.lire_tableau is None:
+            raise ErreurCalcul(f"Le tableau « {tableau} » n'est pas disponible ici.")
+        if tableau not in self._tableaux:
+            self._tableaux[tableau] = self.lire_tableau(tableau)
+        return self._tableaux[tableau]
 
     def _noter(self, composantes: tuple[Composante, ...], etiquette: str) -> None:
         for composante in composantes:
@@ -186,11 +200,17 @@ class ContexteCalcul:
             )
         elif isinstance(trouvee, GrandeurDerivee):
             # Refaire son calcul garde ses corrélations avec les autres grandeurs.
+            ligne, self.ligne = self.ligne, None
             self._en_cours.append(nom)
             try:
                 valeur = _evaluer(_analyser(trouvee.formule), self)
             finally:
                 self._en_cours.pop()
+                self.ligne = ligne
+        elif isinstance(trouvee, ColonneCalculee):
+            raise ErreurCalcul(
+                f"« {nom} » est une colonne : l'écrire {trouvee.tableaux[0]}.{nom}."
+            )
         else:
             raise ErreurCalcul(
                 f"« {nom} » n'est pas une valeur numérique : un calcul ne peut pas "
@@ -212,18 +232,21 @@ class ContexteCalcul:
             ),
             None,
         )
-        if description is None or self.lire_tableau is None:
+        if description is None:
             raise ErreurCalcul(
                 f"Aucun tableau « {tableau} » enregistré dans cette page."
             )
+        calculee = _colonne_calculee(self.page, tableau, colonne)
+        if calculee is not None:
+            valeur = self._ligne_de_colonne_calculee(calculee, ligne)
+            self._valeurs[cle] = valeur
+            return valeur
         cible = next((c for c in description.colonnes if c.nom == colonne), None)
         if not isinstance(cible, ColonneNumerique):
             raise ErreurCalcul(
                 f"Aucune colonne numérique « {colonne} » dans « {tableau} »."
             )
-        if tableau not in self._tableaux:
-            self._tableaux[tableau] = self.lire_tableau(tableau)
-        donnees = self._tableaux[tableau]
+        donnees = self.donnees_tableau(tableau)
         if not 1 <= ligne <= len(donnees):
             raise ErreurCalcul(
                 f"« {tableau} » a {len(donnees)} ligne(s) : pas de ligne {ligne}."
@@ -239,6 +262,32 @@ class ContexteCalcul:
         )
         self._valeurs[cle] = valeur
         return valeur
+
+    def _ligne_de_colonne_calculee(
+        self, colonne: ColonneCalculee, ligne: int
+    ) -> _Valeur:
+        """Refait le calcul d'une ligne : ses corrélations restent ainsi connues."""
+        if colonne.nom in self._en_cours:
+            raise ErreurCalcul(f"Le calcul de « {colonne.nom} » dépend de lui-même.")
+        ligne_en_cours, self.ligne = self.ligne, ligne
+        self._en_cours.append(colonne.nom)
+        try:
+            return _evaluer(_analyser(colonne.formule), self)
+        finally:
+            self._en_cours.pop()
+            self.ligne = ligne_en_cours
+
+
+def _colonne_calculee(page: Page, tableau: str, nom: str) -> ColonneCalculee | None:
+    """Renvoie la colonne calculée de ce nom affichée dans ce tableau, s'il y en a une."""
+    for grandeur in page.mesures:
+        if (
+            isinstance(grandeur, ColonneCalculee)
+            and grandeur.nom == nom
+            and tableau in grandeur.tableaux
+        ):
+            return grandeur
+    return None
 
 
 def _analyser(formule: str) -> ast.Expression:
@@ -390,6 +439,15 @@ def _evaluer(noeud: ast.AST, contexte: ContexteCalcul) -> _Valeur:
         return _appel(noeud, contexte)
     if isinstance(noeud, ast.Subscript):
         return contexte.cellule(*_nom_de_cellule(noeud))
+    if isinstance(noeud, ast.Attribute):
+        if not isinstance(noeud.value, ast.Name):
+            raise FormuleRefusee("Une colonne s'écrit tableau.colonne.")
+        if contexte.ligne is None:
+            raise ErreurCalcul(
+                f"« {noeud.value.id}.{noeud.attr} » est une colonne entière : ce calcul "
+                "donne une colonne, et non une seule valeur."
+            )
+        return contexte.cellule(noeud.value.id, noeud.attr, contexte.ligne)
     if isinstance(noeud, ast.Tuple):
         raise FormuleRefusee(
             "Un nombre décimal s'écrit avec un point : 1.5 et non 1,5."
@@ -424,21 +482,12 @@ def _lignes_du_budget(
     return tuple(lignes)
 
 
-def calculer(
-    page: Page,
-    formule: str,
-    lire_tableau: Callable[[str], pd.DataFrame] | None = None,
-    unite: str = "",
-) -> Budget:
-    """Calcule une formule sur les grandeurs d'une page et renvoie valeur, unité et budget.
-
-    Lève `ErreurCalcul` en l'expliquant. `unite` demande une unité de résultat. Un résultat
-    en température reste en kelvins : un écart de T et une température s'y confondraient
-    sinon, et le décalage de 273,15 ne s'applique qu'à la seconde.
-    """
-    contexte = ContexteCalcul(page, lire_tableau)
+def _terminer(
+    arbre: ast.Expression, contexte: ContexteCalcul, unite: str
+) -> tuple[UncertainReal, str]:
+    """Évalue un arbre et donne le résultat dans son unité. Toute erreur est expliquée."""
     try:
-        valeur = _evaluer(_analyser(formule), contexte)
+        valeur = _evaluer(arbre, contexte)
         facteur, reduite = _reduire(valeur.unite)
         texte = _ecrire_unite(reduite)
         if unite.strip():
@@ -475,6 +524,41 @@ def calculer(
             "Calcul impossible : le résultat n'est pas un nombre réel, par exemple la "
             "racine d'une valeur négative."
         )
+    return resultat, texte
+
+
+def _references_colonnes(noeud: ast.AST) -> list[tuple[str, str]]:
+    """Les `tableau.colonne` d'une formule, sans ceux suivis d'un numéro de ligne."""
+    if isinstance(noeud, ast.Subscript):
+        return []
+    if isinstance(noeud, ast.Attribute) and isinstance(noeud.value, ast.Name):
+        return [(noeud.value.id, noeud.attr)]
+    return [
+        reference
+        for enfant in ast.iter_child_nodes(noeud)
+        for reference in _references_colonnes(enfant)
+    ]
+
+
+def est_calcul_de_colonne(formule: str) -> bool:
+    """Indique si une formule porte sur des colonnes entières."""
+    return bool(_references_colonnes(_analyser(formule)))
+
+
+def calculer(
+    page: Page,
+    formule: str,
+    lire_tableau: Callable[[str], pd.DataFrame] | None = None,
+    unite: str = "",
+) -> Budget:
+    """Calcule une formule sur les grandeurs d'une page et renvoie valeur, unité et budget.
+
+    Lève `ErreurCalcul` en l'expliquant. `unite` demande une unité de résultat. Un résultat
+    en température reste en kelvins : un écart de T et une température s'y confondraient
+    sinon, et le décalage de 273,15 ne s'applique qu'à la seconde.
+    """
+    contexte = ContexteCalcul(page, lire_tableau)
+    resultat, texte = _terminer(_analyser(formule), contexte, unite)
     return Budget(
         valeur=resultat.x,
         unite=texte,
@@ -515,32 +599,175 @@ def creer_derivee(
     )
 
 
-def meme_resultat(a: GrandeurDerivee, b: GrandeurDerivee) -> bool:
+def _tableaux_participants(
+    page: Page, references: Sequence[tuple[str, str]]
+) -> tuple[str, ...]:
+    """Les tableaux où la colonne s'affiche, y compris via une autre colonne calculée."""
+    tableaux: dict[str, None] = {}
+    for tableau, colonne in references:
+        tableaux[tableau] = None
+        calculee = _colonne_calculee(page, tableau, colonne)
+        if calculee is not None:
+            tableaux.update(dict.fromkeys(calculee.tableaux))
+    return tuple(tableaux)
+
+
+def creer_colonne(
+    page: Page,
+    nom: str,
+    formule: str,
+    lire_tableau: Callable[[str], pd.DataFrame] | None = None,
+    unite: str = "",
+    commentaire: str = "",
+) -> ColonneCalculee:
+    """Calcule une formule ligne par ligne et renvoie la colonne à enregistrer.
+
+    Tous les tableaux concernés doivent avoir le même nombre de lignes. Une ligne impossible,
+    comme une division par zéro, reste sans résultat et n'empêche pas les autres. Si aucune
+    ligne n'aboutit, l'erreur est levée : c'est alors la formule qu'il faut revoir.
+    """
+    arbre = _analyser(formule)
+    references = _references_colonnes(arbre)
+    if not references:
+        raise ErreurCalcul("Cette formule ne porte sur aucune colonne de tableau.")
+    tableaux = _tableaux_participants(page, references)
+    contexte = ContexteCalcul(page, lire_tableau)
+    longueurs: dict[str, int] = {}
+    for tableau in tableaux:
+        description = next(
+            (g for g in page.mesures if isinstance(g, Tableau) and g.nom == tableau),
+            None,
+        )
+        if description is None:
+            raise ErreurCalcul(
+                f"Aucun tableau « {tableau} » enregistré dans cette page."
+            )
+        if any(c.nom == nom for c in description.colonnes):
+            raise ErreurCalcul(
+                f"Le tableau « {tableau} » a déjà une colonne « {nom} »."
+            )
+        try:
+            longueurs[tableau] = len(contexte.donnees_tableau(tableau))
+        except (OSError, KeyError, ValueError) as erreur:
+            if isinstance(erreur, ErreurCalcul):
+                raise
+            raise ErreurCalcul(str(erreur)) from erreur
+    if len(set(longueurs.values())) > 1:
+        detail = ", ".join(f"{t} : {n}" for t, n in longueurs.items())
+        raise ErreurCalcul(
+            f"Ces tableaux n'ont pas le même nombre de lignes ({detail}) : un calcul "
+            "ligne par ligne est impossible."
+        )
+    nombre = next(iter(longueurs.values()))
+    if nombre == 0:
+        raise ErreurCalcul("Ces tableaux n'ont pas encore de données.")
+
+    valeurs: list[float | None] = []
+    incertitudes: list[float | None] = []
+    unite_resultat = ""
+    premiere_erreur: ErreurCalcul | None = None
+    for ligne in range(1, nombre + 1):
+        contexte.ligne = ligne
+        try:
+            resultat, unite_resultat = _terminer(arbre, contexte, unite)
+        except FormuleRefusee:
+            raise
+        except ErreurCalcul as erreur:
+            premiere_erreur = premiere_erreur or erreur
+            valeurs.append(None)
+            incertitudes.append(None)
+            continue
+        valeurs.append(resultat.x)
+        incertitudes.append(GTC.uncertainty(resultat))
+    if not unite_resultat:
+        raise premiere_erreur
+    return ColonneCalculee(
+        nom=nom,
+        formule=formule.strip(),
+        unite=unite_resultat,
+        tableaux=tableaux,
+        valeurs=tuple(valeurs),
+        incertitudes_types=tuple(incertitudes),
+        commentaire=commentaire,
+    )
+
+
+def budget_de_ligne(
+    page: Page,
+    colonne: ColonneCalculee,
+    ligne: int,
+    lire_tableau: Callable[[str], pd.DataFrame] | None = None,
+) -> Budget:
+    """Refait le budget d'une ligne d'une colonne calculée, numérotée à partir de 1."""
+    contexte = ContexteCalcul(page, lire_tableau)
+    contexte.ligne = ligne
+    resultat, texte = _terminer(_analyser(colonne.formule), contexte, colonne.unite)
+    return Budget(
+        valeur=resultat.x,
+        unite=texte,
+        lignes=_lignes_du_budget(resultat, contexte),
+        gtc=resultat,
+    )
+
+
+def creer_resultat(
+    page: Page,
+    nom: str,
+    formule: str,
+    lire_tableau: Callable[[str], pd.DataFrame] | None = None,
+    unite: str = "",
+    commentaire: str = "",
+) -> GrandeurDerivee | ColonneCalculee:
+    """Crée le résultat d'une formule : une colonne si elle vise des colonnes entières."""
+    creer = creer_colonne if est_calcul_de_colonne(formule) else creer_derivee
+    return creer(page, nom, formule, lire_tableau, unite, commentaire)
+
+
+def _proches(a: float | None, b: float | None, echelle: float) -> bool:
+    if a is None or b is None:
+        return a is b
+    return math.isclose(a, b, rel_tol=_TOLERANCE_RELATIVE, abs_tol=1e-12 * abs(echelle))
+
+
+def meme_resultat(
+    a: GrandeurDerivee | ColonneCalculee, b: GrandeurDerivee | ColonneCalculee
+) -> bool:
     """Compare deux résultats, sans s'arrêter à un écart d'arrondi entre deux versions."""
-    return math.isclose(
-        a.valeur, b.valeur, rel_tol=_TOLERANCE_RELATIVE, abs_tol=1e-300
-    ) and math.isclose(
-        a.incertitude_type,
-        b.incertitude_type,
-        rel_tol=_TOLERANCE_RELATIVE,
-        abs_tol=1e-12 * abs(a.valeur),
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, ColonneCalculee):
+        return (
+            a.tableaux == b.tableaux
+            and len(a.valeurs) == len(b.valeurs)
+            and all(_proches(x, y, x or 0.0) for x, y in zip(a.valeurs, b.valeurs))
+            and all(
+                _proches(u, w, v or 0.0)
+                for u, w, v in zip(
+                    a.incertitudes_types, b.incertitudes_types, a.valeurs
+                )
+            )
+        )
+    return _proches(a.valeur, b.valeur, 0.0) and _proches(
+        a.incertitude_type, b.incertitude_type, a.valeur
     )
 
 
 def etat_derivee(
     page: Page,
-    derivee: GrandeurDerivee,
+    derivee: GrandeurDerivee | ColonneCalculee,
     lire_tableau: Callable[[str], pd.DataFrame] | None = None,
 ) -> str | None:
     """Dit pourquoi un résultat enregistré n'est plus à jour ; None s'il l'est toujours."""
     try:
-        recalculee = creer_derivee(
+        recalculee = creer_resultat(
             page, derivee.nom, derivee.formule, lire_tableau, derivee.unite
         )
     except ErreurCalcul as erreur:
         return f"Calcul impossible : {erreur}"
     if meme_resultat(derivee, recalculee):
         return None
+    if isinstance(recalculee, ColonneCalculee):
+        return "Colonne à recalculer : ses grandeurs ont changé."
     return (
         f"Résultat à recalculer : ses grandeurs ont changé, il vaudrait "
         f"{recalculee.valeur:.6g} {recalculee.unite}."

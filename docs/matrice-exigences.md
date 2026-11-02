@@ -79,6 +79,10 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Formule de décroissance : valeur, U et budget | `tests/test_calculs.py::test_la_formule_de_decroissance_donne_valeur_u_et_budget` | Vérifié à la main |
 | Une formule n'exécute pas de code | `tests/test_calculs.py::test_une_formule_interdite_est_refusee_sans_rien_executer` | Vérifié |
 | Une dérivée garde sa formule sans remplacer de valeur brute | `tests/test_calculs.py::test_une_derivee_ne_remplace_aucune_valeur_brute` | Vérifié |
+| Calcul entre colonnes, ligne par ligne, avec incertitude | `tests/test_calculs.py::test_une_colonne_se_calcule_ligne_par_ligne_avec_son_incertitude` | Vérifié à la main |
+| Colonne calculée affichée dans chaque tableau concerné | `tests/test_interface_calculs.py::test_une_colonne_s_affiche_dans_tous_les_tableaux_concernes` | Vérifié |
+| Une colonne calculée ne change pas les CSV bruts | `tests/test_interface_calculs.py::test_une_colonne_calculee_ne_touche_pas_au_csv` | Vérifié |
+| Colonne calculée tracée avec ses barres | `tests/test_graphes.py::test_une_colonne_calculee_se_trace_avec_ses_barres` | Vérifié |
 | L'archive figée du format 1 se relit | `tests/test_format_1.py::test_toutes_les_pages_se_relisent` | Vérifié |
 
 ## Gabarits

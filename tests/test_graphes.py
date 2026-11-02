@@ -20,6 +20,7 @@ from pymphub.graphes import (
     incertitudes_types,
     preparer_graphe,
     reglages_par_defaut,
+    tableaux_tracables,
 )
 from pymphub.incertitudes import Composante
 from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
@@ -28,6 +29,7 @@ from pymphub.interface.graphique import ToileGraphe, bornes_log
 from pymphub.interface.onglet_graphes import EditeurGraphes
 from pymphub.interface.theme import SERIES
 from pymphub.page import (
+    ColonneCalculee,
     ColonneIdentifiant,
     ColonneIncertitude,
     ColonneNumerique,
@@ -226,6 +228,71 @@ def test_neuf_series_sont_refusees(arc):
     )
     with pytest.raises(GrapheImpossible, match="8 au plus"):
         preparer_graphe(page, {"t": cadre}, choisis)
+
+
+# --- Colonnes calculées -------------------------------------------------------------------
+
+
+@pytest.fixture
+def page_avec_colonne(arc):
+    page = page_de_test(arc)
+    colonne = ColonneCalculee(
+        nom="double",
+        formule="releves.activite * 2",
+        unite="MBq",
+        tableaux=("releves",),
+        valeurs=(200.0, None, 50.0),
+        incertitudes_types=(2.0, None, 0.5),
+    )
+    return page.model_copy(update={"mesures": (*page.mesures, colonne)})
+
+
+def test_une_colonne_calculee_se_propose_au_trace(page_avec_colonne):
+    assert "double" in tableaux_tracables(page_avec_colonne)["releves"]
+
+
+def test_une_colonne_calculee_se_trace_avec_ses_barres(page_avec_colonne, cadre, toile):
+    donnees = preparer_graphe(
+        page_avec_colonne, {"releves": cadre}, reglages(y=("double",)), k=3.0
+    )
+    serie = donnees.y[0]
+    assert serie.valeurs[0] == 200.0
+    assert math.isnan(serie.valeurs[1])
+    assert serie.elargies[0] == pytest.approx(6.0)
+    assert math.isnan(serie.elargies[1])
+    assert "1 barre(s) d'erreur indéterminée(s)" in donnees.avertissements[0]
+    toile.tracer(donnees)
+    _barres_x, barres_y = segments_des_barres(toile.axes.containers[0])
+    assert barres_y[0][1] == pytest.approx((1.0, 206.0))
+
+
+def test_une_colonne_calculee_partage_l_axe_d_une_colonne_brute(
+    page_avec_colonne, cadre
+):
+    donnees = preparer_graphe(
+        page_avec_colonne, {"releves": cadre}, reglages(y=("autre", "double"))
+    )
+    assert donnees.y[0].unite == "kBq"
+    assert donnees.y[1].unite == "kBq"
+    assert donnees.y[1].valeurs[0] == pytest.approx(200000.0)
+    assert donnees.y[1].elargies[0] == pytest.approx(4000.0)
+
+
+def test_une_colonne_perimee_ne_se_trace_pas_de_travers(page_avec_colonne, cadre):
+    with pytest.raises(GrapheImpossible, match="à recalculer"):
+        preparer_graphe(
+            page_avec_colonne,
+            {"releves": cadre.iloc[:2]},
+            reglages(y=("double",)),
+        )
+
+
+def test_une_colonne_calculee_peut_servir_d_axe_x(page_avec_colonne, cadre):
+    donnees = preparer_graphe(
+        page_avec_colonne, {"releves": cadre}, reglages(x="double")
+    )
+    assert donnees.x.nom == "double"
+    assert donnees.x.valeurs[2] == 50.0
 
 
 # --- Réglages par défaut ------------------------------------------------------------------

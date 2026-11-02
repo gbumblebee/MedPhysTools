@@ -26,6 +26,7 @@ from GTC.lib import UncertainReal
 from pymphub.historique import EntreeHistorique
 from pymphub.incertitudes import Budget, InfluencesCommunes, etablir_budget
 from pymphub.page import (
+    ColonneCalculee,
     ColonneIncertitude,
     ColonneNumerique,
     Fichier,
@@ -192,9 +193,19 @@ class PageLue:
     def tableau(self, nom: str) -> pd.DataFrame:
         """Relit un tableau en DataFrame, avec ses unités dans `attrs["unites"]`.
 
-        Une colonne d'identifiants reste du texte.
+        Une colonne d'identifiants reste du texte. Les colonnes calculées suivent les
+        colonnes brutes, avec `nan` pour une ligne sans résultat. Leurs incertitudes se
+        lisent dans `mesures`.
         """
-        return self._archive.lire_tableau(self.id, nom)
+        donnees = self._archive.lire_tableau(self.id, nom)
+        for grandeur in self.contenu.mesures:
+            if isinstance(grandeur, ColonneCalculee) and nom in grandeur.tableaux:
+                if len(grandeur.valeurs) == len(donnees):
+                    donnees[grandeur.nom] = [
+                        float("nan") if v is None else v for v in grandeur.valeurs
+                    ]
+                    donnees.attrs["unites"][grandeur.nom] = grandeur.unite
+        return donnees
 
     def cellule(self, tableau: str, colonne: str, ligne: int) -> MesureLue:
         """Renvoie une cellule numérique avec son incertitude.

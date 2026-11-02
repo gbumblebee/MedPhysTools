@@ -10,12 +10,13 @@ from pathlib import Path
 
 from pydantic import ValidationError
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
     QDialog,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -52,7 +53,9 @@ from pymphub.interface.onglet_scalaires import (
 )
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
 from pymphub.interface.texte_en_grand import afficher_en_grand
+from pymphub.interface.theme import FOND
 from pymphub.page import (
+    ColonneCalculee,
     ColonneIdentifiant,
     ColonneIncertitude,
     ColonneNumerique,
@@ -69,6 +72,11 @@ _LIGNES_INITIALES = 5
 _COLONNES_INITIALES = 2
 _LARGEUR_LIBELLES = 110
 _LARGEUR_COLONNE = 190
+_HAUTEUR_CONFIGURATION = 36
+_COLONNES_CALCULEES_VISIBLES = 2
+_K_AFFICHE = 2.0
+_LARGEUR_SANS_LIMITE = 16777215
+_PRIORITE_GRILLE = 1000
 _LIBELLES_CONFIGURATION = ("Nom", "Nature", "Unité", "Incertitude", "Commentaire", "")
 _NATURES = (
     ("Nombre", "numerique"),
@@ -308,11 +316,59 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
             self.configuration.horizontalScrollBar().setValue
         )
 
+        # Les colonnes calculées s'affichent à droite, sans jamais entrer dans la grille saisie :
+        # elles ne font pas partie des données brutes du tableau.
+        self.configuration_calculee = QTableWidget(len(_LIBELLES_CONFIGURATION), 0)
+        self.configuration_calculee.horizontalHeader().setVisible(False)
+        self.configuration_calculee.verticalHeader().setVisible(False)
+        self.configuration_calculee.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.configuration_calculee.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection
+        )
+        self.configuration_calculee.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.configuration_calculee.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.grille_calculee = QTableWidget(_LIGNES_INITIALES, 0)
+        self.grille_calculee.horizontalHeader().setVisible(False)
+        self.grille_calculee.verticalHeader().setVisible(False)
+        self.grille_calculee.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.grille_calculee.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.grille.verticalScrollBar().valueChanged.connect(
+            self.grille_calculee.verticalScrollBar().setValue
+        )
+        self.grille_calculee.verticalScrollBar().valueChanged.connect(
+            self.grille.verticalScrollBar().setValue
+        )
+        self.grille_calculee.horizontalScrollBar().valueChanged.connect(
+            self.configuration_calculee.horizontalScrollBar().setValue
+        )
+        self.grille.model().rowsInserted.connect(self._aligner_lignes_calculees)
+        self.grille.model().rowsRemoved.connect(self._aligner_lignes_calculees)
+        self.configuration_calculee.setVisible(False)
+        self.grille_calculee.setVisible(False)
+
+        zone = QGridLayout()
+        zone.addWidget(self.configuration, 0, 0)
+        zone.addWidget(self.configuration_calculee, 0, 1)
+        zone.addWidget(self.grille, 1, 0)
+        zone.addWidget(self.grille_calculee, 1, 1)
+        zone.setColumnStretch(0, 1)
+        zone.setRowStretch(1, 1)
+        self.zone = zone
+
         disposition = QVBoxLayout(self)
         disposition.addLayout(ligne_haut)
         disposition.addWidget(self.message)
-        disposition.addWidget(self.configuration)
-        disposition.addWidget(self.grille, stretch=1)
+        disposition.addLayout(zone, stretch=1)
 
         self.champ_nom.textChanged.connect(self.colonne_modifiee)
         coller = QShortcut(QKeySequence(QKeySequence.StandardKey.Paste), self.grille)
@@ -343,6 +399,7 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
             self._charger_tableau(archive, tableau)
         self._chargement = False
         self._actualiser_message()
+        self._afficher_calculees()
 
     def _charger_tableau(self, archive: Archive, tableau: Tableau) -> None:
         self.origine = tableau
@@ -434,8 +491,8 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
     def _ajuster_hauteur_configuration(self) -> None:
         hauteur = 2 * self.configuration.frameWidth()
         for rang in range(self.configuration.rowCount()):
-            self.configuration.setRowHeight(rang, 36)
-            hauteur += 36
+            self.configuration.setRowHeight(rang, _HAUTEUR_CONFIGURATION)
+            hauteur += _HAUTEUR_CONFIGURATION
         self.configuration.setFixedHeight(hauteur)
 
     def retirer_colonne(self, configuration: ConfigurationColonne) -> None:
@@ -466,6 +523,7 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
     def colonne_modifiee(self) -> None:
         if self._chargement:
             return
+        self._coller_les_colonnes_calculees(bool(self.colonnes_calculees()))
         self._actualiser_cibles()
         self._actualiser_message()
         self.modifie.emit()
@@ -646,6 +704,87 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
                 g for g in page.mesures if g.nom == self.champ_nom.text().strip()
             )
             self._texte_enregistre = self._texte_csv()
+        self._afficher_calculees()
+
+    # --- Colonnes calculées -----------------------------------------------------------
+
+    def colonnes_calculees(self) -> list[ColonneCalculee]:
+        """Les colonnes calculées enregistrées pour ce tableau."""
+        if self.page is None or self.origine is None:
+            return []
+        return [
+            g
+            for g in self.page.mesures
+            if isinstance(g, ColonneCalculee) and self.origine.nom in g.tableaux
+        ]
+
+    def _aligner_lignes_calculees(self) -> None:
+        self.grille_calculee.setRowCount(self.grille.rowCount())
+
+    def _coller_les_colonnes_calculees(self, presentes: bool) -> None:
+        """Place les colonnes calculées juste après les colonnes saisies, et non au bord."""
+        largeur = (
+            _LARGEUR_LIBELLES
+            + len(self.colonnes) * _LARGEUR_COLONNE
+            + 2 * self.grille.frameWidth()
+            + self.grille.verticalScrollBar().sizeHint().width()
+        )
+        maximum = largeur if presentes else _LARGEUR_SANS_LIMITE
+        self.configuration.setMaximumWidth(maximum)
+        self.grille.setMaximumWidth(maximum)
+        # La grille se sert d'abord, jusqu'à sa largeur utile : le reste va à droite.
+        self.zone.setColumnStretch(0, _PRIORITE_GRILLE)
+        self.zone.setColumnStretch(2, 1 if presentes else 0)
+
+    def _afficher_calculees(self) -> None:
+        """Montre à droite les colonnes calculées, en lecture seule et sur leur propre fond."""
+        colonnes = self.colonnes_calculees()
+        presentes = bool(colonnes)
+        self.configuration_calculee.setVisible(presentes)
+        self.grille_calculee.setVisible(presentes)
+        self.configuration_calculee.setColumnCount(len(colonnes))
+        self.grille_calculee.setColumnCount(len(colonnes))
+        self._aligner_lignes_calculees()
+        hauteur = 2 * self.configuration_calculee.frameWidth()
+        for rang in range(self.configuration_calculee.rowCount()):
+            self.configuration_calculee.setRowHeight(rang, _HAUTEUR_CONFIGURATION)
+            hauteur += _HAUTEUR_CONFIGURATION
+        self.configuration_calculee.setFixedHeight(hauteur)
+        largeur = min(len(colonnes), _COLONNES_CALCULEES_VISIBLES) * _LARGEUR_COLONNE
+        for table in (self.configuration_calculee, self.grille_calculee):
+            table.setFixedWidth(largeur + 2 * table.frameWidth() if presentes else 0)
+        self._coller_les_colonnes_calculees(presentes)
+        # Une ligne vide au milieu de la grille n'est pas enregistrée : on suit les remplies.
+        remplies = self.lignes_remplies()
+        self.grille_calculee.clearContents()
+        for j, colonne in enumerate(colonnes):
+            self.configuration_calculee.setColumnWidth(j, _LARGEUR_COLONNE)
+            self.grille_calculee.setColumnWidth(j, _LARGEUR_COLONNE)
+            textes = (
+                colonne.nom,
+                "Calculée",
+                colonne.unite,
+                f"U à k = {_K_AFFICHE:g}",
+                colonne.commentaire,
+                colonne.formule,
+            )
+            for i, texte in enumerate(textes):
+                element = QTableWidgetItem(texte)
+                element.setBackground(QColor(FOND))
+                element.setToolTip(colonne.formule)
+                self.configuration_calculee.setItem(i, j, element)
+            for rang, (valeur, u) in enumerate(
+                zip(colonne.valeurs, colonne.incertitudes_types)
+            ):
+                ligne = remplies[rang] if rang < len(remplies) else rang
+                if ligne >= self.grille_calculee.rowCount():
+                    continue
+                texte = (
+                    "—" if valeur is None else f"{valeur:.6g} ± {_K_AFFICHE * u:.2g}"
+                )
+                element = QTableWidgetItem(texte)
+                element.setBackground(QColor(FOND))
+                self.grille_calculee.setItem(ligne, j, element)
 
     # --- Import -----------------------------------------------------------------------
 

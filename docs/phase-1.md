@@ -192,6 +192,8 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Pièces jointes | Copiées dans le dossier de la page dès qu'on les joint, hors de Git. Deux fichiers de même nom sont gardés (`image_2.png`). Retirer une pièce laisse le fichier sur le disque, car l'historique y renvoie |
 | Erreurs communes | Un repère correspond à une seule erreur d'écart type 1, multipliée par l'incertitude de chaque mesure. Valable dans une page, formule comme API de lecture |
 | Formules | Jamais exécutées : seuls nombres, noms, cellules `tableau.colonne[n]`, + - * / **, `exp ln log10 sqrt sin cos tan` et `pi` sont interprétés |
+| Colonne calculée | Une formule avec `tableau.colonne` se calcule ligne par ligne. Elle s'affiche dans tous les tableaux concernés, en lecture seule et marquée « calculée », mais reste dans `page.json` : les CSV bruts ne changent jamais. Mêmes nombres de lignes exigés |
+| Saisie d'une composante | Une nouvelle composante est préremplie avec k = 2 et la source « None », modifiables. k s'efface pour le type A et les lois non normales. Une composante déjà enregistrée ne change pas |
 | Résultat d'un calcul | Figé à l'enregistrement. Un brouillon le met à jour au tour d'enregistrement suivant ; une page validée le propose, à enregistrer avec son propre motif. La fiche signale un résultat périmé |
 | Format de la page | La grandeur dérivée entre dans le format 2, déjà courant : pas de format 3 |
 | Graphes | matplotlib en 2D et en 3D : même code, aucun appel à OpenGL, et les mêmes figures pour les rapports. Un seul axe y par graphe, des unités incompatibles sont refusées. Un graphe par onglet, 8 séries au plus. Le graphe montre la dernière version enregistrée du tableau |

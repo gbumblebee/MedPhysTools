@@ -13,12 +13,16 @@ import pytest
 from pymphub.calculs import (
     ErreurCalcul,
     FormuleRefusee,
+    budget_de_ligne,
     calculer,
+    creer_colonne,
     creer_derivee,
+    creer_resultat,
     etat_derivee,
 )
 from pymphub.incertitudes import Composante
 from pymphub.page import (
+    ColonneCalculee,
     ColonneIncertitude,
     ColonneNumerique,
     GrandeurDerivee,
@@ -621,3 +625,280 @@ def test_un_tableau_illisible_s_explique():
 
     with pytest.raises(ErreurCalcul, match="disque absent"):
         calculer(page_tableau(), "t.a[1]", refuser)
+
+
+# --- Colonnes calculées : calculs faits à la main ----------------------------------------
+
+
+COLONNE_A = ColonneNumerique(
+    nom="a",
+    unite="MBq",
+    composantes=(
+        composante(1.0, **CERTIFICAT),
+        composante(0.5, source="résolution"),
+    ),
+)
+COLONNE_T = ColonneNumerique(
+    nom="heure", unite="h", composantes=(composante(0.1, "h"),)
+)
+
+
+def page_colonnes():
+    return page_de(
+        Tableau(nom="t", fichier="brut/t.csv", colonnes=(COLONNE_T, COLONNE_A)),
+        scalaire(
+            "A0",
+            100.0,
+            "MBq",
+            composante(1.0, **CERTIFICAT),
+            composante(0.2, source="certificat local"),
+        ),
+        scalaire("T12", 6.0, "h", composante(0.01, "h")),
+        Identifiant(nom="lot", valeur="007"),
+    )
+
+
+def lire_t(_nom):
+    return pd.DataFrame({"heure": [0.0, 2.0, 4.0], "a": [100.0, 50.0, 25.0]})
+
+
+def test_une_colonne_se_calcule_ligne_par_ligne_avec_son_incertitude():
+    """R = a / A0 : le certificat commun se compense à chaque ligne."""
+    colonne = creer_colonne(page_colonnes(), "r", "t.a / A0", lire_t)
+    assert colonne.valeurs == pytest.approx((1.0, 0.5, 0.25))
+    assert colonne.unite == "1"
+    assert colonne.tableaux == ("t",)
+    for rapport, a, u in zip(
+        (1.0, 0.5, 0.25), (100.0, 50.0, 25.0), colonne.incertitudes_types
+    ):
+        attendu = rapport * math.sqrt((0.5 / a) ** 2 + (0.2 / 100.0) ** 2)
+        assert u == pytest.approx(attendu)
+
+
+def test_une_colonne_de_decroissance_avec_un_scalaire_et_deux_colonnes():
+    """A = a · 2^(t/T) : a et t changent à chaque ligne, T12 reste le même."""
+    colonne = creer_colonne(
+        page_colonnes(), "corrigee", "t.a * exp(ln(2) * t.heure / T12)", lire_t
+    )
+    lam = math.log(2) / 6.0
+    for rang, (t, a) in enumerate(((0.0, 100.0), (2.0, 50.0), (4.0, 25.0))):
+        valeur = a * math.exp(lam * t)
+        relatives = (
+            (math.hypot(0.01 * a, 0.5) / a) ** 2
+            + (lam * 0.1) ** 2
+            + (lam * t / 6.0 * 0.01) ** 2
+        )
+        assert colonne.valeurs[rang] == pytest.approx(valeur)
+        assert colonne.incertitudes_types[rang] == pytest.approx(
+            valeur * math.sqrt(relatives)
+        )
+    assert colonne.unite == "MBq"
+
+
+def test_l_unite_demandee_s_applique_a_toutes_les_lignes():
+    colonne = creer_colonne(page_colonnes(), "k", "t.a * 2", lire_t, unite="kBq")
+    assert colonne.unite == "kBq"
+    assert colonne.valeurs == pytest.approx((200000.0, 100000.0, 50000.0))
+    u = 2 * 1000 * math.hypot(1.0, 0.5)
+    assert colonne.incertitudes_types[0] == pytest.approx(u)
+
+
+def page_deux_tableaux():
+    autre = ColonneNumerique(
+        nom="b", unite="MBq", composantes=(composante(1.0, **CERTIFICAT),)
+    )
+    return page_de(
+        Tableau(nom="t", fichier="brut/t.csv", colonnes=(COLONNE_T, COLONNE_A)),
+        Tableau(nom="u", fichier="brut/u.csv", colonnes=(autre,)),
+    )
+
+
+def lire_deux(nom):
+    if nom == "u":
+        return pd.DataFrame({"b": [50.0, 25.0, 12.5]})
+    return lire_t(nom)
+
+
+def test_une_colonne_entre_deux_tableaux_appartient_aux_deux():
+    colonne = creer_colonne(page_deux_tableaux(), "r", "t.a / u.b", lire_deux)
+    assert colonne.tableaux == ("t", "u")
+    assert colonne.valeurs == pytest.approx((2.0, 2.0, 2.0))
+    # Le certificat commun se compense : il ne reste que 0,5 MBq de résolution sur a.
+    assert colonne.incertitudes_types[0] == pytest.approx(2 * 0.5 / 100.0)
+    assert colonne.incertitudes_types[2] == pytest.approx(2 * 0.5 / 25.0)
+
+
+def test_des_tableaux_de_longueurs_differentes_sont_refuses():
+    def lire(nom):
+        return pd.DataFrame({"b": [50.0, 25.0]}) if nom == "u" else lire_t(nom)
+
+    with pytest.raises(ErreurCalcul, match="même nombre de lignes.*t : 3, u : 2"):
+        creer_colonne(page_deux_tableaux(), "r", "t.a / u.b", lire)
+
+
+def test_une_ligne_impossible_n_empeche_pas_les_autres():
+    def lire(_nom):
+        return pd.DataFrame({"heure": [0.0, 2.0, 4.0], "a": [100.0, 50.0, 25.0]})
+
+    colonne = creer_colonne(page_colonnes(), "inverse", "1 / t.heure", lire)
+    assert colonne.valeurs[0] is None
+    assert colonne.incertitudes_types[0] is None
+    assert colonne.valeurs[1:] == pytest.approx((0.5, 0.25))
+    assert colonne.unite == "1/h"
+
+
+def test_si_aucune_ligne_n_aboutit_l_erreur_s_explique():
+    with pytest.raises(ErreurCalcul, match="pas compatibles"):
+        creer_colonne(page_colonnes(), "x", "t.a + t.heure", lire_t)
+
+
+@pytest.mark.parametrize(
+    ("formule", "message"),
+    [
+        ("t.absente * 2", "Aucune colonne numérique"),
+        ("z.a * 2", "Aucun tableau"),
+        ("t.a + absent", "Aucune grandeur"),
+        ("t.a + lot", "n'est pas une valeur numérique"),
+    ],
+)
+def test_une_colonne_impossible_s_explique(formule, message):
+    with pytest.raises(ErreurCalcul) as erreur:
+        creer_colonne(page_colonnes(), "x", formule, lire_t)
+    assert message in str(erreur.value)
+
+
+def test_le_nom_d_une_colonne_existante_est_refuse():
+    with pytest.raises(ErreurCalcul, match="a déjà une colonne « a »"):
+        creer_colonne(page_colonnes(), "a", "t.a * 2", lire_t)
+
+
+def test_la_page_refuse_une_colonne_qui_prend_le_nom_d_une_autre():
+    page = page_colonnes()
+    colonne = creer_colonne(page, "double", "t.a * 2", lire_t).model_copy(
+        update={"nom": "heure"}
+    )
+    with pytest.raises(ValueError, match="a déjà une colonne « heure »"):
+        Page.model_validate(page.model_dump() | {"mesures": (*page.mesures, colonne)})
+
+
+def avec_colonne(page, nom, formule, lire=lire_t):
+    colonne = creer_colonne(page, nom, formule, lire)
+    return page.model_copy(update={"mesures": (*page.mesures, colonne)})
+
+
+def test_une_colonne_peut_utiliser_une_autre_colonne_calculee():
+    page = avec_colonne(page_colonnes(), "double", "t.a * 2")
+    colonne = creer_colonne(page, "quadruple", "t.double * 2", lire_t)
+    assert colonne.valeurs == pytest.approx((400.0, 200.0, 100.0))
+    assert colonne.incertitudes_types[0] == pytest.approx(4 * math.hypot(1.0, 0.5))
+
+
+def test_une_cellule_calculee_s_utilise_avec_son_numero():
+    page = avec_colonne(page_colonnes(), "double", "t.a * 2")
+    assert calculer(page, "t.double[2]", lire_t).valeur == pytest.approx(100.0)
+    # Refaire le calcul garde les corrélations : le rapport à sa source est exact.
+    assert calculer(page, "t.double[2] / t.a[2]", lire_t).incertitude_type == (
+        pytest.approx(0.0, abs=1e-12)
+    )
+
+
+def test_une_colonne_passe_par_tous_les_tableaux_de_celle_qu_elle_utilise():
+    page = avec_colonne(page_deux_tableaux(), "r", "t.a / u.b", lire_deux)
+    colonne = creer_colonne(page, "s", "t.r * 2", lire_deux)
+    assert colonne.tableaux == ("t", "u")
+
+
+def test_une_cellule_et_une_colonne_peuvent_se_melanger():
+    """Normaliser à la première ligne : la ligne 1 vaut alors 1, sans aucune incertitude."""
+    colonne = creer_colonne(page_colonnes(), "n", "t.a / t.a[1]", lire_t)
+    assert colonne.valeurs == pytest.approx((1.0, 0.5, 0.25))
+    assert colonne.incertitudes_types[0] == pytest.approx(0.0, abs=1e-12)
+    # Ligne 2 : le certificat se compense, il reste 0,5 MBq sur chaque valeur.
+    attendu = 0.5 * math.hypot(0.5 / 50.0, 0.5 / 100.0)
+    assert colonne.incertitudes_types[1] == pytest.approx(attendu)
+
+
+def test_une_colonne_circulaire_s_explique():
+    page = avec_colonne(page_colonnes(), "x", "t.a * 2")
+    boucle = page.grandeur("x").model_copy(update={"formule": "t.x * 2"})
+    mesures = tuple(boucle if g.nom == "x" else g for g in page.mesures)
+    page = page.model_copy(update={"mesures": mesures})
+    with pytest.raises(ErreurCalcul, match="dépend de lui-même"):
+        creer_colonne(page, "y", "t.x", lire_t)
+
+
+def test_une_colonne_ne_se_lit_pas_comme_une_seule_valeur():
+    page = avec_colonne(page_colonnes(), "double", "t.a * 2")
+    with pytest.raises(ErreurCalcul, match="l'écrire t.double"):
+        calculer(page, "double + 1", lire_t)
+    with pytest.raises(ErreurCalcul, match="colonne entière"):
+        calculer(page, "t.a", lire_t)
+
+
+def test_creer_resultat_choisit_selon_la_formule():
+    page = page_colonnes()
+    assert isinstance(creer_resultat(page, "c", "t.a * 2", lire_t), ColonneCalculee)
+    assert isinstance(creer_resultat(page, "s", "A0 * 2", lire_t), GrandeurDerivee)
+    assert isinstance(creer_resultat(page, "u", "t.a[1] * 2", lire_t), GrandeurDerivee)
+
+
+def test_le_budget_d_une_ligne_se_refait_a_la_demande():
+    page = page_colonnes()
+    colonne = creer_colonne(page, "r", "t.a / A0", lire_t)
+    budget = budget_de_ligne(page, colonne, 2, lire_t)
+    assert budget.valeur == pytest.approx(0.5)
+    assert budget.incertitude_type == pytest.approx(colonne.incertitudes_types[1])
+    lignes = {ligne.source: ligne for ligne in budget.lignes}
+    assert lignes["CERT-1"].incertitude_type == pytest.approx(0.0, abs=1e-12)
+    assert lignes["t.a[2] : résolution"].incertitude_type == pytest.approx(0.5 / 100.0)
+    assert lignes["A0 : certificat local"].incertitude_type == pytest.approx(
+        0.5 * 0.2 / 100.0
+    )
+
+
+def test_une_colonne_se_relit_a_l_identique():
+    page = avec_colonne(page_colonnes(), "inverse", "1 / t.heure")
+    relue = depuis_json(vers_json(page))
+    assert relue == page
+    assert relue.grandeur("inverse").valeurs[0] is None
+
+
+def test_une_colonne_a_jour_n_est_pas_signalee_et_une_perimee_l_est():
+    page = avec_colonne(page_colonnes(), "double", "t.a * 2")
+    colonne = page.grandeur("double")
+    assert etat_derivee(page, colonne, lire_t) is None
+
+    def changee(_nom):
+        return pd.DataFrame({"heure": [0.0, 2.0, 4.0], "a": [999.0, 50.0, 25.0]})
+
+    assert "à recalculer" in etat_derivee(page, colonne, changee)
+
+    def plus_longue(_nom):
+        return pd.DataFrame({"heure": [0.0, 1.0, 2.0, 4.0], "a": [1.0, 2.0, 3.0, 4.0]})
+
+    assert "à recalculer" in etat_derivee(page, colonne, plus_longue)
+
+
+def test_une_colonne_calculee_ne_s_exporte_pas_dans_un_gabarit():
+    from pymphub.gabarit import creer_gabarit
+
+    page = avec_colonne(page_colonnes(), "double", "t.a * 2")
+    with pytest.raises(ValueError, match="résultat de calcul"):
+        creer_gabarit(page, "g", ["double"])
+
+
+def test_une_longue_colonne_se_calcule_rapidement():
+    """Le calcul se refait à chaque frappe : il doit rester fluide sur un grand tableau."""
+    import time
+
+    nombre = 2000
+
+    def lire(_nom):
+        return pd.DataFrame(
+            {"heure": [float(i) for i in range(nombre)], "a": [100.0] * nombre}
+        )
+
+    debut = time.perf_counter()
+    colonne = creer_colonne(page_colonnes(), "c", "t.a * exp(-t.heure / T12)", lire)
+    assert len(colonne.valeurs) == nombre
+    assert time.perf_counter() - debut < 5.0

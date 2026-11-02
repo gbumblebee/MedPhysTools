@@ -43,8 +43,9 @@ from pymphub.interface.texte_en_grand import (
     afficher_en_grand,
     afficher_en_grand_colonne,
 )
-from pymphub.interface.theme import ALERTE
+from pymphub.interface.theme import ALERTE, FOND
 from pymphub.page import (
+    ColonneCalculee,
     ColonneIdentifiant,
     Copie,
     Fichier,
@@ -178,6 +179,7 @@ class FichePage(QWidget):
         self.bandes_photos: list[BandePhotos] = []
         self.graphes: list[tuple[QWidget, ReglagesGraphe]] = []
         self.alertes_calculs: list[QLabel] = []
+        self.cellules_calculees: list[tuple[QTableWidget, int, ColonneCalculee]] = []
         self.etats: dict[str, str] = {}
         self.alerte_fichiers: QLabel | None = None
 
@@ -195,6 +197,7 @@ class FichePage(QWidget):
         )
         self.champ_k.valueChanged.connect(self._actualiser_incertitudes)
         self.champ_k.valueChanged.connect(self._tracer_graphes)
+        self.champ_k.valueChanged.connect(self._ecrire_cellules_calculees)
         ligne_k = QHBoxLayout()
         self.bouton_modifier = QPushButton("Modifier")
         self.bouton_modifier.setEnabled(False)
@@ -258,6 +261,7 @@ class FichePage(QWidget):
         self.bandes_photos = []
         self.graphes = []
         self.alertes_calculs = []
+        self.cellules_calculees = []
         self.etats = {}
         self.alerte_fichiers = None
         self.entete.setText(message)
@@ -295,6 +299,7 @@ class FichePage(QWidget):
         self._construire_informations(self.page)
         self._construire_mesures(self.page)
         self._construire_tableaux(archive, self.page)
+        self._signaler_calculs_perimes(self.page, self.page.mesures)
         self._construire_fichiers(self.page)
         self._construire_notes(self.page)
         self._construire_graphes(self.page)
@@ -379,7 +384,6 @@ class FichePage(QWidget):
         self._ajouter(table)
         self._actualiser_incertitudes()
         _hauteur_ajustee(table, 30)
-        self._signaler_calculs_perimes(page, grandeurs)
 
     def _signaler_calculs_perimes(
         self, page: Page, grandeurs: Sequence[object]
@@ -390,7 +394,7 @@ class FichePage(QWidget):
             return self.archive.lire_tableau(page.id, nom)
 
         for grandeur in grandeurs:
-            if not isinstance(grandeur, GrandeurDerivee):
+            if not isinstance(grandeur, (GrandeurDerivee, ColonneCalculee)):
                 continue
             etat = etat_derivee(page, grandeur, lire_tableau)
             if etat is not None:
@@ -466,7 +470,21 @@ class FichePage(QWidget):
                 for c in grandeur.colonnes
             ]
             lignes = min(len(donnees), LIGNES_MAX_AFFICHEES)
+            calculees = [
+                g
+                for g in page.mesures
+                if isinstance(g, ColonneCalculee) and grandeur.nom in g.tableaux
+            ]
+            entetes += [
+                f"{c.nom} ({c.unite}), calculée"
+                if c.unite != "1"
+                else f"{c.nom}, calculée"
+                for c in calculees
+            ]
             table = _creer_table(entetes, lignes)
+            for rang, calculee in enumerate(calculees, start=len(grandeur.colonnes)):
+                table.horizontalHeaderItem(rang).setToolTip(calculee.formule)
+                self.cellules_calculees.append((table, rang, calculee))
             for j, colonne in enumerate(grandeur.colonnes):
                 valeurs = donnees[colonne.nom]
                 for i in range(lignes):
@@ -490,6 +508,7 @@ class FichePage(QWidget):
                         f"<p>{html.escape(colonne.commentaire)}</p>"
                     )
             self.tables[grandeur.nom] = table
+            self._ecrire_cellules_calculees()
             self._ajouter(table)
             _hauteur_ajustee(table)
             self._construire_commentaires_colonnes(grandeur)
@@ -497,6 +516,19 @@ class FichePage(QWidget):
                 suite = QLabel(f"{lignes} premières lignes sur {len(donnees)}.")
                 suite.setObjectName("discret")
                 self._ajouter(suite)
+
+    def _ecrire_cellules_calculees(self) -> None:
+        """Écrit les colonnes calculées au facteur k choisi, sans toucher aux données."""
+        k = self.champ_k.value()
+        for table, colonne, calculee in self.cellules_calculees:
+            for rang in range(table.rowCount()):
+                texte = "—"
+                if rang < len(calculee.valeurs) and calculee.valeurs[rang] is not None:
+                    u = calculee.incertitudes_types[rang]
+                    texte = f"{calculee.valeurs[rang]:.6g} ± {k * u:.2g}"
+                element = QTableWidgetItem(texte)
+                element.setBackground(QColor(FOND))
+                table.setItem(rang, colonne, element)
 
     def _construire_commentaires_colonnes(self, tableau: Tableau) -> None:
         """Écrit sous le tableau le commentaire de chaque colonne qui en a un."""

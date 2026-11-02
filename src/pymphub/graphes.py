@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from pymphub.page import (
+    ColonneCalculee,
     ColonneIncertitude,
     ColonneNumerique,
     OngletGraphes,
@@ -56,12 +57,21 @@ class DonneesGraphe:
     avertissements: tuple[str, ...]
 
 
+def _colonnes_calculees(page: Page, tableau: str) -> list[ColonneCalculee]:
+    return [
+        g
+        for g in page.mesures
+        if isinstance(g, ColonneCalculee) and tableau in g.tableaux
+    ]
+
+
 def tableaux_tracables(page: Page) -> dict[str, list[str]]:
     """Les tableaux de la page et leurs colonnes numériques, celles qu'on peut tracer."""
     return {
         grandeur.nom: [
             c.nom for c in grandeur.colonnes if isinstance(c, ColonneNumerique)
         ]
+        + [c.nom for c in _colonnes_calculees(page, grandeur.nom)]
         for grandeur in page.mesures
         if isinstance(grandeur, Tableau)
     }
@@ -139,6 +149,35 @@ def _axe(
     )
 
 
+def _axe_calcule(
+    colonne: ColonneCalculee, k: float, unite: str | None, lignes: int
+) -> Axe:
+    """Prépare une colonne calculée : une ligne sans résultat reste sans point."""
+    if len(colonne.valeurs) != lignes:
+        raise GrapheImpossible(
+            f"La colonne calculée « {colonne.nom} » est à recalculer : le tableau a "
+            "changé de nombre de lignes."
+        )
+    cible = unite or colonne.unite
+    if not sont_compatibles(colonne.unite, cible):
+        raise GrapheImpossible(
+            f"« {colonne.nom} » est en {colonne.unite}, incompatible avec {cible} : un "
+            "seul axe par graphe. Tracer cette colonne dans un autre onglet."
+        )
+    return Axe(
+        nom=colonne.nom,
+        unite=cible,
+        valeurs=tuple(
+            math.nan if v is None else convertir(v, colonne.unite, cible)
+            for v in colonne.valeurs
+        ),
+        elargies=tuple(
+            math.nan if u is None else convertir_ecart(k * u, colonne.unite, cible)
+            for u in colonne.incertitudes_types
+        ),
+    )
+
+
 def _masquer(axe: Axe, masque: list[bool]) -> Axe:
     return Axe(
         axe.nom,
@@ -208,7 +247,9 @@ def preparer_graphe(
         raise GrapheImpossible(
             f"Le tableau « {reglages.tableau} » n'existe plus : en choisir un autre."
         )
+    calculees = {c.nom: c for c in _colonnes_calculees(page, tableau.nom)}
     numeriques = {c.nom for c in tableau.colonnes if isinstance(c, ColonneNumerique)}
+    numeriques |= set(calculees)
     y_noms = reglages.y if reglages.mode == "2d" else reglages.y[:1]
     demandees = [reglages.x, *y_noms]
     if reglages.mode == "3d":
@@ -231,10 +272,15 @@ def preparer_graphe(
             f"Le tableau « {tableau.nom} » n'a pas encore de données."
         )
 
-    x = _axe(tableau, donnees, reglages.x, k, None)
-    premiere = next(c.unite for c in tableau.colonnes if c.nom == y_noms[0])
-    y = [_axe(tableau, donnees, nom, k, premiere) for nom in y_noms]
-    z = _axe(tableau, donnees, reglages.z, k, None) if reglages.mode == "3d" else None
+    def axe(nom: str, unite: str | None) -> Axe:
+        if nom in calculees:
+            return _axe_calcule(calculees[nom], k, unite, len(donnees))
+        return _axe(tableau, donnees, nom, k, unite)
+
+    x = axe(reglages.x, None)
+    premiere = axe(y_noms[0], None).unite
+    y = [axe(nom, premiere) for nom in y_noms]
+    z = axe(reglages.z, None) if reglages.mode == "3d" else None
     x, y, z, avertissements = _appliquer_log(x, y, z, reglages)
 
     indeterminees = sum(

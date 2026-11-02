@@ -8,6 +8,7 @@ from typing import Any
 
 from pymphub.archive import Archive
 from pymphub.page import (
+    ColonneCalculee,
     Fichier,
     GrandeurDerivee,
     Identifiant,
@@ -17,7 +18,9 @@ from pymphub.page import (
     Tableau,
 )
 
-Grandeur = Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee
+Grandeur = (
+    Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee | ColonneCalculee
+)
 _DECIMALES_ANNOTATION = 6
 
 

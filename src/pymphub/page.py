@@ -369,8 +369,34 @@ class GrandeurDerivee(_Modele):
         )
 
 
+class ColonneCalculee(_Modele):
+    """Une colonne calculée ligne par ligne à partir de colonnes de tableaux.
+
+    Elle s'affiche dans chaque tableau de `tableaux`, mais reste une grandeur à part : les
+    fichiers CSV des valeurs brutes ne changent jamais. Une ligne sans résultat vaut None.
+    Le budget d'une ligne se refait à la demande, à partir de la formule.
+    """
+
+    nature: Literal["colonne_calculee"] = "colonne_calculee"
+    nom: Nom
+    formule: str = Field(min_length=1)
+    unite: Unite
+    tableaux: tuple[Nom, ...] = Field(min_length=1)
+    valeurs: tuple[Nombre | None, ...] = Field(min_length=1)
+    incertitudes_types: tuple[Annotated[float, Field(ge=0)] | None, ...]
+    commentaire: str = ""
+
+    @model_validator(mode="after")
+    def _verifier_longueurs(self) -> "ColonneCalculee":
+        if len(self.valeurs) != len(self.incertitudes_types):
+            raise ValueError(
+                f"Colonne « {self.nom} » : autant de valeurs que d'incertitudes attendues."
+            )
+        return self
+
+
 Grandeur = Annotated[
-    Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee,
+    Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee | ColonneCalculee,
     Field(discriminator="nature"),
 ]
 
@@ -567,6 +593,18 @@ class Page(_Modele):
         if doublons:
             raise ValueError(f"Fichiers de tableaux partagés : {', '.join(doublons)}.")
 
+        tableaux = {g.nom: g for g in self.mesures if isinstance(g, Tableau)}
+        for grandeur in self.mesures:
+            if not isinstance(grandeur, ColonneCalculee):
+                continue
+            for nom_tableau in grandeur.tableaux:
+                tableau = tableaux.get(nom_tableau)
+                if tableau and any(c.nom == grandeur.nom for c in tableau.colonnes):
+                    raise ValueError(
+                        f"Le tableau « {nom_tableau} » a déjà une colonne "
+                        f"« {grandeur.nom} »."
+                    )
+
         ids = [onglet.id for onglet in self.onglets]
         doublons = sorted({i for i in ids if ids.count(i) > 1})
         if doublons:
@@ -595,7 +633,7 @@ class Page(_Modele):
 
     def grandeur(
         self, nom: str
-    ) -> Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee:
+    ) -> Scalaire | Identifiant | Tableau | Fichier | GrandeurDerivee | ColonneCalculee:
         """Renvoie une grandeur d'après son nom, quel que soit son onglet."""
         for grandeur in self.mesures:
             if grandeur.nom == nom:
