@@ -272,6 +272,25 @@ class ContexteCalcul:
         self._valeurs[cle] = valeur
         return valeur
 
+    def abscisse_indicateur(self, indicateur: Indicateur, nom: str) -> _Valeur:
+        """Renvoie l'abscisse d'un indicateur : `pic.x` donne la position du maximum."""
+        if nom != "x" or indicateur.position is None:
+            raise ErreurCalcul(
+                f"L'indicateur « {indicateur.nom} » n'a pas d'abscisse « {nom} »."
+            )
+        cle = f"{indicateur.nom}.x"
+        if cle not in self._valeurs:
+            self._valeurs[cle] = _Valeur(
+                GTC.ureal(
+                    indicateur.position,
+                    indicateur.incertitude_position or 0.0,
+                    label=cle,
+                ),
+                registre.Unit(indicateur.unite_position or "1"),
+            )
+            self.descriptions[cle] = ("", indicateur.methode)
+        return self._valeurs[cle]
+
     def coefficient(self, ajustement: Ajustement, nom: str) -> _Valeur:
         """Renvoie un coefficient, corrélé aux autres coefficients du même ajustement."""
         if ajustement.nom not in self._coefficients:
@@ -326,6 +345,13 @@ def _colonne_calculee(page: Page, tableau: str, nom: str) -> ColonneCalculee | N
             and grandeur.nom == nom
             and tableau in grandeur.tableaux
         ):
+            return grandeur
+    return None
+
+
+def _indicateur_nomme(page: Page, nom: str) -> Indicateur | None:
+    for grandeur in page.mesures:
+        if isinstance(grandeur, Indicateur) and grandeur.nom == nom:
             return grandeur
     return None
 
@@ -492,6 +518,9 @@ def _evaluer(noeud: ast.AST, contexte: ContexteCalcul) -> _Valeur:
         ajustement = _ajustement_nomme(contexte.page, noeud.value.id)
         if ajustement is not None:
             return contexte.coefficient(ajustement, noeud.attr)
+        indicateur = _indicateur_nomme(contexte.page, noeud.value.id)
+        if indicateur is not None:
+            return contexte.abscisse_indicateur(indicateur, noeud.attr)
         if contexte.ligne is None:
             raise ErreurCalcul(
                 f"« {noeud.value.id}.{noeud.attr} » est une colonne entière : ce calcul "
@@ -585,7 +614,10 @@ def _references_colonnes(noeud: ast.AST, page: Page) -> list[tuple[str, str]]:
     if isinstance(noeud, ast.Subscript):
         return []
     if isinstance(noeud, ast.Attribute) and isinstance(noeud.value, ast.Name):
-        if _ajustement_nomme(page, noeud.value.id) is not None:
+        if (
+            _ajustement_nomme(page, noeud.value.id) is not None
+            or _indicateur_nomme(page, noeud.value.id) is not None
+        ):
             return []
         return [(noeud.value.id, noeud.attr)]
     return [

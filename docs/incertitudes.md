@@ -122,15 +122,23 @@ Les covariances y comptent. La matrice C se retrouve à partir des incertitudes 
 
 | Indicateur | Sur les points | Sur la fonction ajustée |
 |---|---|---|
-| Minimum, maximum | Le point extrême, avec son incertitude | Recherche sur une grille, puis affinée |
+| Minimum, maximum | Le point extrême, avec son abscisse et leurs incertitudes | Recherche sur une grille, puis affinée, avec u(x) |
 | Moyenne | Moyenne **arithmétique** des points | Moyenne de la fonction : intégrale / largeur |
+| Médiane, percentile | Interpolation linéaire entre valeurs triées, comme numpy par défaut | — |
+| Écart type, coefficient de variation | s = √(Σ(y − ȳ)² / (n − 1)), incertitude propagée | — |
+| Moyenne quadratique, somme, étendue, nombre de points | Calcul direct, incertitude propagée | — |
 | Intégrale | Méthode des trapèzes | Intégration numérique |
 | Dérivée | Différence centrée autour du point le plus proche | Différence centrée sur la fonction |
+| Largeur à mi-hauteur | — | Comptée depuis y = 0, autour du pic le plus haut |
+| Abscisse d'une valeur | — | Premier croisement de la valeur dans l'intervalle |
 
 **Incertitude.** Sur les points, le calcul passe par GTC : les erreurs communes et les incertitudes sur x y sont gardées. Une erreur commune ne diminue donc pas avec le nombre de points. Sur la fonction, u²(I) = gᵀ · C · g, où g = dI/dθ est calculé numériquement.
 
 **Limites :**
 - Un extremum des points ne tient pas compte du fait que le plus grand point tend à être surestimé par son propre bruit.
+- Pour une médiane ou un percentile, l'ordre des points est tenu pour fixé : l'incertitude se propage au premier ordre.
+- L'incertitude d'un écart type est propagée depuis les incertitudes déclarées. Elle ne dit pas combien s varierait avec d'autres points, soit environ s / √(2(n − 1)). Sur une courbe qui suit une tendance, l'écart type mesure surtout la tendance.
+- Dans un calcul, un indicateur et son abscisse `pic.x` sont des valeurs indépendantes.
 - La moyenne arithmétique d'un échantillonnage irrégulier n'est pas la moyenne de la fonction.
 - Une incertitude de type A, sur la dispersion de points qui suivent une tendance, n'a pas de sens : elle n'est donc pas calculée ici.
 - Sur la fonction ajustée, l'intervalle ne sort jamais des données.

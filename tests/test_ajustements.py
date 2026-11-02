@@ -653,6 +653,8 @@ def test_l_incertitude_d_un_extremum_des_points_est_celle_du_point():
     assert resultat.valeur == pytest.approx(21.0)
     assert resultat.incertitude_type == pytest.approx(0.5)
     assert resultat.position == pytest.approx(10.0)
+    assert resultat.unite_position == "h"
+    assert resultat.incertitude_position == 0.0
 
 
 @pytest.fixture
@@ -856,3 +858,241 @@ def test_une_colonne_calculee_peut_s_ajuster_et_garde_son_scalaire_commun():
     _reference, c = np.polyfit(X, points.y.valeurs, 1, w=w, cov="unscaled")
     assert resultat.covariance[0, 0] == pytest.approx(c[0, 0] + 0.01**2, rel=1e-4)
     assert resultat.covariance[1, 1] == pytest.approx(c[1, 1] + 0.005**2, rel=1e-4)
+
+
+# --- Nouveaux indicateurs, sur des résultats connus ---------------------------------------
+
+
+Y_CONNUS = np.array([3.0, 9.0, 1.0, 7.0, 5.0])
+X_CONNUS = np.arange(5.0)
+
+
+def connus(u_y=0.2, **champs):
+    return points_de(X_CONNUS, Y_CONNUS, u_y=u_y, **champs)
+
+
+def test_la_mediane_d_un_nombre_impair_est_le_point_du_milieu():
+    page, lire, _points = connus()
+    resultat = indicateur(page, lire, "mediane")
+    assert resultat.valeur == 5.0
+    assert resultat.incertitude_type == pytest.approx(0.2)
+
+
+def test_la_mediane_d_un_nombre_pair_est_la_moyenne_des_deux_du_milieu():
+    x, y = np.arange(4.0), np.array([1.0, 2.0, 4.0, 8.0])
+    page, lire, _points = points_de(x, y, u_y=0.2)
+    resultat = indicateur(page, lire, "mediane")
+    assert resultat.valeur == 3.0
+    assert resultat.incertitude_type == pytest.approx(0.2 / math.sqrt(2))
+
+
+@pytest.mark.parametrize("rang", [0.0, 10.0, 25.0, 50.0, 90.0, 100.0])
+def test_le_percentile_concorde_avec_numpy(rang):
+    page, lire, _points = connus()
+    resultat = indicateur(page, lire, "percentile", parametre=rang)
+    assert resultat.valeur == pytest.approx(np.percentile(Y_CONNUS, rang))
+    assert resultat.parametre == rang
+
+
+def test_l_incertitude_d_un_percentile_interpole_est_celle_calculee_a_la_main():
+    """P25 de 5 points : rang 1 exact, soit la valeur triée 3 ; P30 : 3 + 0,2 · (5 − 3)."""
+    page, lire, _points = connus()
+    resultat = indicateur(page, lire, "percentile", parametre=30.0)
+    assert resultat.valeur == pytest.approx(3.4)
+    assert resultat.incertitude_type == pytest.approx(0.2 * math.hypot(0.8, 0.2))
+
+
+@pytest.mark.parametrize("rang", [-1.0, 101.0, None])
+def test_un_rang_impossible_s_explique(rang):
+    page, lire, _points = connus()
+    with pytest.raises(ErreurAjustement, match="rang du percentile"):
+        indicateur(page, lire, "percentile", parametre=rang)
+
+
+def test_l_ecart_type_concorde_avec_numpy_et_son_incertitude_avec_le_calcul_a_la_main():
+    page, lire, _points = connus()
+    resultat = indicateur(page, lire, "ecart_type")
+    s = np.std(Y_CONNUS, ddof=1)
+    assert resultat.valeur == pytest.approx(s)
+    # ds/dy_i = (y_i − ȳ) / ((n − 1)·s) : u² = u² · Σ(y_i − ȳ)² / ((n − 1)·s)² = u² / (n − 1).
+    assert resultat.incertitude_type == pytest.approx(0.2 / math.sqrt(4))
+    assert resultat.unite == "MBq"
+
+
+def test_un_ecart_type_nul_s_explique():
+    page, lire, _points = points_de(X_CONNUS, np.full(5, 3.0), u_y=0.1)
+    with pytest.raises(ErreurAjustement, match="l'écart type vaut 0"):
+        indicateur(page, lire, "ecart_type")
+
+
+def test_un_certificat_commun_n_agit_pas_sur_l_ecart_type_absolu_de_valeurs_egales():
+    """Tous multipliés par (1 + ε) : s devient s·(1 + ε), donc u(s) = 1 % de s pour lui seul."""
+    page, lire, _points = points_de(
+        X_CONNUS, Y_CONNUS, u_y=0.0, composantes_y=(rel(1.0),)
+    )
+    resultat = indicateur(page, lire, "ecart_type")
+    assert resultat.incertitude_type == pytest.approx(0.01 * resultat.valeur)
+
+
+def test_le_coefficient_de_variation_est_en_pourcent():
+    page, lire, _points = connus()
+    resultat = indicateur(page, lire, "coefficient_variation")
+    attendu = 100 * np.std(Y_CONNUS, ddof=1) / np.mean(Y_CONNUS)
+    assert resultat.valeur == pytest.approx(attendu)
+    assert resultat.unite == "%"
+
+
+def test_un_coefficient_de_variation_sur_une_moyenne_nulle_s_explique():
+    page, lire, _points = points_de(X_CONNUS, Y_CONNUS - 5.0, u_y=0.1)
+    with pytest.raises(ErreurAjustement, match="moyenne est nulle"):
+        indicateur(page, lire, "coefficient_variation")
+
+
+def test_la_moyenne_quadratique_la_somme_l_etendue_et_le_nombre_de_points():
+    page, lire, _points = connus()
+    rms = indicateur(page, lire, "moyenne_quadratique")
+    assert rms.valeur == pytest.approx(math.sqrt(np.mean(Y_CONNUS**2)))
+    somme = indicateur(page, lire, "somme")
+    assert somme.valeur == 25.0
+    assert somme.incertitude_type == pytest.approx(0.2 * math.sqrt(5))
+    etendue = indicateur(page, lire, "etendue")
+    assert etendue.valeur == 8.0
+    assert etendue.incertitude_type == pytest.approx(0.2 * math.sqrt(2))
+    nombre = indicateur(page, lire, "nombre_points", de=1.0, a=3.0)
+    assert (nombre.valeur, nombre.incertitude_type, nombre.unite) == (3.0, 0.0, "1")
+
+
+def test_un_certificat_commun_n_agit_pas_sur_l_etendue_d_un_zero_commun():
+    commune = incertitude(0.5, "MBq", erreur_commune="ZERO", source="zéro")
+    page, lire, _points = points_de(
+        X_CONNUS, Y_CONNUS, u_y=0.1, composantes_y=(commune,)
+    )
+    etendue = indicateur(page, lire, "etendue")
+    assert etendue.incertitude_type == pytest.approx(0.1 * math.sqrt(2))
+
+
+def test_le_max_et_le_min_des_points_donnent_leur_abscisse_et_son_incertitude():
+    page, lire, _points = points_de(X_CONNUS, Y_CONNUS, u_y=0.2, u_x=0.05)
+    maximum = indicateur(page, lire, "maximum")
+    minimum = indicateur(page, lire, "minimum")
+    assert (maximum.valeur, maximum.position) == (9.0, 1.0)
+    assert (minimum.valeur, minimum.position) == (1.0, 2.0)
+    assert maximum.incertitude_position == pytest.approx(0.05)
+    assert maximum.unite_position == "h"
+
+
+def gaussienne_ajustee():
+    """A = 10, m = 5, s = 1,5 : largeur à mi-hauteur = 2·√(2·ln 2)·s."""
+    x = np.linspace(0.0, 10.0, 41)
+    y = 10.0 * np.exp(-((x - 5.0) ** 2) / (2 * 1.5**2))
+    page, lire, points = points_de(x, y, u_y=0.05)
+    ajustement, resultat = creer_ajustement(
+        points, "fit", MODELES["gaussienne"].formule, "gaussienne"
+    )
+    avec = page.model_copy(update={"mesures": (*page.mesures, ajustement)})
+    return avec, lire, ajustement, resultat
+
+
+def test_le_maximum_de_la_gaussienne_donne_le_centre_et_son_incertitude():
+    page, lire, ajustement, resultat = gaussienne_ajustee()
+    maximum = indicateur(page, lire, "maximum", "ajustement", ajustement=ajustement)
+    assert maximum.valeur == pytest.approx(10.0, rel=1e-5)
+    assert maximum.position == pytest.approx(5.0, abs=1e-4)
+    assert maximum.unite_position == "h"
+    # L'abscisse du sommet est le coefficient m : même incertitude que lui.
+    assert maximum.incertitude_position == pytest.approx(
+        math.sqrt(resultat.covariance[1, 1]), rel=1e-3
+    )
+
+
+def test_la_largeur_a_mi_hauteur_de_la_gaussienne_est_celle_de_la_formule():
+    page, lire, ajustement, resultat = gaussienne_ajustee()
+    largeur = indicateur(
+        page, lire, "largeur_mi_hauteur", "ajustement", ajustement=ajustement
+    )
+    facteur = 2 * math.sqrt(2 * math.log(2))
+    assert largeur.valeur == pytest.approx(facteur * 1.5, rel=1e-5)
+    assert largeur.unite == "h"
+    assert largeur.incertitude_type == pytest.approx(
+        facteur * math.sqrt(resultat.covariance[2, 2]), rel=1e-3
+    )
+
+
+def test_une_largeur_sans_pic_s_explique():
+    page, lire, points = droite_incertaine()
+    ajustement, _r = creer_ajustement(
+        points, "fit", MODELES["droite"].formule, "droite"
+    )
+    avec = page.model_copy(update={"mesures": (*page.mesures, ajustement)})
+    with pytest.raises(ErreurAjustement, match="au bord"):
+        indicateur(
+            avec, lire, "largeur_mi_hauteur", "ajustement", ajustement=ajustement
+        )
+
+
+def test_l_abscisse_d_une_valeur_sur_une_droite_est_celle_calculee_a_la_main():
+    """y = 2x + 1 = 11 en x = 5. x = (y − b) / a, donc g = (−5/2, −1/2) pour (a, b)."""
+    page, lire, points = droite_incertaine()
+    ajustement, resultat = creer_ajustement(
+        points, "fit", MODELES["droite"].formule, "droite"
+    )
+    avec = page.model_copy(update={"mesures": (*page.mesures, ajustement)})
+    trouve = indicateur(
+        avec,
+        lire,
+        "abscisse_de_valeur",
+        "ajustement",
+        ajustement=ajustement,
+        parametre=11.0,
+    )
+    assert trouve.valeur == pytest.approx(5.0, rel=1e-6)
+    assert trouve.unite == "h"
+    g = np.array([-2.5, -0.5])
+    assert trouve.incertitude_type == pytest.approx(
+        math.sqrt(g @ resultat.covariance @ g), rel=1e-4
+    )
+
+
+def test_une_valeur_jamais_atteinte_s_explique():
+    page, lire, points = droite_incertaine()
+    ajustement, _r = creer_ajustement(
+        points, "fit", MODELES["droite"].formule, "droite"
+    )
+    avec = page.model_copy(update={"mesures": (*page.mesures, ajustement)})
+    with pytest.raises(ErreurAjustement, match="n'atteint pas 99"):
+        indicateur(
+            avec,
+            lire,
+            "abscisse_de_valeur",
+            "ajustement",
+            ajustement=ajustement,
+            parametre=99.0,
+        )
+    with pytest.raises(ErreurAjustement, match="valeur de y"):
+        indicateur(
+            avec, lire, "abscisse_de_valeur", "ajustement", ajustement=ajustement
+        )
+
+
+def test_une_methode_propre_aux_points_est_refusee_sur_la_fonction():
+    page, lire, points = droite_incertaine()
+    ajustement, _r = creer_ajustement(
+        points, "fit", MODELES["droite"].formule, "droite"
+    )
+    avec = page.model_copy(update={"mesures": (*page.mesures, ajustement)})
+    with pytest.raises(ErreurAjustement, match="se calcule sur les points"):
+        indicateur(avec, lire, "mediane", "ajustement", ajustement=ajustement)
+    with pytest.raises(ErreurAjustement, match="sur la fonction ajustée"):
+        indicateur(avec, lire, "largeur_mi_hauteur")
+
+
+def test_l_abscisse_d_un_maximum_s_utilise_dans_un_calcul():
+    page, lire, _points = points_de(X_CONNUS, Y_CONNUS, u_y=0.2, u_x=0.05)
+    pic = indicateur(page, lire, "maximum")
+    avec = page.model_copy(update={"mesures": (*page.mesures, pic)})
+    budget = calculer(avec, "i.x * 2")
+    assert budget.valeur == 2.0
+    assert budget.unite == "h"
+    assert budget.incertitude_type == pytest.approx(0.1)
+    with pytest.raises(ErreurCalcul, match="pas d'abscisse « z »"):
+        calculer(avec, "i.z")

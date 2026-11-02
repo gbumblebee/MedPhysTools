@@ -38,7 +38,33 @@ from pymphub.page import (
 )
 from pymphub.unites import UniteInvalide, registre, verifier_unite
 
-METHODES = ("minimum", "maximum", "moyenne", "integrale", "derivee")
+METHODES_POINTS = (
+    "maximum",
+    "minimum",
+    "moyenne",
+    "mediane",
+    "percentile",
+    "ecart_type",
+    "coefficient_variation",
+    "moyenne_quadratique",
+    "somme",
+    "etendue",
+    "nombre_points",
+    "integrale",
+    "derivee",
+)
+METHODES_AJUSTEMENT = (
+    "maximum",
+    "minimum",
+    "moyenne",
+    "integrale",
+    "derivee",
+    "largeur_mi_hauteur",
+    "abscisse_de_valeur",
+)
+METHODES = tuple(dict.fromkeys((*METHODES_POINTS, *METHODES_AJUSTEMENT)))
+# Ces indicateurs se lisent sur l'axe y : un repère peut donc les montrer sur le graphe.
+METHODES_EN_Y = ("maximum", "minimum", "moyenne", "mediane", "percentile")
 POINTS_COURBE_MIN = 200
 _SUR_ECHANTILLONNAGE = 10
 _POINTS_RECHERCHE = 2001
@@ -742,10 +768,30 @@ def _unite_composee(unite_y: str, unite_x: str, puissance_x: int) -> tuple[float
     return facteur, _ecrire_unite(unite)
 
 
+def _percentile(ys: Sequence[object], rang: float) -> object:
+    """Interpolation linéaire entre deux valeurs triées, comme numpy par défaut.
+
+    L'ordre des points est tenu pour fixé : l'incertitude se propage au premier ordre.
+    """
+    tries = sorted(ys, key=lambda y: y.x)
+    position = rang / 100 * (len(tries) - 1)
+    bas = math.floor(position)
+    haut = min(bas + 1, len(tries) - 1)
+    return tries[bas] + (position - bas) * (tries[haut] - tries[bas])
+
+
 def _indicateur_sur_points(
-    points: Points, methode: str, de: float, a: float, position: float | None
-) -> tuple[float, float, str, float | None]:
-    """Calcule sur les valeurs incertaines : les erreurs communes restent ainsi partagées."""
+    points: Points,
+    methode: str,
+    de: float,
+    a: float,
+    position: float | None,
+    parametre: float | None,
+) -> tuple[float, float, str, float | None, float | None, str | None]:
+    """Calcule sur les valeurs incertaines : les erreurs communes restent ainsi partagées.
+
+    Renvoie la valeur, u, l'unité, puis l'abscisse du résultat, son u et son unité.
+    """
     import GTC  # noqa: PLC0415
 
     gardes = [
@@ -756,13 +802,57 @@ def _indicateur_sur_points(
     xs = [points.gtc_x[i] for i in gardes]
     ys = [points.gtc_y[i] for i in gardes]
     unite_x, unite_y = points.x.unite, points.y.unite
+
+    def resultat(valeur: object, unite: str = unite_y) -> tuple:
+        return valeur.x, GTC.uncertainty(valeur), unite, None, None, None
+
+    if methode == "nombre_points":
+        return float(len(ys)), 0.0, "1", None, None, None
     if methode in ("minimum", "maximum"):
         choix = min if methode == "minimum" else max
         rang = choix(range(len(ys)), key=lambda i: ys[i].x)
-        return ys[rang].x, GTC.uncertainty(ys[rang]), unite_y, xs[rang].x
+        return (
+            ys[rang].x,
+            GTC.uncertainty(ys[rang]),
+            unite_y,
+            xs[rang].x,
+            GTC.uncertainty(xs[rang]),
+            unite_x,
+        )
     if methode == "moyenne":
+        return resultat(sum(ys[1:], ys[0]) / len(ys))
+    if methode == "somme":
+        return resultat(sum(ys[1:], ys[0]))
+    if methode == "mediane":
+        return resultat(_percentile(ys, 50.0))
+    if methode == "percentile":
+        if parametre is None or not 0 <= parametre <= 100:
+            raise ErreurAjustement("Indiquer le rang du percentile, entre 0 et 100.")
+        return resultat(_percentile(ys, parametre))
+    if methode == "etendue":
+        return resultat(_percentile(ys, 100.0) - _percentile(ys, 0.0))
+    if methode == "moyenne_quadratique":
+        carres = [y * y for y in ys]
+        return resultat(GTC.sqrt(sum(carres[1:], carres[0]) / len(ys)))
+    if methode in ("ecart_type", "coefficient_variation"):
+        if len(ys) < 2:
+            raise ErreurAjustement("Il faut au moins deux points pour un écart type.")
         moyenne = sum(ys[1:], ys[0]) / len(ys)
-        return moyenne.x, GTC.uncertainty(moyenne), unite_y, None
+        carres = [(y - moyenne) * (y - moyenne) for y in ys]
+        total = sum(carres[1:], carres[0])
+        if total.x == 0:
+            raise ErreurAjustement(
+                "Tous les points sont égaux : l'écart type vaut 0, et son incertitude "
+                "n'est pas définie au premier ordre."
+            )
+        ecart = GTC.sqrt(total / (len(ys) - 1))
+        if methode == "ecart_type":
+            return resultat(ecart)
+        if moyenne.x == 0:
+            raise ErreurAjustement(
+                "La moyenne est nulle : coefficient de variation impossible."
+            )
+        return resultat(100 * ecart / moyenne * math.copysign(1.0, moyenne.x), "%")
     if len(ys) < 2:
         raise ErreurAjustement(
             f"Il faut au moins deux points pour une {methode} sur cet intervalle."
@@ -772,8 +862,7 @@ def _indicateur_sur_points(
         total = (ys[0] + ys[1]) / 2 * (xs[1] - xs[0])
         for i in range(1, len(ys) - 1):
             total = total + (ys[i] + ys[i + 1]) / 2 * (xs[i + 1] - xs[i])
-        total = total * facteur
-        return total.x, GTC.uncertainty(total), unite, None
+        return resultat(total * facteur, unite)
     # Dérivée : différence centrée autour du point le plus proche de la position demandée.
     if position is None:
         raise ErreurAjustement("Indiquer l'abscisse où calculer la dérivée.")
@@ -783,7 +872,14 @@ def _indicateur_sur_points(
         raise ErreurAjustement("Deux points ont le même x : dérivée impossible.")
     facteur, unite = _unite_composee(unite_y, unite_x, -1)
     pente = (ys[apres] - ys[avant]) / (xs[apres] - xs[avant]) * facteur
-    return pente.x, GTC.uncertainty(pente), unite, xs[proche].x
+    return (
+        pente.x,
+        GTC.uncertainty(pente),
+        unite,
+        xs[proche].x,
+        GTC.uncertainty(xs[proche]),
+        unite_x,
+    )
 
 
 def _extremum(
@@ -807,12 +903,65 @@ def _extremum(
     return float(fine.x) if fine.fun <= valeurs[rang] else float(grille[rang])
 
 
+def _croisement(
+    fonction: Callable[[np.ndarray], np.ndarray], cible: float, de: float, a: float
+) -> float:
+    """La première abscisse de l'intervalle où la fonction atteint une valeur."""
+    from scipy.optimize import brentq  # noqa: PLC0415
+
+    grille = np.linspace(de, a, _POINTS_RECHERCHE)
+    ecarts = fonction(grille) - cible
+    zero = np.flatnonzero(ecarts == 0)
+    if zero.size:
+        return float(grille[zero[0]])
+    changements = np.flatnonzero(np.sign(ecarts[:-1]) * np.sign(ecarts[1:]) < 0)
+    if not changements.size:
+        raise ErreurAjustement(
+            f"La fonction n'atteint pas {cible:g} entre {de:g} et {a:g}."
+        )
+    rang = int(changements[0])
+    return float(
+        brentq(
+            lambda t: float(fonction(np.array([t]))[0]) - cible,
+            grille[rang],
+            grille[rang + 1],
+        )
+    )
+
+
+def _largeur_mi_hauteur(
+    fonction: Callable[[np.ndarray], np.ndarray], de: float, a: float
+) -> tuple[float, float]:
+    """La largeur à mi-hauteur du pic le plus haut, comptée depuis y = 0, et son abscisse."""
+    sommet = _extremum(fonction, de, a, True)
+    moitie = float(fonction(np.array([sommet]))[0]) / 2
+    if sommet in (de, a):
+        raise ErreurAjustement(
+            "Le maximum est au bord : pas de pic dans cet intervalle."
+        )
+    gauche = _croisement(lambda t: fonction(t[::-1])[::-1], moitie, de, sommet)
+    droite = _croisement(fonction, moitie, sommet, a)
+    return droite - gauche, sommet
+
+
 def _indicateur_sur_ajustement(
-    ajustement: Ajustement, methode: str, de: float, a: float, position: float | None
-) -> tuple[float, float, str, float | None]:
-    """Calcule sur la fonction ajustée. u²(I) = gᵀ · C · g, avec g = dI/dθ, numérique."""
+    ajustement: Ajustement,
+    methode: str,
+    de: float,
+    a: float,
+    position: float | None,
+    parametre: float | None,
+) -> tuple[float, float, str, float | None, float | None, str | None]:
+    """Calcule sur la fonction ajustée. u²(I) = gᵀ · C · g, avec g = dI/dθ, numérique.
+
+    Renvoie la valeur, u, l'unité, puis l'abscisse du résultat, son u et son unité.
+    """
     from scipy.integrate import quad  # noqa: PLC0415
 
+    if methode not in METHODES_AJUSTEMENT:
+        raise ErreurAjustement(
+            f"« {methode} » se calcule sur les points, pas sur la fonction ajustée."
+        )
     if de < ajustement.x_min or a > ajustement.x_max:
         raise ErreurAjustement(
             f"L'intervalle sort des données ({ajustement.x_min:g} à {ajustement.x_max:g}) : "
@@ -822,9 +971,9 @@ def _indicateur_sur_ajustement(
     valeurs = np.array([p.valeur for p in ajustement.parametres], dtype=float)
     covariance = np.array(ajustement.covariance(), dtype=float)
     formule = creer_fonction(ajustement.formule, noms)
-    abscisse: float | None = None
     unite = ajustement.unite_y
     facteur = 1.0
+    calcul_position: Callable[[np.ndarray], float] | None = None
 
     if methode == "derivee":
         if position is None:
@@ -834,7 +983,6 @@ def _indicateur_sur_ajustement(
                 f"L'abscisse {position:g} sort des données : pas d'extrapolation."
             )
         facteur, unite = _unite_composee(ajustement.unite_y, ajustement.unite_x, -1)
-        abscisse = position
         pas = 1e-5 * max(ajustement.x_max - ajustement.x_min, 1e-30)
 
         def calcul(p: np.ndarray) -> float:
@@ -855,35 +1003,65 @@ def _indicateur_sur_ajustement(
             )
             return float(total / largeur)
 
+    elif methode == "largeur_mi_hauteur":
+        unite = ajustement.unite_x
+
+        def calcul(p: np.ndarray) -> float:
+            return _largeur_mi_hauteur(lambda z: formule(z, p), de, a)[0]
+
+        def calcul_position(p: np.ndarray) -> float:
+            return _largeur_mi_hauteur(lambda z: formule(z, p), de, a)[1]
+
+    elif methode == "abscisse_de_valeur":
+        if parametre is None:
+            raise ErreurAjustement("Indiquer la valeur de y à atteindre.")
+        unite = ajustement.unite_x
+
+        def calcul(p: np.ndarray) -> float:
+            return _croisement(lambda z: formule(z, p), parametre, de, a)
+
     else:
         maximum = methode == "maximum"
 
-        def calcul(p: np.ndarray) -> float:
-            t = _extremum(lambda z: formule(z, p), de, a, maximum)
-            return float(formule(np.array([t]), p)[0])
+        def calcul_position(p: np.ndarray) -> float:
+            return _extremum(lambda z: formule(z, p), de, a, maximum)
 
-        abscisse = _extremum(lambda z: formule(z, valeurs), de, a, maximum)
+        def calcul(p: np.ndarray) -> float:
+            return float(formule(np.array([calcul_position(p)]), p)[0])
+
+    def propager(fonction: Callable[[np.ndarray], float]) -> float:
+        """Le pas suit l'incertitude du coefficient : voir `_jacobienne`."""
+        gradient = np.zeros(len(valeurs))
+        for rang, v in enumerate(valeurs):
+            pas_p = max(
+                _FRACTION_DE_U * math.sqrt(max(covariance[rang, rang], 0.0)),
+                _PAS_RELATIF * abs(v),
+                _PAS_MINIMAL,
+            )
+            haut_p, bas_p = valeurs.copy(), valeurs.copy()
+            haut_p[rang] += pas_p
+            bas_p[rang] -= pas_p
+            gradient[rang] = (fonction(haut_p) - fonction(bas_p)) / (2 * pas_p)
+        return math.sqrt(max(float(gradient @ covariance @ gradient), 0.0))
 
     valeur = calcul(valeurs)
-    # Le pas suit l'incertitude du coefficient : pour un coefficient proche de zéro, un pas
-    # relatif à sa valeur serait noyé dans le bruit numérique du calcul.
-    gradient = np.zeros(len(valeurs))
-    for rang, v in enumerate(valeurs):
-        pas_p = max(
-            _FRACTION_DE_U * math.sqrt(max(covariance[rang, rang], 0.0)),
-            _PAS_RELATIF * abs(v),
-            _PAS_MINIMAL,
-        )
-        haut_p, bas_p = valeurs.copy(), valeurs.copy()
-        haut_p[rang] += pas_p
-        bas_p[rang] -= pas_p
-        gradient[rang] = (calcul(haut_p) - calcul(bas_p)) / (2 * pas_p)
-    variance = float(gradient @ covariance @ gradient)
+    u = propager(calcul)
+    abscisse: float | None = None
+    u_abscisse: float | None = None
+    unite_abscisse: str | None = None
+    if calcul_position is not None:
+        abscisse = calcul_position(valeurs)
+        u_abscisse = propager(calcul_position)
+        unite_abscisse = ajustement.unite_x
+    elif methode == "derivee":
+        abscisse, u_abscisse, unite_abscisse = position, 0.0, ajustement.unite_x
     return (
         valeur * facteur,
-        math.sqrt(max(variance, 0.0)) * abs(facteur),
+        u * abs(facteur),
         unite,
         abscisse,
+        u_abscisse,
+        unite_abscisse,
     )
 
 
@@ -901,6 +1079,7 @@ def creer_indicateur(
     position: float | None = None,
     ajustement: Ajustement | None = None,
     commentaire: str = "",
+    parametre: float | None = None,
 ) -> Indicateur:
     """Calcule un indicateur et prépare la grandeur à enregistrer.
 
@@ -917,13 +1096,19 @@ def creer_indicateur(
         if source == "ajustement":
             if ajustement is None:
                 raise ErreurAjustement("Faire d'abord l'ajustement de cette courbe.")
-            valeur, u, unite, abscisse = _indicateur_sur_ajustement(
-                ajustement, methode, debut, fin, position
+            valeur, u, unite, abscisse, u_abscisse, unite_abscisse = (
+                _indicateur_sur_ajustement(
+                    ajustement, methode, debut, fin, position, parametre
+                )
             )
             empreinte = ajustement.empreinte_donnees
         else:
-            valeur, u, unite, abscisse = _indicateur_sur_points(
-                points, methode, debut, fin, position
+            if methode not in METHODES_POINTS:
+                raise ErreurAjustement(
+                    f"« {methode} » se calcule sur la fonction ajustée, pas sur les points."
+                )
+            valeur, u, unite, abscisse, u_abscisse, unite_abscisse = (
+                _indicateur_sur_points(points, methode, debut, fin, position, parametre)
             )
             empreinte = points.empreinte
     except ErreurCalcul:
@@ -942,7 +1127,10 @@ def creer_indicateur(
         ajustement=ajustement.nom if source == "ajustement" else None,
         de=debut,
         a=fin,
+        parametre=parametre,
         position=abscisse,
+        incertitude_position=u_abscisse,
+        unite_position=unite_abscisse,
         valeur=float(valeur),
         incertitude_type=float(u),
         unite=unite,
@@ -957,6 +1145,19 @@ def etat_resultat(
     lire_tableau: Callable[[str], pd.DataFrame],
 ) -> str | None:
     """Dit si les points ont changé depuis ce résultat ; None s'il est toujours à jour."""
+    if isinstance(resultat, Indicateur) and resultat.ajustement is not None:
+        source = next(
+            (
+                g
+                for g in page.mesures
+                if isinstance(g, Ajustement) and g.nom == resultat.ajustement
+            ),
+            None,
+        )
+        if source is None:
+            return f"À refaire : l'ajustement « {resultat.ajustement} » a été retiré."
+        if source.empreinte_donnees != resultat.empreinte_donnees:
+            return "À refaire : l'ajustement a changé depuis ce résultat."
     try:
         points = lire_points(
             page, resultat.tableau, resultat.x, resultat.y, lire_tableau

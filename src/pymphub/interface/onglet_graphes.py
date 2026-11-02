@@ -6,6 +6,7 @@ tableau. Le facteur k ne change que l'affichage, et ne crée donc aucun enregist
 
 from collections.abc import Sequence
 
+import pandas as pd
 from pydantic import ValidationError
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QShowEvent
@@ -18,11 +19,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from pymphub.archive import Archive
+from pymphub.edition import Grandeur
 from pymphub.graphes import (
     GrapheImpossible,
     ajustements_du_tableau,
@@ -33,7 +36,8 @@ from pymphub.graphes import (
 )
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
-from pymphub.page import Onglet, OngletGraphes, Page, ReglagesGraphe
+from pymphub.interface.panneau_indicateurs import PanneauIndicateurs
+from pymphub.page import Indicateur, Onglet, OngletGraphes, Page, ReglagesGraphe
 
 _LARGEUR_REGLAGES = 270
 _MESSAGE_SANS_TABLEAU = (
@@ -87,6 +91,7 @@ class EditeurGraphes(EditeurOnglet):
         self._remplissage = True
         self._a_tracer = True
         self._manque: str | None = None
+        self._noms_possedes: list[str] = []
         # Tant qu'on ne touche à rien, la page ne change pas : la regarder ne coûte aucun motif.
         self.reglages: ReglagesGraphe | None = getattr(onglet, "reglages", None)
 
@@ -147,9 +152,17 @@ class EditeurGraphes(EditeurOnglet):
         conteneur.setFixedWidth(_LARGEUR_REGLAGES)
 
         self.zone = QVBoxLayout()
+        page_graphe = QWidget()
+        page_graphe.setLayout(self.zone)
+        self.panneau = PanneauIndicateurs(self.champ_k.value)
+        self.panneau.modifie.connect(self._indicateurs_modifies)
+        self.panneau.reperes_changes.connect(self.tracer_si_visible)
+        self.vues = QTabWidget()
+        self.vues.addTab(page_graphe, "Graphe")
+        self.vues.addTab(self.panneau, "Indicateurs")
         disposition = QHBoxLayout(self)
         disposition.addWidget(conteneur)
-        disposition.addLayout(self.zone, stretch=1)
+        disposition.addWidget(self.vues, stretch=1)
 
         self.champ_tableau.currentIndexChanged.connect(self._tableau_change)
         self.champ_mode.currentIndexChanged.connect(self._mode_change)
@@ -167,12 +180,61 @@ class EditeurGraphes(EditeurOnglet):
         ):
             case.toggled.connect(self._reglage_change)
         self.champ_k.valueChanged.connect(self.tracer_si_visible)
+        self.champ_k.valueChanged.connect(self.panneau.afficher)
 
     # --- Chargement -----------------------------------------------------------------------
 
     def charger(self, archive: Archive) -> None:
         self.archive = archive
+        par_nom = {g.nom: g for g in self.page.mesures} if self.page else {}
+        self.panneau.indicateurs = [
+            par_nom[nom]
+            for nom in getattr(self.onglet, "indicateurs", ())
+            if isinstance(par_nom.get(nom), Indicateur)
+        ]
+        self._noms_possedes = [i.nom for i in self.panneau.indicateurs]
         self._remplir()
+        self._configurer_panneau()
+
+    def lire_tableau(self, nom: str) -> pd.DataFrame:
+        """Relit un tableau enregistré de la page."""
+        return self.archive.lire_tableau(self.page.id, nom)
+
+    def _noms_reserves(self) -> set[str]:
+        return {g.nom for g in self.page.mesures} - set(self._noms_possedes)
+
+    def _configurer_panneau(self) -> None:
+        if self.page is None or self.archive is None:
+            return
+        reglages = self._reglages_affiches()
+        if reglages is None:
+            colonnes: tuple[str, str, Sequence[str]] = ("", "", ())
+            ajustements: list = []
+        else:
+            colonnes = (
+                reglages.tableau,
+                reglages.x,
+                reglages.y if reglages.mode == "2d" else reglages.y[:1],
+            )
+            ajustements = ajustements_du_tableau(self.page, reglages.tableau)
+        self.panneau.configurer(
+            self.page, self.lire_tableau, colonnes, ajustements, self._noms_reserves
+        )
+
+    def _indicateurs_modifies(self) -> None:
+        self.modifie.emit()
+
+    def _page_affichee(self) -> Page:
+        """La page avec les indicateurs à l'écran, même pas encore enregistrés."""
+        if self.page is None or not self.panneau.indicateurs:
+            return self.page
+        noms = {i.nom for i in self.panneau.indicateurs}
+        return self.page.model_copy(
+            update={
+                "mesures": tuple(g for g in self.page.mesures if g.nom not in noms)
+                + tuple(self.panneau.indicateurs)
+            }
+        )
 
     def _reglages_affiches(self) -> ReglagesGraphe | None:
         if self.page is None:
@@ -313,6 +375,7 @@ class EditeurGraphes(EditeurOnglet):
         self._adapter_au_mode()
         try:
             self.reglages = self._lire_reglages()
+            self._configurer_panneau()
         except ValidationError:
             # Rien de coché : les derniers réglages valides restent, et le graphe l'explique.
             self._zone_toile().signaler("Cocher au moins une colonne pour l'axe y.")
@@ -322,13 +385,22 @@ class EditeurGraphes(EditeurOnglet):
 
     # --- Contrat d'un éditeur -------------------------------------------------------------
 
+    def grandeurs_possedees(self) -> list[str]:
+        return list(self._noms_possedes)
+
+    def grandeurs(self) -> list[Grandeur]:
+        return list(self.panneau.indicateurs)
+
     def valeur(self) -> Onglet:
+        noms = tuple(i.nom for i in self.panneau.indicateurs)
         if self.reglages is None:
-            return self.onglet
+            if noms == tuple(getattr(self.onglet, "indicateurs", ())):
+                return self.onglet
+            return self.onglet.model_copy(update={"indicateurs": noms})
         # Les réglages remplacent les anciennes références : renommer une colonne ne doit
         # pas empêcher d'enregistrer la page.
         return self.onglet.model_copy(
-            update={"reglages": self.reglages, "grandeurs": ()}
+            update={"reglages": self.reglages, "grandeurs": (), "indicateurs": noms}
         )
 
     def noter_saisies_incompletes(self, incompletes: Sequence[str]) -> None:
@@ -341,7 +413,9 @@ class EditeurGraphes(EditeurOnglet):
     def enregistre(self, page: Page) -> None:
         super().enregistre(page)
         self.onglet = self.valeur()
+        self._noms_possedes = [i.nom for i in self.panneau.indicateurs]
         self._remplir()
+        self._configurer_panneau()
         self.tracer_si_visible()
 
     # --- Dessin ---------------------------------------------------------------------------
@@ -358,7 +432,7 @@ class EditeurGraphes(EditeurOnglet):
         dessiner(
             self._zone_toile(),
             self.archive,
-            self.page,
+            self._page_affichee(),
             self._reglages_affiches(),
             self.champ_k.value(),
             self._manque,

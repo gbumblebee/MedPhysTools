@@ -454,17 +454,37 @@ class Ajustement(_Modele):
         )
 
 
+MethodeIndicateur = Literal[
+    "minimum",
+    "maximum",
+    "moyenne",
+    "mediane",
+    "percentile",
+    "ecart_type",
+    "coefficient_variation",
+    "moyenne_quadratique",
+    "somme",
+    "etendue",
+    "nombre_points",
+    "integrale",
+    "derivee",
+    "largeur_mi_hauteur",
+    "abscisse_de_valeur",
+]
+
+
 class Indicateur(_Modele):
-    """Un résultat lu sur une courbe : extremum, moyenne, intégrale ou dérivée.
+    """Un résultat lu sur une courbe : extremum, médiane, intégrale, dérivée…
 
     `source` dit s'il vient des points du tableau ou de la fonction ajustée. `de` et `a`
-    donnent l'intervalle utilisé. `position` est l'abscisse d'un extremum, ou celle demandée
-    pour une dérivée.
+    donnent l'intervalle utilisé. `position` est l'abscisse du résultat, comme celle d'un
+    maximum, avec son incertitude-type. `parametre` est le rang d'un percentile, ou la
+    valeur cherchée pour l'abscisse d'une valeur. `afficher` place un repère sur le graphe.
     """
 
     nature: Literal["indicateur"] = "indicateur"
     nom: Nom
-    methode: Literal["minimum", "maximum", "moyenne", "integrale", "derivee"]
+    methode: MethodeIndicateur
     source: Literal["points", "ajustement"]
     tableau: Nom
     x: Nom
@@ -472,11 +492,15 @@ class Indicateur(_Modele):
     ajustement: Nom | None = None
     de: Nombre
     a: Nombre
+    parametre: Nombre | None = None
     position: Nombre | None = None
+    incertitude_position: float | None = Field(default=None, ge=0)
+    unite_position: Unite | None = None
     valeur: Nombre
     incertitude_type: float = Field(ge=0, allow_inf_nan=False)
     unite: Unite
     empreinte_donnees: Empreinte
+    afficher: bool = False
     commentaire: str = ""
 
     def budget(self) -> Budget:
@@ -597,6 +621,10 @@ class OngletGraphes(OngletDonnees):
     """Un onglet qui trace des colonnes d'un tableau, selon des réglages gardés dans la page."""
 
     reglages: ReglagesGraphe | None = None
+    indicateurs: tuple[str, ...] = ()
+
+    def grandeurs_referencees(self) -> list[str]:
+        return [*self.grandeurs, *self.indicateurs]
 
 
 class OngletNotes(Onglet):

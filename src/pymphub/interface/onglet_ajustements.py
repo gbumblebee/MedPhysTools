@@ -27,12 +27,10 @@ from PySide6.QtWidgets import (
 )
 
 from pymphub.ajustements import (
-    METHODES,
     MODELES,
     coefficients_de,
     creer_ajustement,
     creer_courbe,
-    creer_indicateur,
     etat_resultat,
     lire_points,
     unites_des_coefficients,
@@ -43,20 +41,16 @@ from pymphub.edition import Grandeur, lire_nombre, nom_libre
 from pymphub.graphes import GrapheImpossible, preparer_graphe, tableaux_tracables
 from pymphub.interface.affichage_ajustements import (
     COLONNES_COEFFICIENTS,
-    COLONNES_INDICATEURS,
-    libelle_methode,
+    ecrire_coefficients,
     remplir_coefficients,
     remplir_correlation,
-    remplir_indicateurs,
     resume_ajustement,
 )
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglet_graphes import creer_toile
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
-from pymphub.interface.texte_en_grand import (
-    afficher_en_grand,
-    afficher_en_grand_colonne,
-)
+from pymphub.interface.panneau_indicateurs import PanneauIndicateurs
+from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import (
     Ajustement,
     Indicateur,
@@ -71,7 +65,6 @@ _LARGEUR_REGLAGES = 330
 _PERSONNALISE = "personnalise"
 _COLONNE_DEPART = 1
 _COLONNE_UNITE = 2
-_COLONNE_RESULTAT = 5
 
 
 def _table_lecture(colonnes: tuple[str, ...] | list[str]) -> QTableWidget:
@@ -94,7 +87,6 @@ class EditeurAjustements(EditeurOnglet):
         self.ajustement: Ajustement | None = None
         self.tableau_courbe: Tableau | None = None
         self.donnees_courbe: dict[str, list[float]] | None = None
-        self.indicateurs: list[Indicateur] = []
         self.toile: QWidget | None = None
         self._a_tracer = True
         self._remplissage = True
@@ -157,10 +149,13 @@ class EditeurAjustements(EditeurOnglet):
         gauche.addStretch()
         conteneur = QWidget()
         conteneur.setLayout(gauche)
-        defilement = QScrollArea()
-        defilement.setWidgetResizable(True)
-        defilement.setWidget(conteneur)
-        defilement.setFixedWidth(_LARGEUR_REGLAGES)
+        self.reglages = QScrollArea()
+        self.reglages.setWidgetResizable(True)
+        self.reglages.setWidget(conteneur)
+        self.reglages.setFixedWidth(_LARGEUR_REGLAGES)
+        self.bouton_reglages = QPushButton("Masquer les réglages")
+        self.bouton_reglages.setCheckable(True)
+        self.bouton_reglages.toggled.connect(self._replier_reglages)
 
         self.champ_k = QDoubleSpinBox()
         self.champ_k.setRange(0.1, 10.0)
@@ -171,102 +166,48 @@ class EditeurAjustements(EditeurOnglet):
         )
         self.champ_k.valueChanged.connect(self._k_change)
 
-        self.resume = QLabel("Aucun ajustement.")
-        self.resume.setObjectName("discret")
-        self.resume.setWordWrap(True)
-        self.resume.setTextFormat(Qt.TextFormat.PlainText)
+        self.coefficients = QLabel("Aucun ajustement.")
+        self.coefficients.setWordWrap(True)
+        self.coefficients.setTextFormat(Qt.TextFormat.PlainText)
+        self.coefficients.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         self.alerte = QLabel("")
         self.alerte.setObjectName("alerte")
         self.alerte.setWordWrap(True)
         self.alerte.setTextFormat(Qt.TextFormat.PlainText)
         self.alerte.setVisible(False)
-        self.table_coefficients = _table_lecture(COLONNES_COEFFICIENTS)
-        self.table_correlation = _table_lecture(["Corrélation"])
-        ligne_tables = QHBoxLayout()
-        ligne_tables.addWidget(self.table_coefficients, stretch=3)
-        ligne_tables.addWidget(self.table_correlation, stretch=2)
-        conteneur_tables = QWidget()
-        conteneur_tables.setLayout(ligne_tables)
-        conteneur_tables.setMaximumHeight(170)
         self.zone_toile = QVBoxLayout()
         page_resultat = QWidget()
         disposition_resultat = QVBoxLayout(page_resultat)
-        disposition_resultat.addWidget(self.resume)
+        disposition_resultat.addWidget(self.coefficients)
         disposition_resultat.addWidget(self.alerte)
-        disposition_resultat.addWidget(conteneur_tables)
         disposition_resultat.addLayout(self.zone_toile, stretch=1)
 
-        self.champ_nom_indicateur = QLineEdit()
-        self.champ_nom_indicateur.setPlaceholderText("nom")
-        self.champ_methode = QComboBox()
-        for methode in METHODES:
-            self.champ_methode.addItem(libelle_methode(methode), methode)
-        self.champ_source = QComboBox()
-        self.champ_source.addItem("Points", "points")
-        self.champ_source.addItem("Ajustement", "ajustement")
-        self.champ_de = QLineEdit()
-        self.champ_de.setPlaceholderText("début")
-        self.champ_a = QLineEdit()
-        self.champ_a.setPlaceholderText("fin")
-        self.champ_position = QLineEdit()
-        self.champ_position.setPlaceholderText("x de la dérivée")
-        self.champ_commentaire_indicateur = QLineEdit()
-        self.champ_commentaire_indicateur.setPlaceholderText("Commentaire")
-        afficher_en_grand(self.champ_commentaire_indicateur, "Commentaire")
-        self.bouton_indicateur = QPushButton("Calculer")
-        self.bouton_indicateur.setObjectName("principal")
-        self.bouton_indicateur.clicked.connect(self.demander_indicateur)
-        self.bouton_retirer_indicateur = QPushButton("Retirer")
-        self.bouton_retirer_indicateur.clicked.connect(self.retirer_indicateur)
-        self.message_indicateur = QLabel("")
-        self.message_indicateur.setObjectName("alerte")
-        self.message_indicateur.setWordWrap(True)
-        self.message_indicateur.setTextFormat(Qt.TextFormat.PlainText)
-        self.message_indicateur.setVisible(False)
-        self.table_indicateurs = _table_lecture(COLONNES_INDICATEURS)
-        self.table_indicateurs.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
-        afficher_en_grand_colonne(self.table_indicateurs, 6, "Commentaire")
-        # Le résultat est ce qu'on vient lire : il s'affiche toujours en entier.
-        self.table_indicateurs.horizontalHeader().setSectionResizeMode(
-            _COLONNE_RESULTAT, QHeaderView.ResizeMode.ResizeToContents
-        )
-        ligne_indicateur = QHBoxLayout()
-        for champ in (
-            self.champ_nom_indicateur,
-            self.champ_methode,
-            self.champ_source,
-            self.champ_de,
-            self.champ_a,
-            self.champ_position,
-            self.champ_commentaire_indicateur,
-            self.bouton_indicateur,
-        ):
-            ligne_indicateur.addWidget(champ)
-        explication = QLabel(
-            "Sans intervalle, toute l'étendue des données est utilisée. Sur l'ajustement, "
-            "l'intervalle ne peut pas sortir des données."
-        )
-        explication.setObjectName("discret")
-        explication.setWordWrap(True)
-        page_indicateurs = QWidget()
-        disposition_indicateurs = QVBoxLayout(page_indicateurs)
-        disposition_indicateurs.addLayout(ligne_indicateur)
-        disposition_indicateurs.addWidget(explication)
-        disposition_indicateurs.addWidget(self.message_indicateur)
-        disposition_indicateurs.addWidget(self.table_indicateurs, stretch=1)
-        disposition_indicateurs.addWidget(
-            self.bouton_retirer_indicateur, alignment=Qt.AlignmentFlag.AlignRight
-        )
+        self.resume = QLabel("Aucun ajustement.")
+        self.resume.setObjectName("discret")
+        self.resume.setWordWrap(True)
+        self.resume.setTextFormat(Qt.TextFormat.PlainText)
+        self.table_coefficients = _table_lecture(COLONNES_COEFFICIENTS)
+        self.table_correlation = _table_lecture(["Corrélation"])
+        page_details = QWidget()
+        disposition_details = QVBoxLayout(page_details)
+        disposition_details.addWidget(self.resume)
+        disposition_details.addWidget(self.table_coefficients, stretch=1)
+        disposition_details.addWidget(self.table_correlation, stretch=1)
+
+        self.panneau = PanneauIndicateurs(self.champ_k.value, preferer_ajustement=True)
+        self.panneau.modifie.connect(self.modifie)
+        self.panneau.reperes_changes.connect(self.tracer_si_visible)
 
         self.vues = QTabWidget()
         self.vues.addTab(page_resultat, "Résultat")
-        self.vues.addTab(page_indicateurs, "Indicateurs")
+        self.vues.addTab(page_details, "Détails")
+        self.vues.addTab(self.panneau, "Indicateurs")
         self.vues.setCornerWidget(self._zone_k())
 
         disposition = QHBoxLayout(self)
-        disposition.addWidget(defilement)
+        disposition.addWidget(self.reglages)
         disposition.addWidget(self.vues, stretch=1)
 
         self.champ_tableau.currentIndexChanged.connect(self._tableau_change)
@@ -281,9 +222,42 @@ class EditeurAjustements(EditeurOnglet):
         zone = QWidget()
         ligne = QHBoxLayout(zone)
         ligne.setContentsMargins(0, 0, 0, 0)
+        ligne.addWidget(self.bouton_reglages)
         ligne.addWidget(QLabel("k ="))
         ligne.addWidget(self.champ_k)
         return zone
+
+    def _replier_reglages(self, replie: bool) -> None:
+        """Laisse toute la largeur au graphique."""
+        self.reglages.setVisible(not replie)
+        self.bouton_reglages.setText(
+            "Afficher les réglages" if replie else "Masquer les réglages"
+        )
+
+    @property
+    def indicateurs(self) -> list[Indicateur]:
+        return self.panneau.indicateurs
+
+    def _configurer_panneau(self) -> None:
+        if self.page is None:
+            return
+        self.panneau.configurer(
+            self.page,
+            self.lire_tableau,
+            (
+                self.champ_tableau.currentText(),
+                self.champ_x.currentText(),
+                [self.champ_y.currentText()] if self.champ_y.currentText() else [],
+            ),
+            [self.ajustement] if self.ajustement is not None else [],
+            self._noms_reserves,
+        )
+
+    def _noms_reserves(self) -> set[str]:
+        noms = self._noms_de_la_page()
+        if self.ajustement is not None:
+            noms |= {self.ajustement.nom, self.ajustement.courbe}
+        return noms
 
     # --- Chargement -----------------------------------------------------------------------
 
@@ -300,7 +274,7 @@ class EditeurAjustements(EditeurOnglet):
             if isinstance(grandeur, Ajustement) and self.ajustement is None:
                 self.ajustement = grandeur
             elif isinstance(grandeur, Indicateur):
-                self.indicateurs.append(grandeur)
+                self.panneau.indicateurs.append(grandeur)
             elif not isinstance(grandeur, Tableau):
                 self._references_conservees.append(reference)
         if self.ajustement is not None:
@@ -308,6 +282,7 @@ class EditeurAjustements(EditeurOnglet):
             self.tableau_courbe = courbe if isinstance(courbe, Tableau) else None
         self._noms_possedes = [g.nom for g in self.grandeurs()]
         self._remplir_reglages()
+        self._configurer_panneau()
         self._afficher_resultat()
 
     def _remplir_colonnes(self, table: str) -> None:
@@ -406,6 +381,7 @@ class EditeurAjustements(EditeurOnglet):
             self._remplir_colonnes(self.champ_tableau.currentText())
             self._remplissage = False
             self._remplir_departs()
+            self._configurer_panneau()
 
     def _modele_change(self) -> None:
         if self._remplissage:
@@ -423,6 +399,7 @@ class EditeurAjustements(EditeurOnglet):
     def _colonnes_changent(self) -> None:
         if not self._remplissage:
             self._remplir_departs()
+            self._configurer_panneau()
 
     def _commentaire_change(self) -> None:
         if self._remplissage or self.ajustement is None:
@@ -486,6 +463,7 @@ class EditeurAjustements(EditeurOnglet):
         self.tableau_courbe = courbe
         self.donnees_courbe = donnees
         self._avertissements = resultat.avertissements
+        self._configurer_panneau()
         self._afficher_resultat()
         self.tracer_si_visible()
         self.modifie.emit()
@@ -500,67 +478,11 @@ class EditeurAjustements(EditeurOnglet):
         self.tableau_courbe = None
         self.donnees_courbe = None
         self._avertissements = ()
-        self.indicateurs = [i for i in self.indicateurs if i.ajustement != nom]
+        self.panneau.retirer_ceux_de(nom)
+        self._configurer_panneau()
         self._afficher_resultat()
         self.tracer_si_visible()
         self.modifie.emit()
-
-    # --- Indicateurs ----------------------------------------------------------------------
-
-    def _lire_borne(self, champ: QLineEdit) -> float | None:
-        texte = champ.text().strip()
-        return lire_nombre(texte) if texte else None
-
-    def demander_indicateur(self) -> bool:
-        """Calcule un indicateur sur les colonnes choisies. Une erreur est expliquée."""
-        if self.page is None:
-            return False
-        methode = self.champ_methode.currentData()
-        pris = self._noms_de_la_page() | {i.nom for i in self.indicateurs}
-        if self.ajustement is not None:
-            pris |= {self.ajustement.nom, self.ajustement.courbe}
-        nom = self.champ_nom_indicateur.text().strip() or nom_libre(methode, pris)
-        source = self.champ_source.currentData()
-        ajustement = self.ajustement if source == "ajustement" else None
-        try:
-            if nom in pris:
-                raise ErreurCalcul(
-                    f"Le nom « {nom} » est déjà utilisé dans cette page."
-                )
-            indicateur = creer_indicateur(
-                self.page,
-                nom,
-                methode,
-                source,
-                ajustement.tableau if ajustement else self.champ_tableau.currentText(),
-                ajustement.x if ajustement else self.champ_x.currentText(),
-                ajustement.y if ajustement else self.champ_y.currentText(),
-                self.lire_tableau,
-                self._lire_borne(self.champ_de),
-                self._lire_borne(self.champ_a),
-                self._lire_borne(self.champ_position),
-                ajustement,
-                self.champ_commentaire_indicateur.text(),
-            )
-        except (ValueError, KeyError, OSError) as erreur:
-            self.message_indicateur.setText(message_erreur(erreur))
-            self.message_indicateur.setVisible(True)
-            return False
-        self.message_indicateur.setVisible(False)
-        self.indicateurs.append(indicateur)
-        self.champ_nom_indicateur.clear()
-        self.champ_commentaire_indicateur.clear()
-        self._afficher_indicateurs()
-        self.modifie.emit()
-        return True
-
-    def retirer_indicateur(self) -> None:
-        """Retire l'indicateur choisi : l'historique le garde."""
-        rang = self.table_indicateurs.currentRow()
-        if 0 <= rang < len(self.indicateurs):
-            del self.indicateurs[rang]
-            self._afficher_indicateurs()
-            self.modifie.emit()
 
     # --- Affichage ------------------------------------------------------------------------
 
@@ -568,28 +490,25 @@ class EditeurAjustements(EditeurOnglet):
         self._afficher_resultat()
         self.tracer_si_visible()
 
-    def _afficher_indicateurs(self) -> None:
-        remplir_indicateurs(
-            self.table_indicateurs, self.indicateurs, self.champ_k.value()
-        )
-
     def _etats(self) -> list[str]:
-        """Dit si l'ajustement ou un indicateur n'est plus à jour avec les points."""
+        """Dit si l'ajustement n'est plus à jour avec les points."""
         etats: list[str] = []
         if self.page is None or self.archive is None:
             return etats
-        for resultat in (self.ajustement, *self.indicateurs):
-            if resultat is None:
-                continue
-            etat = etat_resultat(self.page, resultat, self.lire_tableau)
+        if self.ajustement is not None:
+            etat = etat_resultat(self.page, self.ajustement, self.lire_tableau)
             if etat is not None:
-                etats.append(f"{resultat.nom} : {etat}")
+                etats.append(f"{self.ajustement.nom} : {etat}")
         return etats
 
     def _afficher_resultat(self) -> None:
         ajustement = self.ajustement
+        k = self.champ_k.value()
         self.resume.setText(
             resume_ajustement(ajustement) if ajustement else "Aucun ajustement."
+        )
+        self.coefficients.setText(
+            ecrire_coefficients(ajustement, k) if ajustement else "Aucun ajustement."
         )
         remplir_coefficients(self.table_coefficients, ajustement, self.champ_k.value())
         remplir_correlation(self.table_correlation, ajustement)
@@ -597,7 +516,7 @@ class EditeurAjustements(EditeurOnglet):
         messages = [*self._avertissements, *self._etats()]
         self.alerte.setText(" ".join(messages))
         self.alerte.setVisible(bool(messages))
-        self._afficher_indicateurs()
+        self.panneau.afficher()
 
     def _zone_de_dessin(self) -> QWidget:
         if self.toile is None:
@@ -626,9 +545,14 @@ class EditeurAjustements(EditeurOnglet):
                 "mesures": tuple(
                     g
                     for g in self.page.mesures
-                    if g.nom not in (ajustement.nom, ajustement.courbe)
+                    if g.nom
+                    not in (
+                        ajustement.nom,
+                        ajustement.courbe,
+                        *(i.nom for i in self.indicateurs),
+                    )
                 )
-                + (ajustement, self.tableau_courbe)
+                + (ajustement, self.tableau_courbe, *self.indicateurs)
             }
         )
         try:
@@ -674,7 +598,7 @@ class EditeurAjustements(EditeurOnglet):
             resultat.append(self.ajustement)
             if self.tableau_courbe is not None:
                 resultat.append(self.tableau_courbe)
-        resultat.extend(self.indicateurs)
+        resultat.extend(self.panneau.indicateurs)
         return resultat
 
     def valeur(self) -> Onglet:
@@ -712,6 +636,7 @@ class EditeurAjustements(EditeurOnglet):
         self.champ_y.setCurrentText(selection[2])
         self._remplissage = False
         self._remplir_departs()
+        self._configurer_panneau()
         self._afficher_resultat()
         self.tracer_si_visible()
 

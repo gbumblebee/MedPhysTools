@@ -134,6 +134,40 @@ def test_le_certificat_commun_passe_sur_l_amplitude(espace, editeur):
     assert coefficients["T12"].incertitude_type < 0.1
 
 
+def test_le_resultat_laisse_sa_place_au_graphique(espace, editeur, qtbot):
+    """Coefficients sur une ligne, graphique dessous, et le détail dans un autre onglet."""
+    espace.resize(1300, 800)
+    espace.show()
+    qtbot.waitExposed(espace)
+    espace.onglets.setCurrentWidget(editeur)
+    ajuster(editeur)
+    qtbot.wait(100)
+    texte = editeur.coefficients.text()
+    assert texte.startswith("A = 100 ± ")
+    assert "T12 = 6 ± " in texte
+    assert "χ² réduit" in texte
+    assert not editeur.table_coefficients.isVisible()
+    espace_graphe = editeur.toile.height()
+    assert espace_graphe > 0.5 * editeur.vues.height()
+    largeur = editeur.toile.width()
+    editeur.bouton_reglages.setChecked(True)
+    qtbot.wait(100)
+    assert not editeur.reglages.isVisible()
+    assert editeur.toile.width() > largeur + 200
+    editeur.bouton_reglages.setChecked(False)
+    assert editeur.reglages.isVisibleTo(editeur)
+    editeur.vues.setCurrentIndex(1)
+    qtbot.wait(50)
+    assert editeur.table_coefficients.isVisible()
+    assert editeur.table_correlation.isVisible()
+
+
+def test_la_source_preferee_est_l_ajustement_quand_il_existe(espace, editeur):
+    assert editeur.panneau.champ_source.currentData() == "points"
+    ajuster(editeur)
+    assert editeur.panneau.champ_source.currentData() == "fit"
+
+
 def test_les_resultats_s_affichent_et_suivent_k(espace, editeur):
     ajuster(editeur)
     table = editeur.table_coefficients
@@ -184,8 +218,7 @@ def test_un_ajustement_ne_touche_a_aucune_valeur_brute(espace, editeur):
     avant = fichier.read_bytes()
     grandeur = relue(espace).grandeur("t")
     ajuster(editeur)
-    editeur.champ_methode.setCurrentIndex(editeur.champ_methode.findData("integrale"))
-    assert editeur.demander_indicateur()
+    assert calculer_indicateur(editeur, "integrale")
     assert espace.enregistrer_maintenant()
     assert fichier.read_bytes() == avant
     assert relue(espace).grandeur("t") == grandeur
@@ -289,12 +322,8 @@ def test_des_points_modifies_signalent_l_ajustement_a_refaire(espace, editeur):
 
 def test_retirer_l_ajustement_retire_sa_courbe_et_ses_indicateurs(espace, editeur):
     ajuster(editeur)
-    editeur.champ_source.setCurrentIndex(1)
-    editeur.champ_nom_indicateur.setText("i_fit")
-    assert editeur.demander_indicateur()
-    editeur.champ_source.setCurrentIndex(0)
-    editeur.champ_nom_indicateur.setText("i_points")
-    assert editeur.demander_indicateur()
+    assert calculer_indicateur(editeur, "moyenne", "ajustement", nom="i_fit")
+    assert calculer_indicateur(editeur, "moyenne", nom="i_points")
     assert espace.enregistrer_maintenant()
 
     editeur.retirer_ajustement()
@@ -314,15 +343,18 @@ def test_retirer_l_ajustement_retire_sa_courbe_et_ses_indicateurs(espace, editeu
 
 
 def calculer_indicateur(editeur, methode, source="points", **champs):
-    editeur.champ_methode.setCurrentIndex(editeur.champ_methode.findData(methode))
-    editeur.champ_source.setCurrentIndex(editeur.champ_source.findData(source))
+    panneau = editeur.panneau
+    panneau.champ_source.setCurrentIndex(
+        0 if source == "points" else min(1, panneau.champ_source.count() - 1)
+    )
+    panneau.champ_methode.setCurrentIndex(panneau.champ_methode.findData(methode))
     for nom, valeur in champs.items():
-        getattr(editeur, f"champ_{nom}").setText(valeur)
-    return editeur.demander_indicateur()
+        getattr(panneau, f"champ_{nom}").setText(valeur)
+    return panneau.demander_indicateur()
 
 
 def test_un_indicateur_sur_les_points_se_calcule_et_s_enregistre(espace, editeur):
-    assert calculer_indicateur(editeur, "maximum", nom_indicateur="pic")
+    assert calculer_indicateur(editeur, "maximum", nom="pic")
     assert espace.enregistrer_maintenant()
     indicateur = relue(espace).grandeur("pic")
     assert isinstance(indicateur, Indicateur)
@@ -331,14 +363,18 @@ def test_un_indicateur_sur_les_points_se_calcule_et_s_enregistre(espace, editeur
     assert indicateur.source == "points"
     # u = √(0,5² + (1 % de 100)²), sans dépendre de la sélection de ce point.
     assert indicateur.incertitude_type == pytest.approx(math.hypot(0.5, 1.0))
-    assert editeur.table_indicateurs.item(0, 1).text() == "Maximum"
-    assert editeur.table_indicateurs.item(0, 5).text() == "100 ± 2.2 MBq"
+    # L'abscisse suit, avec son unité et son incertitude : u(x) = 0,01 h, soit U = 0,02 h.
+    assert indicateur.unite_position == "h"
+    assert indicateur.incertitude_position == pytest.approx(0.01)
+    assert editeur.panneau.table.item(0, 4).text() == "0 ± 0.02 h"
+    assert editeur.panneau.table.item(0, 1).text() == "Maximum"
+    assert editeur.panneau.table.item(0, 5).text() == "100 ± 2.2 MBq"
 
 
 def test_un_indicateur_sur_l_ajustement_utilise_la_fonction(espace, editeur):
     ajuster(editeur)
     assert calculer_indicateur(
-        editeur, "integrale", "ajustement", nom_indicateur="aire", de="0", a="6"
+        editeur, "integrale", "ajustement", nom="aire", de="0", a="6"
     )
     # ∫ 100·2^(−t/6) dt de 0 à 6 = 100 · 6 / ln 2 · (1 − 1/2).
     attendu = 100 * 6 / math.log(2) * 0.5
@@ -355,12 +391,10 @@ def test_le_resultat_d_un_indicateur_s_affiche_en_entier(espace, editeur, qtbot)
     qtbot.waitExposed(espace)
     espace.onglets.setCurrentWidget(editeur)
     ajuster(editeur)
-    assert calculer_indicateur(
-        editeur, "integrale", "ajustement", nom_indicateur="aire"
-    )
-    editeur.vues.setCurrentIndex(1)
+    assert calculer_indicateur(editeur, "integrale", "ajustement", nom="aire")
+    editeur.vues.setCurrentWidget(editeur.panneau)
     qtbot.wait(100)
-    table = editeur.table_indicateurs
+    table = editeur.panneau.table
     texte = table.item(0, 5).text()
     assert table.columnWidth(5) >= table.fontMetrics().horizontalAdvance(texte)
     assert table.columnViewportPosition(5) + table.columnWidth(5) <= (
@@ -376,40 +410,36 @@ def test_le_nom_d_un_indicateur_est_propose_et_unique(espace, editeur):
 
 def test_un_indicateur_impossible_s_explique(espace, editeur):
     assert not calculer_indicateur(editeur, "derivee")
-    assert "abscisse" in editeur.message_indicateur.text()
-    assert not editeur.message_indicateur.isHidden()
-    assert not calculer_indicateur(editeur, "moyenne", "ajustement")
-    assert "Faire d'abord" in editeur.message_indicateur.text()
+    assert "abscisse" in editeur.panneau.message.text()
+    assert not editeur.panneau.message.isHidden()
     assert not calculer_indicateur(editeur, "moyenne", "points", de="abc")
-    assert "abc" in editeur.message_indicateur.text()
+    assert "abc" in editeur.panneau.message.text()
     assert editeur.indicateurs == []
 
 
 def test_un_indicateur_ajuste_refuse_d_extrapoler_a_l_ecran(espace, editeur):
     ajuster(editeur)
     assert not calculer_indicateur(editeur, "moyenne", "ajustement", de="0", a="50")
-    assert "pas d'extrapolation" in editeur.message_indicateur.text()
+    assert "pas d'extrapolation" in editeur.panneau.message.text()
 
 
 def test_retirer_un_indicateur(espace, editeur):
-    assert calculer_indicateur(editeur, "moyenne", nom_indicateur="m")
+    assert calculer_indicateur(editeur, "moyenne", nom="m")
     assert espace.enregistrer_maintenant()
-    editeur.table_indicateurs.setCurrentCell(0, 0)
-    editeur.retirer_indicateur()
+    editeur.panneau.table.setCurrentCell(0, 0)
+    editeur.panneau.retirer_indicateur()
     assert espace.enregistrer_maintenant()
     assert all(g.nom != "m" for g in relue(espace).mesures)
 
 
 def test_les_indicateurs_se_retrouvent_a_la_reouverture(espace, editeur):
-    assert calculer_indicateur(
-        editeur, "moyenne", nom_indicateur="m", commentaire_indicateur="Note"
-    )
+    assert calculer_indicateur(editeur, "moyenne", nom="m", commentaire="Note")
     assert espace.enregistrer_maintenant()
     assert espace.ouvrir_page(espace.page.id)
     relu = espace.editeurs()[-1]
     assert relu.indicateurs[0].nom == "m"
     assert relu.indicateurs[0].commentaire == "Note"
-    assert relu.table_indicateurs.item(0, 0).text() == "m"
+    assert relu.panneau.table.item(0, 0).text() == "m"
     assert not espace.modifications_en_attente()
 
 
@@ -417,7 +447,7 @@ def test_un_coefficient_et_un_indicateur_se_calculent_dans_l_onglet_calculs(
     espace, editeur
 ):
     ajuster(editeur)
-    assert calculer_indicateur(editeur, "moyenne", nom_indicateur="m")
+    assert calculer_indicateur(editeur, "moyenne", nom="m")
     assert espace.enregistrer_maintenant()
     calculs = espace.ajouter_onglet("calculs")
     noms = [calculs.insertion.itemText(i) for i in range(calculs.insertion.count())]
@@ -536,7 +566,7 @@ def test_la_fiche_montre_coefficients_correlation_et_indicateurs(
     espace, editeur, fiche
 ):
     ajuster(editeur)
-    assert calculer_indicateur(editeur, "maximum", nom_indicateur="pic")
+    assert calculer_indicateur(editeur, "maximum", nom="pic")
     assert espace.enregistrer_maintenant()
     fiche.afficher(espace.archive, espace.page.id)
     coefficients = fiche.tables["fit.coefficients"]
@@ -560,7 +590,7 @@ def test_la_fiche_montre_coefficients_correlation_et_indicateurs(
 
 def test_la_fiche_signale_un_ajustement_a_refaire(espace, editeur, fiche):
     ajuster(editeur)
-    assert calculer_indicateur(editeur, "maximum", nom_indicateur="pic")
+    assert calculer_indicateur(editeur, "maximum", nom="pic")
     assert espace.enregistrer_maintenant()
     page = relue(espace)
     donnees = {
@@ -576,7 +606,7 @@ def test_la_fiche_signale_un_ajustement_a_refaire(espace, editeur, fiche):
 
 def test_l_api_relit_les_resultats(espace, editeur):
     ajuster(editeur)
-    assert calculer_indicateur(editeur, "maximum", nom_indicateur="pic")
+    assert calculer_indicateur(editeur, "maximum", nom="pic")
     assert espace.enregistrer_maintenant()
     lue = Archive(espace.archive.racine).page(espace.page.id)
     assert lue.mesures["pic"].valeur == pytest.approx(100.0)
@@ -586,3 +616,153 @@ def test_l_api_relit_les_resultats(espace, editeur):
     y, u = evaluer_ajustement(ajustement, np.array([0.0, 6.0]))
     assert y[1] == pytest.approx(50.0, rel=1e-5)
     assert np.all(u > 0)
+
+
+# --- Panneau d'indicateurs dans les graphes -----------------------------------------------
+
+
+def choisir_y(graphe, *noms):
+    for rang in range(graphe.liste_y.count()):
+        element = graphe.liste_y.item(rang)
+        element.setCheckState(
+            Qt.CheckState.Checked if element.text() in noms else Qt.CheckState.Unchecked
+        )
+
+
+@pytest.fixture
+def graphe(espace, qtbot):
+    resultat = espace.ajouter_onglet("graphes")
+    assert isinstance(resultat, EditeurGraphes)
+    return resultat
+
+
+def test_un_indicateur_se_calcule_depuis_l_onglet_de_graphes(espace, graphe):
+    panneau = graphe.panneau
+    panneau.champ_methode.setCurrentIndex(panneau.champ_methode.findData("mediane"))
+    panneau.champ_nom.setText("med")
+    assert panneau.demander_indicateur(), panneau.message.text()
+    assert espace.enregistrer_maintenant()
+    assert espace.erreurs == []
+
+    page = relue(espace)
+    indicateur = page.grandeur("med")
+    assert indicateur.valeur == pytest.approx(np.median(ACTIVITES))
+    assert page.onglets[-1].indicateurs == ("med",)
+
+    assert espace.ouvrir_page(espace.page.id)
+    relu = espace.editeurs()[-1]
+    assert [i.nom for i in relu.panneau.indicateurs] == ["med"]
+    assert relu.panneau.table.item(0, 1).text() == "Médiane"
+    assert not espace.modifications_en_attente()
+
+
+def test_les_sources_du_graphe_comprennent_les_ajustements(espace, editeur, graphe):
+    ajuster(editeur)
+    assert espace.enregistrer_maintenant()
+    panneau = graphe.panneau
+    assert panneau.champ_source.findData("fit") == 1
+    # Sur les points par défaut ici, contrairement à l'onglet d'ajustement.
+    assert panneau.champ_source.currentData() == "points"
+    panneau.champ_source.setCurrentIndex(1)
+    assert panneau.champ_methode.findData("mediane") == -1
+    assert panneau.champ_methode.findData("largeur_mi_hauteur") >= 0
+    panneau.champ_source.setCurrentIndex(0)
+    assert panneau.champ_methode.findData("largeur_mi_hauteur") == -1
+
+
+def test_plusieurs_series_laissent_choisir_la_colonne(espace, graphe, qtbot):
+    calculs = espace.ajouter_onglet("calculs")
+    calculs.lignes[0].nom.setText("double")
+    calculs.lignes[0].formule.setText("t.act * 2")
+    assert espace.enregistrer_maintenant()
+    espace.onglets.setCurrentWidget(graphe)
+    choisir_y(graphe, "act", "double")
+    panneau = graphe.panneau
+    assert [panneau.champ_y.itemText(i) for i in range(panneau.champ_y.count())] == [
+        "act",
+        "double",
+    ]
+    panneau.champ_y.setCurrentText("double")
+    panneau.champ_methode.setCurrentIndex(panneau.champ_methode.findData("maximum"))
+    assert panneau.demander_indicateur(), panneau.message.text()
+    assert panneau.indicateurs[0].y == "double"
+    assert panneau.indicateurs[0].valeur == pytest.approx(200.0)
+
+
+def test_un_repere_s_affiche_sur_le_graphe_a_la_demande(espace, graphe, qtbot):
+    espace.show()
+    qtbot.waitExposed(espace)
+    espace.onglets.setCurrentWidget(graphe)
+    panneau = graphe.panneau
+    panneau.champ_methode.setCurrentIndex(panneau.champ_methode.findData("maximum"))
+    panneau.champ_nom.setText("pic")
+    assert panneau.demander_indicateur()
+    assert graphe.toile.donnees.reperes == ()
+
+    case = panneau.table.item(0, 7)
+    assert case.checkState() == Qt.CheckState.Unchecked
+    case.setCheckState(Qt.CheckState.Checked)
+    repere = graphe.toile.donnees.reperes[0]
+    assert repere.nom == "pic"
+    assert (repere.x, repere.y) == pytest.approx((0.0, 100.0))
+    assert espace.enregistrer_maintenant()
+    assert relue(espace).grandeur("pic").afficher is True
+
+    panneau.table.item(0, 7).setCheckState(Qt.CheckState.Unchecked)
+    assert graphe.toile.donnees.reperes == ()
+
+
+def test_une_moyenne_se_montre_par_une_ligne(espace, graphe, qtbot):
+    espace.show()
+    qtbot.waitExposed(espace)
+    espace.onglets.setCurrentWidget(graphe)
+    panneau = graphe.panneau
+    panneau.champ_methode.setCurrentIndex(panneau.champ_methode.findData("moyenne"))
+    assert panneau.demander_indicateur()
+    panneau.table.item(0, 7).setCheckState(Qt.CheckState.Checked)
+    repere = graphe.toile.donnees.reperes[0]
+    assert repere.x is None
+    assert repere.y == pytest.approx(np.mean(ACTIVITES))
+
+
+def test_un_indicateur_sans_lecture_en_y_n_a_pas_de_case(espace, graphe):
+    panneau = graphe.panneau
+    panneau.champ_methode.setCurrentIndex(panneau.champ_methode.findData("integrale"))
+    assert panneau.demander_indicateur()
+    assert not panneau.table.item(0, 7).flags() & Qt.ItemFlag.ItemIsUserCheckable
+
+
+def test_le_percentile_demande_son_rang_et_le_garde(espace, graphe, qtbot):
+    espace.show()
+    qtbot.waitExposed(espace)
+    espace.onglets.setCurrentWidget(graphe)
+    graphe.vues.setCurrentWidget(graphe.panneau)
+    panneau = graphe.panneau
+    panneau.champ_methode.setCurrentIndex(panneau.champ_methode.findData("percentile"))
+    assert panneau.champ_parametre.isVisible()
+    assert not panneau.champ_position.isVisible()
+    assert not panneau.demander_indicateur()
+    assert "rang du percentile" in panneau.message.text()
+    panneau.champ_parametre.setText("90")
+    assert panneau.demander_indicateur()
+    assert panneau.indicateurs[0].valeur == pytest.approx(np.percentile(ACTIVITES, 90))
+    assert panneau.table.item(0, 1).text() == "Percentile (90)"
+    panneau.champ_methode.setCurrentIndex(panneau.champ_methode.findData("derivee"))
+    assert panneau.champ_position.isVisible()
+    assert not panneau.champ_parametre.isVisible()
+
+
+def test_un_indicateur_sur_un_ajustement_retire_ailleurs_se_signale(
+    espace, editeur, graphe
+):
+    ajuster(editeur)
+    assert espace.enregistrer_maintenant()
+    panneau = graphe.panneau
+    panneau.champ_source.setCurrentIndex(1)
+    panneau.champ_methode.setCurrentIndex(panneau.champ_methode.findData("moyenne"))
+    assert panneau.demander_indicateur(), panneau.message.text()
+    assert espace.enregistrer_maintenant()
+    editeur.retirer_ajustement()
+    assert espace.enregistrer_maintenant()
+    assert "a été retiré" in graphe.panneau.alerte.text()
+    assert not graphe.panneau.alerte.isHidden()

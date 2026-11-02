@@ -179,6 +179,37 @@ class ToileGraphe(QWidget):
             axes.fill_between(
                 abscisses, valeurs - bande, valeurs + bande, color=couleur, alpha=0.15
             )
+        for repere in donnees.reperes:
+            if repere.x is None:
+                axes.axhline(repere.y, color=TEXTE_DISCRET, linewidth=1, linestyle="--")
+                axes.annotate(
+                    repere.nom,
+                    xy=(1.0, repere.y),
+                    xycoords=("axes fraction", "data"),
+                    xytext=(-4, 3),
+                    textcoords="offset points",
+                    ha="right",
+                    color=TEXTE,
+                    fontsize=_TAILLE_POLICE,
+                )
+            else:
+                axes.plot(
+                    [repere.x],
+                    [repere.y],
+                    marker="o",
+                    markersize=11,
+                    markerfacecolor="none",
+                    markeredgecolor=TEXTE,
+                    linestyle="none",
+                )
+                axes.annotate(
+                    repere.nom,
+                    xy=(repere.x, repere.y),
+                    xytext=(8, 8),
+                    textcoords="offset points",
+                    color=TEXTE,
+                    fontsize=_TAILLE_POLICE,
+                )
         axes.set_xlabel(donnees.x.libelle)
         # Une seule série : le libellé de l'axe suffit, une légende le répéterait.
         if len(donnees.y) == 1 and not donnees.courbes:
@@ -306,4 +337,5 @@ def _avec_avertissement(donnees: DonneesGraphe, message: str) -> DonneesGraphe:
         donnees.z,
         (*donnees.avertissements, message),
         donnees.courbes,
+        donnees.reperes,
     )

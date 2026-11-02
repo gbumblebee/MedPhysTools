@@ -17,6 +17,7 @@ from pymphub.page import (
     ColonneCalculee,
     ColonneIncertitude,
     ColonneNumerique,
+    Indicateur,
     OngletGraphes,
     Page,
     ReglagesGraphe,
@@ -57,6 +58,15 @@ class CourbeAjustee:
 
 
 @dataclass(frozen=True)
+class RepereIndicateur:
+    """Un indicateur montré sur le graphe : un point s'il a une abscisse, sinon une ligne."""
+
+    nom: str
+    x: float | None
+    y: float
+
+
+@dataclass(frozen=True)
 class DonneesGraphe:
     """Tout ce qu'il faut pour dessiner, au facteur k choisi."""
 
@@ -67,6 +77,7 @@ class DonneesGraphe:
     z: Axe | None
     avertissements: tuple[str, ...]
     courbes: tuple[CourbeAjustee, ...] = ()
+    reperes: tuple["RepereIndicateur", ...] = ()
 
 
 def _colonnes_calculees(page: Page, tableau: str) -> list[ColonneCalculee]:
@@ -251,6 +262,32 @@ def _courbes_du_graphe(
     return tuple(resultat)
 
 
+def _reperes_du_graphe(
+    page: Page, reglages: ReglagesGraphe, x: Axe, y: Axe
+) -> tuple[RepereIndicateur, ...]:
+    """Les indicateurs à montrer, s'ils portent sur ce tableau et ces axes."""
+    resultat: list[RepereIndicateur] = []
+    for g in page.mesures:
+        if (
+            not isinstance(g, Indicateur)
+            or not g.afficher
+            or g.tableau != reglages.tableau
+            or g.x != reglages.x
+            or g.y not in reglages.y
+            or g.methode
+            not in ("maximum", "minimum", "moyenne", "mediane", "percentile")
+            or not sont_compatibles(g.unite, y.unite)
+        ):
+            continue
+        position = None
+        if g.position is not None and g.unite_position:
+            position = convertir(g.position, g.unite_position, x.unite)
+        resultat.append(
+            RepereIndicateur(g.nom, position, convertir(g.valeur, g.unite, y.unite))
+        )
+    return tuple(resultat)
+
+
 def _masquer(axe: Axe, masque: list[bool]) -> Axe:
     return Axe(
         axe.nom,
@@ -369,4 +406,9 @@ def preparer_graphe(
             f"{indeterminees} barre(s) d'erreur indéterminée(s) : incertitude relative "
             "sur une valeur nulle."
         )
-    return DonneesGraphe(reglages, k, x, tuple(y), z, tuple(avertissements), courbes)
+    reperes = (
+        _reperes_du_graphe(page, reglages, x, y[0]) if reglages.mode == "2d" else ()
+    )
+    return DonneesGraphe(
+        reglages, k, x, tuple(y), z, tuple(avertissements), courbes, reperes
+    )

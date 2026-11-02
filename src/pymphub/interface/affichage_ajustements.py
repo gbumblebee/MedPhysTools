@@ -20,14 +20,50 @@ _LIBELLES_METHODES = {
     "minimum": "Minimum",
     "maximum": "Maximum",
     "moyenne": "Moyenne",
+    "mediane": "Médiane",
+    "percentile": "Percentile",
+    "ecart_type": "Écart type",
+    "coefficient_variation": "Coefficient de variation",
+    "moyenne_quadratique": "Moyenne quadratique",
+    "somme": "Somme",
+    "etendue": "Étendue",
+    "nombre_points": "Nombre de points",
     "integrale": "Intégrale",
     "derivee": "Dérivée",
+    "largeur_mi_hauteur": "Largeur à mi-hauteur",
+    "abscisse_de_valeur": "Abscisse d'une valeur",
 }
 _LIBELLES_SOURCES = {"points": "Points", "ajustement": "Ajustement"}
 
 
 def libelle_methode(methode: str) -> str:
     return _LIBELLES_METHODES[methode]
+
+
+def ecrire_position(indicateur: Indicateur, k: float) -> str:
+    """Écrit l'abscisse d'un indicateur avec son incertitude : 3 ± 0,02 h."""
+    if indicateur.position is None:
+        return "—"
+    unite = indicateur.unite_position
+    suite = "" if unite in (None, "1") else f" {unite}"
+    u = indicateur.incertitude_position
+    if not u:
+        return f"{indicateur.position:.6g}{suite}"
+    return f"{indicateur.position:.6g} ± {k * u:.2g}{suite}"
+
+
+def ecrire_coefficients(ajustement: Ajustement, k: float) -> str:
+    """Résume les coefficients sur une ligne, pour laisser sa place au graphique."""
+    morceaux = []
+    for parametre in ajustement.parametres:
+        unite = "" if parametre.unite == "1" else f" {parametre.unite}"
+        morceaux.append(
+            f"{parametre.nom} = {parametre.valeur:.6g} ± "
+            f"{k * parametre.incertitude_type:.2g}{unite}"
+        )
+    if ajustement.chi2_reduit is not None:
+        morceaux.append(f"χ² réduit = {ajustement.chi2_reduit:.3g}")
+    return " · ".join(morceaux)
 
 
 def resume_ajustement(ajustement: Ajustement) -> str:
@@ -91,14 +127,16 @@ def remplir_indicateurs(
     table.setRowCount(len(indicateurs))
     for rang, indicateur in enumerate(indicateurs):
         unite = "" if indicateur.unite == "1" else f" {indicateur.unite}"
-        position = "—" if indicateur.position is None else f"{indicateur.position:.6g}"
+        libelle = libelle_methode(indicateur.methode)
+        if indicateur.parametre is not None:
+            libelle = f"{libelle} ({indicateur.parametre:g})"
         for colonne, texte in enumerate(
             (
                 indicateur.nom,
-                libelle_methode(indicateur.methode),
+                libelle,
                 _LIBELLES_SOURCES[indicateur.source],
                 f"{indicateur.de:.6g} à {indicateur.a:.6g}",
-                position,
+                ecrire_position(indicateur, k),
                 f"{indicateur.valeur:.6g} ± {k * indicateur.incertitude_type:.2g}{unite}",
                 indicateur.commentaire,
             )
