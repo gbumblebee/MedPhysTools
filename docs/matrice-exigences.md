@@ -108,6 +108,16 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Une formule n'exécute pas de code | `tests/test_calculs.py::test_une_formule_interdite_est_refusee_sans_rien_executer` | Vérifié |
 | Une dérivée garde sa formule sans remplacer de valeur brute | `tests/test_calculs.py::test_une_derivee_ne_remplace_aucune_valeur_brute` | Vérifié |
 | Calcul entre colonnes, ligne par ligne, avec incertitude | `tests/test_calculs.py::test_une_colonne_se_calcule_ligne_par_ligne_avec_son_incertitude` | Vérifié à la main |
+| Incertitude calculée d'une colonne, hors du CSV | `tests/test_interface_tableau.py::test_l_incertitude_calculee_s_affiche_et_ne_s_enregistre_pas_dans_le_csv` | Vérifié |
+| Incertitude calculée propagée, sans incertitude propre | `tests/test_calculs.py::test_l_incertitude_calculee_se_propage_sans_incertitude_propre` | Vérifié |
+| Incertitude calculée en barres de graphe | `tests/test_graphes.py::test_une_incertitude_calculee_donne_les_barres_du_graphe` | Vérifié |
+| Formule d'incertitude fausse refusée | `tests/test_tableaux.py::test_une_formule_fausse_est_refusee_en_l_expliquant` | Vérifié |
+| Titres dans les notes | `tests/test_tags.py::test_une_ligne_diese_devient_un_titre_de_son_niveau` | Vérifié |
+| Équations dans les notes | `tests/test_tags.py::test_une_equation_devient_une_image` | Vérifié |
+| Équation illisible marquée | `tests/test_tags.py::test_une_equation_illisible_reste_visible_et_marquee` | Vérifié |
+| Équation réellement dessinée par Qt | `tests/test_interface_notes.py::test_l_equation_se_dessine_dans_l_apercu` | Vérifié |
+| Équation dans le PDF | `tests/test_export.py::test_une_equation_passe_dans_le_pdf` | Vérifié |
+| Titres dans le PDF | `tests/test_export.py::test_les_titres_et_l_incertitude_calculee_passent_dans_le_pdf` | Vérifié |
 | Colonne calculée affichée dans chaque tableau concerné | `tests/test_interface_calculs.py::test_une_colonne_s_affiche_dans_tous_les_tableaux_concernes` | Vérifié |
 | Une colonne calculée ne change pas les CSV bruts | `tests/test_interface_calculs.py::test_une_colonne_calculee_ne_touche_pas_au_csv` | Vérifié |
 | Colonne calculée tracée avec ses barres | `tests/test_graphes.py::test_une_colonne_calculee_se_trace_avec_ses_barres` | Vérifié |

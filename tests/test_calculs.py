@@ -7,6 +7,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import GTC
 import pandas as pd
 import pytest
 
@@ -33,6 +34,7 @@ from pymphub.page import (
     depuis_json,
     vers_json,
 )
+from pymphub.tableaux import lire_csv
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 
@@ -902,3 +904,45 @@ def test_une_longue_colonne_se_calcule_rapidement():
     colonne = creer_colonne(page_colonnes(), "c", "t.a * exp(-t.heure / T12)", lire)
     assert len(colonne.valeurs) == nombre
     assert time.perf_counter() - debut < 5.0
+
+
+# --- Incertitude calculée d'une colonne -----------------------------------------------
+
+
+def _page_comptage():
+    return Page(
+        id="2026-11-14_comptage_0001",
+        titre="Comptage",
+        date_mesure=HEURE,
+        date_saisie=HEURE,
+        auteur="G.",
+        mesures=(
+            Tableau(
+                nom="comptage",
+                fichier="brut/comptage.csv",
+                colonnes=(
+                    ColonneNumerique(nom="N", unite="1"),
+                    ColonneIncertitude(
+                        nom="u_N",
+                        composante_de="N",
+                        type="B",
+                        unite="1",
+                        source="Calculée : sqrt(N)",
+                        formule="sqrt(N)",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def test_l_incertitude_calculee_se_propage_sans_incertitude_propre():
+    page = _page_comptage()
+    donnees = lire_csv(page.mesures[0], "N\n100.0\n400.0\n")
+    budget = calculer(page, "comptage.N[2]", lambda _nom: donnees)
+    assert budget.valeur == 400.0
+    assert budget.incertitude_type == pytest.approx(20.0)
+    assert GTC.dof(budget.gtc) == math.inf
+    assert [ligne.source for ligne in budget.lignes] == [
+        "comptage.N[2] : Calculée : sqrt(N)"
+    ]

@@ -15,6 +15,7 @@ from typing import Protocol
 from pymphub.ajustements import etat_resultat
 from pymphub.archive import Archive
 from pymphub.calculs import etat_derivee
+from pymphub.equations import RESOLUTION_IMPRESSION
 from pymphub.fichiers import ETATS_ALERTE
 from pymphub.graphes import empreinte_tableau, reglages_par_defaut
 from pymphub.page import (
@@ -209,6 +210,8 @@ class _Ecrivain:
                 ligne.append(
                     valeur
                     if isinstance(colonne, ColonneIdentifiant)
+                    else f"{float(valeur):.6g}"
+                    if getattr(colonne, "formule", None)
                     else _nombre(float(valeur))
                 )
             for calculee in calculees:
@@ -388,7 +391,8 @@ class _Ecrivain:
         if onglet.texte:
             parties.append(
                 note_en_html(
-                    decouper_note(onglet.texte, self.page, self.lire_tableau, self.k)
+                    decouper_note(onglet.texte, self.page, self.lire_tableau, self.k),
+                    resolution=RESOLUTION_IMPRESSION,
                 )
             )
         for photo in onglet.photos:

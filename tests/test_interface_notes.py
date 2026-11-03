@@ -3,9 +3,10 @@
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QColor, QImage
 
 from pymphub import Archive
+from pymphub.equations import dessiner_equation
 from pymphub.incertitudes import Composante
 from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
 from pymphub.interface.fiche_page import FichePage
@@ -298,3 +299,94 @@ def test_la_capture_depuis_l_onglet_d_ajustement(espace, notes, qtbot):
     assert espace.onglets.currentWidget() is editeur
     assert espace.enregistrer_maintenant()
     assert espace.erreurs == []
+
+
+# --- Titres ---------------------------------------------------------------------------
+
+
+def test_la_liste_met_la_ligne_du_curseur_en_titre(notes):
+    notes.texte.setPlainText("Montage\nsuite")
+    curseur = notes.texte.textCursor()
+    curseur.setPosition(2)
+    notes.texte.setTextCursor(curseur)
+    rang = notes.choix_titre.findText("Sous-titre")
+    notes.choix_titre.activated.emit(rang)
+    assert notes.texte.toPlainText() == "## Montage\nsuite"
+    assert notes.choix_titre.currentIndex() == 0
+
+
+def test_changer_de_niveau_remplace_le_marqueur_et_le_retire(notes):
+    notes.texte.setPlainText("Montage")
+    notes.appliquer_titre(1)
+    assert notes.texte.toPlainText() == "# Montage"
+    notes.appliquer_titre(3)
+    assert notes.texte.toPlainText() == "### Montage"
+    notes.appliquer_titre(0)
+    assert notes.texte.toPlainText() == "Montage"
+
+
+def test_le_titre_se_voit_dans_l_apercu_sans_changer_le_texte(espace, notes):
+    notes.texte.setPlainText("# Montage\nsuite")
+    espace.enregistrer_maintenant()
+    notes.bouton_apercu.setChecked(True)
+    assert "Montage" in notes.apercu.toPlainText()
+    assert "#" not in notes.apercu.toPlainText()
+    bloc = notes.apercu.document().firstBlock()
+    assert bloc.text() == "Montage"
+    assert bloc.begin().fragment().charFormat().fontPointSize() == 14
+    onglet = next(o for o in relue(espace).onglets if o.id == notes.onglet.id)
+    assert onglet.texte == "# Montage\nsuite"
+
+
+def test_le_titre_est_en_gras_pendant_la_saisie(notes):
+    notes.texte.setPlainText("# Montage\nsuite")
+    premier = notes.texte.document().firstBlock()
+    formats = premier.layout().formats()
+    assert formats and formats[0].format.fontWeight() == 700
+    assert not premier.next().layout().formats()
+
+
+# --- Équations ------------------------------------------------------------------------
+
+
+def test_le_bouton_insere_une_equation_a_modifier(notes):
+    notes.texte.setPlainText("loi : ")
+    curseur = notes.texte.textCursor()
+    curseur.movePosition(curseur.MoveOperation.End)
+    notes.texte.setTextCursor(curseur)
+    notes.bouton_equation.click()
+    assert notes.texte.toPlainText() == "loi : $x$"
+    assert notes.texte.textCursor().selectedText() == "x"
+
+
+def test_l_equation_se_dessine_dans_l_apercu(espace, notes):
+    """L'image doit être décodée par Qt : une adresse ignorée laisserait un trou."""
+    notes.texte.setPlainText("$x^2$")
+    espace.enregistrer_maintenant()
+    notes.bouton_apercu.setChecked(True)
+    notes.apercu.resize(400, 200)
+    notes.apercu.document().setTextWidth(400)
+    format_image = (
+        notes.apercu.document()
+        .firstBlock()
+        .begin()
+        .fragment()
+        .charFormat()
+        .toImageFormat()
+    )
+    assert format_image.isValid()
+    image = dessiner_equation("x^2")
+    assert (format_image.width(), format_image.height()) == (
+        image.largeur,
+        image.hauteur,
+    )
+    # Dessinée pixel pour pixel : Qt réduit une image sans la lisser, ce qui abîme les indices.
+    assert QImage.fromData(image.png).width() == image.largeur
+    assert QImage.fromData(image.png).height() == image.hauteur
+    rendu = notes.apercu.grab().toImage()
+    fonces = sum(
+        QColor(rendu.pixel(x, y)).lightness() < 128
+        for x in range(0, 60)
+        for y in range(0, 40)
+    )
+    assert fonces > 0

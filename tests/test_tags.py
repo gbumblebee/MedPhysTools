@@ -135,3 +135,166 @@ def test_une_valeur_ne_peut_pas_injecter_de_mise_en_forme():
         update={"mesures": (Identifiant(nom="lot", valeur="<img src=x>"),)}
     )
     assert "<img" not in note_en_html(decouper_note("{{lot}}", page))
+
+
+# --- Titres ---------------------------------------------------------------------------
+
+
+def _page_pour_titres(valeur: str = "A1") -> Page:
+    autres = [g for g in page_de().mesures if g.nom != "lot"]
+    return page_de().model_copy(
+        update={"mesures": (*autres, Identifiant(nom="lot", valeur=valeur))}
+    )
+
+
+def _html_note(texte: str, page: Page | None = None) -> str:
+    return note_en_html(decouper_note(texte, page or _page_pour_titres()))
+
+
+def test_une_ligne_diese_devient_un_titre_de_son_niveau():
+    rendu = _html_note("# Montage\ntexte\n## Détail\n### Fin")
+    assert (
+        '<div style="font-size:14pt;font-weight:700;margin-top:12px;margin-bottom:4px">Montage</div>'
+        in rendu
+    )
+    assert (
+        '<div style="font-size:12pt;font-weight:700;margin-top:10px;margin-bottom:3px">Détail</div>'
+        in rendu
+    )
+    assert (
+        '<div style="font-size:10.5pt;font-weight:700;margin-top:8px;margin-bottom:2px">Fin</div>'
+        in rendu
+    )
+    assert "#" not in rendu.replace("font", "")
+    assert '<div style="white-space:pre-wrap">texte</div>' in rendu
+
+
+def test_une_note_sans_titre_garde_son_rendu():
+    assert _html_note("a\n\nb") == '<div style="white-space:pre-wrap">a<br><br>b</div>'
+
+
+@pytest.mark.parametrize(
+    "texte", ["#3 mesures", "#", "####  trop", "texte # pas titre", "# "]
+)
+def test_ce_qui_n_est_pas_un_titre_reste_du_texte(texte):
+    rendu = _html_note(texte)
+    assert rendu == f'<div style="white-space:pre-wrap">{texte}</div>'
+
+
+def test_un_titre_peut_contenir_un_tag():
+    page = _page_pour_titres()
+    rendu = _html_note("## Activité {{lot}} ici", page)
+    assert ">Activité A1 ici</div>" in rendu
+    assert "font-size:12pt" in rendu
+
+
+def test_un_titre_seulement_fait_d_un_tag_reste_un_titre():
+    rendu = _html_note("# {{lot}}", _page_pour_titres())
+    assert "font-size:14pt" in rendu
+    assert ">A1</div>" in rendu
+
+
+def test_une_valeur_de_tag_ne_devient_jamais_un_titre():
+    page = _page_pour_titres(valeur="# piège")
+    rendu = _html_note("{{lot}}\nsuite", page)
+    assert "font-size" not in rendu
+    assert "# piège<br>suite" in rendu
+
+
+def test_un_titre_echappe_le_html():
+    rendu = _html_note("# <b>x</b> & y")
+    assert "&lt;b&gt;x&lt;/b&gt; &amp; y" in rendu
+    assert "<b>" not in rendu
+
+
+def test_la_ligne_vide_avant_un_titre_ne_s_ajoute_pas_a_ses_marges():
+    rendu = _html_note("avant\n\n# Titre")
+    assert rendu.startswith('<div style="white-space:pre-wrap">avant</div>')
+
+
+def test_le_texte_de_la_note_garde_ses_diezes():
+    assert (
+        note_en_texte(decouper_note("# Titre\nx", _page_pour_titres())) == "# Titre\nx"
+    )
+
+
+# --- Équations ------------------------------------------------------------------------
+
+
+def test_une_equation_devient_une_image():
+    rendu = _html_note(r"Activité : $A_0 e^{-\lambda t}$ fin")
+    assert 'src="data:image/png;base64,' in rendu
+    assert rendu.count("<img") == 1
+    assert "Activité : <img" in rendu
+    assert " fin</div>" in rendu
+    assert r'alt="A_0 e^{-\lambda t}"' in rendu
+
+
+def test_le_dollar_double_est_aussi_une_equation():
+    assert "<img" in _html_note("$$x^2$$")
+
+
+@pytest.mark.parametrize(
+    "texte",
+    [
+        "entre 5$ et 10$",
+        "de $5 à $10",
+        "$ x $",
+        "prix : 5$",
+        "$",
+        "$$",
+        r"\$x\$",
+        "$a\nb$",
+    ],
+)
+def test_ce_qui_n_est_pas_une_equation_reste_du_texte(texte):
+    assert "<img" not in _html_note(texte)
+    assert "Équation" not in _html_note(texte)
+
+
+def test_un_dollar_echappe_s_ecrit_sans_sa_barre():
+    assert _html_note(r"\$x\$") == '<div style="white-space:pre-wrap">$x$</div>'
+
+
+def test_une_equation_illisible_reste_visible_et_marquee():
+    rendu = _html_note(r"avant $\inconnu{x}$ après")
+    assert "<img" not in rendu
+    assert r"$\inconnu{x}$" in rendu
+    assert "color:#a4372a" in rendu
+    assert "avant " in rendu and " après" in rendu
+
+
+def test_une_equation_trop_longue_est_marquee_sans_dessin():
+    rendu = _html_note("$" + "x" * 501 + "$")
+    assert "<img" not in rendu
+    assert "color:#a4372a" in rendu
+
+
+def test_une_equation_illisible_echappe_le_html():
+    rendu = _html_note(r"$\inconnu<b>$")
+    assert "&lt;b&gt;" in rendu
+    assert "<b>" not in rendu
+
+
+def test_une_equation_a_cote_d_un_tag_et_dans_un_titre():
+    rendu = _html_note("# Loi $x^2$\n$y^2$ pour {{lot}}")
+    assert rendu.count("<img") == 2
+    assert "font-size:14pt" in rendu
+    assert " pour A1" in rendu
+
+
+def test_l_equation_d_un_titre_suit_sa_taille():
+    titre = _html_note("# $x$")
+    texte = _html_note("$x$")
+    hauteur = lambda rendu: int(rendu.split('height="')[1].split('"')[0])  # noqa: E731
+    assert hauteur(titre) > hauteur(texte)
+
+
+def test_une_valeur_de_tag_ne_devient_jamais_une_equation():
+    rendu = _html_note("{{lot}}", _page_pour_titres(valeur="$x$"))
+    assert "<img" not in rendu
+    assert "$x$" in rendu
+
+
+def test_le_texte_de_la_note_garde_sa_formule():
+    assert note_en_texte(decouper_note("$x^2$", _page_pour_titres())) == "$x^2$"

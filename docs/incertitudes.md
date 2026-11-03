@@ -89,6 +89,8 @@ Une formule comme `A0 * exp(-ln(2) * t / T12)` se calcule sur les valeurs enregi
 - **Budget.** Il donne la part de chaque source dans l'incertitude du résultat. Une erreur compensée y figure à 0.
 - **Colonnes.** `tableau.colonne` sans numéro de ligne fait de la formule un calcul de colonne : chaque ligne donne une valeur et son incertitude, calculées comme ci-dessus. Les tableaux concernés doivent avoir le même nombre de lignes. Une ligne impossible, comme une division par zéro, reste sans résultat. Le budget d'une ligne se refait à la demande. Les corrélations entre deux lignes d'une colonne ne sont pas gardées dans la page : un calcul qui les combine repart des valeurs brutes.
 
+- **Incertitude calculée d'une colonne.** Une colonne de nature « Incertitude calculée » donne une composante de la colonne visée, ligne par ligne, avec une formule comme `sqrt(N)`. La formule ne lit que les valeurs : le résultat est pris comme une incertitude-type exacte, de type B et à degrés de liberté infinis. Il ne dit pas que `sqrt(N)` est adapté : pour une loi de Poisson, `N` doit être un nombre de coups bruts, et non un taux.
+
 ## Ajustements
 
 **Méthode.** Moindres carrés avec lmfit, sur deux colonnes numériques d'un tableau. Une ligne sans résultat calculé est écartée.

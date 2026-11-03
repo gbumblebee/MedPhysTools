@@ -9,6 +9,7 @@ from pypdf import PdfReader
 from PySide6.QtGui import QColor, QImage
 
 from pymphub import Archive
+from pymphub.equations import RESOLUTION_IMPRESSION, dessiner_equation
 from pymphub.export import LARGEUR_IMAGE, SansImages, cahier_en_html, page_en_html
 from pymphub.incertitudes import Composante
 from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
@@ -533,3 +534,38 @@ def test_une_erreur_d_ecriture_s_explique(fenetre, tmp_path, monkeypatch):
     )
     assert not fenetre.demander_export_cahier()
     assert "Export impossible" in erreurs[0]
+
+
+def test_les_titres_et_l_incertitude_calculee_passent_dans_le_pdf(espace):
+    tableau = espace.ajouter_onglet("tableau")
+    tableau.champ_nom.setText("comptage")
+    n, u = tableau.colonnes[:2]
+    n.nom.setText("N")
+    n.unite.setText("1")
+    u.nom.setText("u_N")
+    u.nature.setCurrentIndex(u.nature.findData("incertitude_calculee"))
+    u.cible.setCurrentText("N")
+    u.formule.setText("sqrt(N)")
+    tableau.ecrire_cellules([["1000"]], 0, 0)
+    espace.editeurs()[0].texte.setPlainText("# Montage\nsuite")
+    espace.enregistrer_maintenant()
+    assert espace.erreurs == []
+    texte = html_de(espace)
+    assert "font-size:14pt;font-weight:700" in texte
+    assert ">Montage</div>" in texte
+    assert "# Montage" not in texte
+    assert "<td>31.6228</td>" in texte
+    assert "incertitude de N, Calculée : sqrt(N)" in texte
+
+
+def test_une_equation_passe_dans_le_pdf(espace, tmp_path):
+    espace.editeurs()[0].texte.setPlainText("Loi : $x^2$")
+    espace.enregistrer_maintenant()
+    texte = html_de(espace)
+    assert '<img src="data:image/png;base64,' in texte
+    # Résolution d'impression : l'image a plus de pixels que sa taille d'affichage.
+    image = dessiner_equation("x^2", 10.0, RESOLUTION_IMPRESSION)
+    assert image.adresse() in texte
+    chemin = tmp_path / "cahier.pdf"
+    assert exporter_pdf(espace.archive, [espace.page.id], chemin)
+    assert chemin.read_bytes().startswith(b"%PDF")

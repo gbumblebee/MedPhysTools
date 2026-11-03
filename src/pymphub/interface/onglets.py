@@ -16,7 +16,15 @@ from pathlib import Path
 
 import pandas as pd
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent
+from PySide6.QtGui import (
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QFont,
+    QSyntaxHighlighter,
+    QTextCharFormat,
+    QTextCursor,
+)
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -33,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from pymphub.archive import Archive
 from pymphub.edition import Grandeur
+from pymphub.equations import RESOLUTION_ECRAN
 from pymphub.graphes import empreinte_tableau, tableaux_tracables
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.photos import (
@@ -57,7 +66,7 @@ from pymphub.page import (
     enregistrer_type_onglet,
     retirer_type_onglet,
 )
-from pymphub.tags import decouper_note, note_en_html
+from pymphub.tags import TITRE, decouper_note, note_en_html
 
 
 class EditeurOnglet(QWidget):
@@ -165,6 +174,16 @@ def remarque_de_capture(
     return ""
 
 
+class TitresDeNote(QSyntaxHighlighter):
+    """Montre les titres en gras pendant la saisie. Le texte lui-même ne change pas."""
+
+    def highlightBlock(self, texte: str) -> None:  # noqa: N802
+        if TITRE.match(texte):
+            gras = QTextCharFormat()
+            gras.setFontWeight(QFont.Weight.Bold)
+            self.setFormat(0, len(texte), gras)
+
+
 class ZoneNotes(QPlainTextEdit):
     """Le texte des notes : un fichier déposé dessus est joint, au lieu d'écrire son chemin."""
 
@@ -203,8 +222,10 @@ class EditeurNotes(EditeurOnglet):
         self.texte = ZoneNotes(getattr(onglet, "texte", ""))
         self.texte.setPlaceholderText(
             "Montage, conditions, remarques… Déposez ici une photo ou un fichier. "
-            "Une valeur de la page s'insère avec {{nom}}."
+            "Une valeur de la page s'insère avec {{nom}}, un titre avec « # Titre », "
+            "une équation avec $x^2$."
         )
+        self.titres = TitresDeNote(self.texte.document())
         afficher_en_grand(self.texte, lambda: self.onglet.titre or "Notes")
         self.texte.textChanged.connect(self.modifie)
         self.texte.fichiers_deposes.connect(self.ajouter_fichiers)
@@ -220,6 +241,27 @@ class EditeurNotes(EditeurOnglet):
         self.insertion.setToolTip("Insère une valeur de la page, qui se mettra à jour")
         self.insertion.activated.connect(self._inserer_choix)
 
+        self.choix_titre = QComboBox()
+        self.choix_titre.setToolTip(
+            "Fait de la ligne du curseur un titre ou un sous-titre"
+        )
+        self.choix_titre.addItem("Titre…")
+        for libelle, niveau in (
+            ("Titre", 1),
+            ("Sous-titre", 2),
+            ("Petit titre", 3),
+            ("Texte normal", 0),
+        ):
+            self.choix_titre.addItem(libelle, niveau)
+        self.choix_titre.activated.connect(self._appliquer_choix_titre)
+
+        self.bouton_equation = QPushButton("Équation")
+        self.bouton_equation.setToolTip(
+            "Insère une équation entre $ : syntaxe mathtext, proche de LaTeX, "
+            r"par exemple $A_0 e^{-\lambda t}$. À voir dans l'aperçu."
+        )
+        self.bouton_equation.clicked.connect(self.inserer_equation)
+
         self.bande = BandePhotos()
         self.bande.setAcceptDrops(True)
         self.message = QLabel("")
@@ -230,6 +272,8 @@ class EditeurNotes(EditeurOnglet):
         self.bouton_photo.clicked.connect(self.demander_fichiers)
         ligne = QHBoxLayout()
         ligne.addWidget(self.message, stretch=1)
+        ligne.addWidget(self.choix_titre)
+        ligne.addWidget(self.bouton_equation)
         ligne.addWidget(self.insertion)
         ligne.addWidget(self.bouton_apercu)
         ligne.addWidget(self.bouton_photo)
@@ -286,6 +330,36 @@ class EditeurNotes(EditeurOnglet):
         self.texte.insertPlainText(f"{{{{{nom}}}}}")
         self.texte.setFocus()
 
+    def inserer_equation(self) -> None:
+        """Insère une équation d'exemple au curseur, avec sa formule déjà sélectionnée."""
+        curseur = self.texte.textCursor()
+        curseur.insertText("$x$")
+        curseur.movePosition(QTextCursor.MoveOperation.Left)
+        curseur.movePosition(
+            QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor
+        )
+        self.texte.setTextCursor(curseur)
+        self.texte.setFocus()
+
+    def _appliquer_choix_titre(self, rang: int) -> None:
+        if rang > 0:
+            self.appliquer_titre(self.choix_titre.itemData(rang))
+        self.choix_titre.setCurrentIndex(0)
+
+    def appliquer_titre(self, niveau: int) -> None:
+        """Donne un niveau de titre à la ligne du curseur ; 0 la remet en texte normal."""
+        curseur = self.texte.textCursor()
+        curseur.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+        curseur.movePosition(
+            QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor
+        )
+        ligne = curseur.selectedText()
+        titre = TITRE.match(ligne)
+        contenu = titre.group(2) if titre else ligne
+        curseur.insertText(f"{'#' * niveau} {contenu}" if niveau else contenu)
+        self.texte.setTextCursor(curseur)
+        self.texte.setFocus()
+
     def rendu_html(self) -> str:
         """La note telle qu'elle s'affiche, avec les valeurs à la place des tags."""
         if self.page is None or self.archive is None:
@@ -293,7 +367,9 @@ class EditeurNotes(EditeurOnglet):
         morceaux = decouper_note(
             self.texte.toPlainText(), self.page, self._lire_tableau
         )
-        return note_en_html(morceaux)
+        return note_en_html(
+            morceaux, resolution=RESOLUTION_ECRAN * self.devicePixelRatioF()
+        )
 
     def _actualiser_apercu(self) -> None:
         if self.bouton_apercu.isChecked():

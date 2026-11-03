@@ -65,7 +65,7 @@ from pymphub.page import (
     Scalaire,
     Tableau,
 )
-from pymphub.tableaux import TableauInvalide, ecrire_csv
+from pymphub.tableaux import TableauInvalide, ecrire_csv, incertitudes_calculees
 from pymphub.unites import verifier_unite
 
 _LIGNES_INITIALES = 5
@@ -82,7 +82,9 @@ _NATURES = (
     ("Nombre", "numerique"),
     ("Identifiant", "identifiant"),
     ("Incertitude de…", "incertitude"),
+    ("Incertitude calculée", "incertitude_calculee"),
 )
+_RANG_INCERTITUDE_CALCULEE = 3
 
 
 class ConfigurationColonne:
@@ -94,6 +96,8 @@ class ConfigurationColonne:
         self.editeur = editeur
         self.composantes: tuple[Composante, ...] = ()
         self.modele_cellule: Composante | None = None
+        # Vrai quand les cellules de la grille montrent le résultat de la formule.
+        self.cellules_calculees = False
         self.nom = QLineEdit(nom)
         self.nom.setPlaceholderText("nom")
         self.nature = QComboBox()
@@ -115,6 +119,12 @@ class ConfigurationColonne:
         self.cible.setToolTip(
             "Colonne dont celle-ci donne l'incertitude, cellule par cellule"
         )
+        self.formule = QLineEdit()
+        self.formule.setPlaceholderText("sqrt(N)")
+        self.formule.setToolTip(
+            "Formule sur les colonnes numériques de ce tableau, par exemple sqrt(N). "
+            "Le résultat est une incertitude-type, sans incertitude propre."
+        )
         self.bouton_retirer = QPushButton("Retirer")
         self.bouton_retirer.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.bouton_retirer.clicked.connect(lambda: editeur.retirer_colonne(self))
@@ -123,12 +133,14 @@ class ConfigurationColonne:
         disposition.setContentsMargins(0, 0, 0, 0)
         disposition.addWidget(self.bouton_incertitude)
         disposition.addWidget(self.cible)
+        disposition.addWidget(self.formule)
 
         self.nom.textChanged.connect(self._modifiee)
         self.nature.currentIndexChanged.connect(self._modifiee)
         self.unite.textChanged.connect(self._modifiee)
         self.unite.returnPressed.connect(self.accepter_suggestion)
         self.cible.currentIndexChanged.connect(self._modifiee)
+        self.formule.textChanged.connect(self._modifiee)
         self.commentaire.textChanged.connect(self._modifiee)
         self.actualiser()
 
@@ -148,7 +160,12 @@ class ConfigurationColonne:
         nature = self.nature_choisie()
         self.unite.setEnabled(nature != "identifiant")
         self.bouton_incertitude.setEnabled(nature != "identifiant")
-        self.cible.setVisible(nature == "incertitude")
+        self.bouton_incertitude.setVisible(nature != "incertitude_calculee")
+        self.cible.setVisible(nature in ("incertitude", "incertitude_calculee"))
+        self.formule.setVisible(nature == "incertitude_calculee")
+        self.unite.setPlaceholderText(
+            "comme sa colonne" if nature == "incertitude_calculee" else "MBq"
+        )
         verification = verifier_unite(self.unite.text())
         fausse = (
             nature != "identifiant"
@@ -212,11 +229,13 @@ class ConfigurationColonne:
         nature = self.nature_choisie()
         if nature == "identifiant":
             return ColonneIdentifiant(nom=nom, commentaire=self.commentaire.text())
-        if not self.unite.text().strip():
+        if not self.unite.text().strip() and nature != "incertitude_calculee":
             raise ValueError(
                 f"colonne « {nom} » : l'unité est obligatoire (1 si sans dimension)"
             )
         unite = self.unite.text().strip()
+        if nature == "incertitude_calculee":
+            return self._colonne_calculee(nom, unite)
         if nature == "numerique":
             return ColonneNumerique(
                 nom=nom,
@@ -240,6 +259,34 @@ class ConfigurationColonne:
             ddl=modele.ddl,
             source=modele.source,
             erreur_commune=modele.erreur_commune,
+            commentaire=self.commentaire.text(),
+        )
+
+    def _colonne_calculee(self, nom: str, unite: str) -> ColonneIncertitude:
+        """Sans unité indiquée, l'incertitude prend celle de la colonne concernée."""
+        cible = self.cible.currentText()
+        if not cible:
+            raise ValueError(f"colonne « {nom} » : choisir la colonne concernée")
+        formule = self.formule.text().strip()
+        if not formule:
+            raise ValueError(
+                f"colonne « {nom} » : écrire la formule, comme sqrt({cible})"
+            )
+        if not unite:
+            unite = next(
+                c.unite.text().strip()
+                for c in self.editeur.colonnes
+                if c.nature_choisie() == "numerique" and c.nom.text().strip() == cible
+            )
+        if not unite:
+            raise ValueError(f"colonne « {cible} » : l'unité est obligatoire")
+        return ColonneIncertitude(
+            nom=nom,
+            composante_de=cible,
+            type="B",
+            unite=unite,
+            source=f"Calculée : {formule}",
+            formule=formule,
             commentaire=self.commentaire.text(),
         )
 
@@ -414,6 +461,10 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
                 configuration.composantes = colonne.composantes
             elif isinstance(colonne, ColonneIdentifiant):
                 configuration.nature.setCurrentIndex(1)
+            elif colonne.formule is not None:
+                configuration.nature.setCurrentIndex(_RANG_INCERTITUDE_CALCULEE)
+                configuration.unite.setText(colonne.unite or "")
+                configuration.formule.setText(colonne.formule)
             else:
                 configuration.nature.setCurrentIndex(2)
                 configuration.unite.setText(colonne.unite or "")
@@ -540,10 +591,16 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
     def _garder_une_ligne_vide(self) -> None:
         """Garde toujours une ligne libre en bas de la grille."""
         derniere = self.grille.rowCount() - 1
-        if derniere < 0 or any(
-            self._texte(derniere, j) for j in range(self.grille.columnCount())
-        ):
+        if derniere < 0 or any(self._texte(derniere, j) for j in self._rangs_saisis()):
             self.grille.insertRow(derniere + 1)
+
+    def _rangs_saisis(self) -> list[int]:
+        """Les colonnes de la grille qui se saisissent : une formule ne compte pas."""
+        return [
+            j
+            for j, configuration in enumerate(self.colonnes)
+            if configuration.nature_choisie() != "incertitude_calculee"
+        ]
 
     def _texte(self, ligne: int, colonne: int) -> str:
         element = self.grille.item(ligne, colonne)
@@ -551,10 +608,11 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
 
     def lignes_remplies(self) -> list[int]:
         """Les lignes de la grille qui contiennent au moins une cellule."""
+        rangs = self._rangs_saisis()
         return [
             i
             for i in range(self.grille.rowCount())
-            if any(self._texte(i, j) for j in range(self.grille.columnCount()))
+            if any(self._texte(i, j) for j in rangs)
         ]
 
     def ecrire_cellules(
@@ -568,6 +626,11 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
             for j, valeur in enumerate(valeurs):
                 while colonne + j >= len(self.colonnes):
                     self.ajouter_colonne()
+                if (
+                    self.colonnes[colonne + j].nature_choisie()
+                    == "incertitude_calculee"
+                ):
+                    continue
                 self.grille.setItem(ligne + i, colonne + j, QTableWidgetItem(valeur))
         self._chargement = False
         self._garder_une_ligne_vide()
@@ -588,8 +651,10 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
     def effacer_selection(self) -> None:
         """Vide les cellules sélectionnées."""
         self._chargement = True
+        rangs = self._rangs_saisis()
         for element in self.grille.selectedItems():
-            element.setText("")
+            if element.column() in rangs:
+                element.setText("")
         self._chargement = False
         self.colonne_modifiee()
 
@@ -621,6 +686,8 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         lignes = self.lignes_remplies()
         resultat: dict[str, list[str | float]] = {}
         for j, configuration in enumerate(self.colonnes):
+            if configuration.nature_choisie() == "incertitude_calculee":
+                continue
             nom = configuration.nom.text().strip()
             valeurs: list[str | float] = []
             for i in lignes:
@@ -665,6 +732,43 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         erreur = self.erreur()
         self.message.setText(erreur or "")
         self.message.setVisible(erreur is not None)
+        self._afficher_incertitudes_calculees()
+
+    def _resultats_des_formules(self) -> dict[str, list[float]]:
+        """Les colonnes à formule, ou rien tant que le tableau saisi n'est pas valable."""
+        try:
+            donnees = self.donnees()
+            tableau = self.tableau_saisi()
+            return incertitudes_calculees(tableau, donnees, len(self.lignes_remplies()))
+        except (ValueError, TableauInvalide):
+            return {}
+
+    def _afficher_incertitudes_calculees(self) -> None:
+        """Montre le résultat des formules dans la grille, sur des cellules non modifiables."""
+        if not any(
+            c.cellules_calculees or c.nature_choisie() == "incertitude_calculee"
+            for c in self.colonnes
+        ):
+            return
+        chargement, self._chargement = self._chargement, True
+        resultats = self._resultats_des_formules()
+        remplies = self.lignes_remplies()
+        for j, configuration in enumerate(self.colonnes):
+            calculee = configuration.nature_choisie() == "incertitude_calculee"
+            if not calculee and not configuration.cellules_calculees:
+                continue
+            configuration.cellules_calculees = calculee
+            valeurs = resultats.get(configuration.nom.text().strip(), [])
+            textes = {i: f"{v:.6g}" for i, v in zip(remplies, valeurs)}
+            for i in range(self.grille.rowCount()):
+                if not calculee:
+                    self.grille.takeItem(i, j)
+                    continue
+                element = QTableWidgetItem(textes.get(i, ""))
+                element.setFlags(element.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                element.setBackground(QColor(FOND))
+                self.grille.setItem(i, j, element)
+        self._chargement = chargement
 
     # --- Contrat d'un éditeur ---------------------------------------------------------
 

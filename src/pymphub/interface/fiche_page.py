@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from pymphub.ajustements import etat_resultat
 from pymphub.archive import Archive
 from pymphub.calculs import etat_derivee
+from pymphub.equations import RESOLUTION_ECRAN
 from pymphub.fichiers import ETATS_ALERTE
 from pymphub.graphes import reglages_par_defaut
 from pymphub.historique import CorrectionChamp, corrections_par_champ
@@ -534,6 +535,8 @@ class FichePage(QWidget):
                     texte = (
                         valeur
                         if isinstance(colonne, ColonneIdentifiant)
+                        else f"{float(valeur):.6g}"
+                        if getattr(colonne, "formule", None)
                         else formater_valeur(float(valeur))
                     )
                     # L'historique numérote les lignes à partir de 1.
@@ -696,7 +699,8 @@ class FichePage(QWidget):
                         self.page,
                         self._lecteur_tableau(self.page),
                         self.champ_k.value(),
-                    )
+                    ),
+                    resolution=RESOLUTION_ECRAN * self.devicePixelRatioF(),
                 )
             )
 

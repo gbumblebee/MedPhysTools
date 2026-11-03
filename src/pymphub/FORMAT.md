@@ -55,7 +55,7 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
 
 - `scalaire` : `valeur` numérique, `unite` et `composantes` d'incertitude, toutes obligatoires. À partir du format 2 de la page, `repetitions` garde les valeurs brutes de mesures répétées, dont `valeur` est la moyenne.
 - `identifiant` : `valeur` texte, à conserver à l'identique.
-- `tableau` : `fichier` CSV dans `brut/` et description de ses `colonnes`. Une colonne se désigne par `tableau.colonne`. À partir du format 2 de la page, chaque colonne peut porter un `commentaire`.
+- `tableau` : `fichier` CSV dans `brut/` et description de ses `colonnes`. Une colonne se désigne par `tableau.colonne`. À partir du format 2 de la page, chaque colonne peut porter un `commentaire`. À partir du format 3, une colonne d'incertitude peut porter une `formule`, comme `sqrt(N)` : elle se recalcule à la lecture à partir des valeurs des colonnes numériques, et n'est pas dans le CSV. Son résultat est une incertitude-type exacte, dans l'`unite` de la colonne.
 - `derivee` et `colonne_calculee` : résultat d'un calcul, décrit plus bas (à partir du format 2 de la page).
 - `ajustement` et `indicateur` : décrits plus bas (à partir du format 2 de la page).
 - `fichier` : fichier brut, avec son mode de stockage :
@@ -68,6 +68,10 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
 `pieces_jointes` donne le `chemin`, l'`empreinte` et le `commentaire` de chaque fichier de `pieces_jointes/`, qui reste hors de Git. Un fichier retiré d'une page reste sur le disque : les anciennes versions de la page y renvoient encore.
 
 Un onglet de notes liste ses `photos` : `chemin` d'une pièce jointe, `legende` et `annotations`. L'image n'est jamais modifiée : tout est dans `page.json`. Une annotation a une `forme` (`point`, `fleche`, `rectangle`, `ellipse`, `trace`), des `points` et un `texte`. Les coordonnées vont de 0 à 1, à partir du coin haut gauche, sur l'image redressée selon son orientation EXIF. Une photo qui est la capture d'un graphe garde son origine dans `capture` : `tableau` et `empreinte_donnees`.
+
+Une ligne d'une note qui commence par `# `, `## ` ou `### ` est un titre, à l'affichage seulement.
+
+Une formule entre `$`, comme `$A_0 e^{-t}$`, est une équation, dessinée à l'affichage par mathtext, le moteur de matplotlib. Le fichier garde la formule. Le `$` ouvrant et le `$` fermant collent à la formule ; `\\$` écrit un dollar.
 
 Le texte d'une note peut contenir des tags, comme `{{activite}}` ou `{{fit.T12}}`. Le fichier garde le tag, jamais la valeur : elle se calcule à l'affichage. `{{nom:valeur}}` donne la valeur sans incertitude, `{{nom:U}}` son incertitude élargie, `{{nom:unite}}` son unité. Entre les accolades, toute formule de calcul est permise.
 

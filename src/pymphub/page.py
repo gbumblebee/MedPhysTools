@@ -44,7 +44,7 @@ from pymphub.unites import (
     verifier_unite,
 )
 
-VERSION_SCHEMA = 2
+VERSION_SCHEMA = 3
 MOTIF_ID_PAGE = r"^\d{4}-\d{2}-\d{2}_[a-z0-9]+(-[a-z0-9]+)*_\d{4,}$"
 # Format : site.service.modalite.fabricant-modele.numero-serie
 MOTIF_MACHINE = r"^[^.\s]+\.[^.\s]+\.[^.\s]+\.[^.\s]+-[^.\s]+\.[^.\s]+$"
@@ -187,6 +187,11 @@ class ColonneIncertitude(_Modele):
     """Une colonne donnant, cellule par cellule, une composante d'une colonne numérique.
 
     Les champs ont le même sens que dans `Composante`. La cellule en donne la valeur.
+
+    Avec `formule`, comme `sqrt(N)` pour un comptage, la colonne se calcule ligne par ligne
+    d'après les valeurs des colonnes numériques saisies, sans leur incertitude. Elle n'a pas
+    de fichier : le CSV ne garde que les valeurs saisies. Le résultat compte comme une
+    incertitude-type exacte : type B, loi normale, k = 1 et degrés de liberté infinis.
     """
 
     nature: Literal["incertitude"] = "incertitude"
@@ -201,10 +206,22 @@ class ColonneIncertitude(_Modele):
     source: str = Field(min_length=1)
     erreur_commune: str | None = Field(default=None, min_length=1)
     commentaire: str = ""
+    formule: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _verifier_composante(self) -> "ColonneIncertitude":
         self.composante(0.0)
+        if self.formule is not None and (
+            self.type != "B"
+            or self.unite is None
+            or self.loi != "normale"
+            or self.k != 1.0
+            or self.ddl is not None
+        ):
+            raise ValueError(
+                f"La colonne calculée « {self.nom} » donne une incertitude-type exacte : "
+                "type B, loi normale, k = 1, avec une unité."
+            )
         return self
 
     def composante(self, valeur_cellule: float) -> Composante:

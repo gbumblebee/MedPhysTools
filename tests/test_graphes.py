@@ -38,6 +38,7 @@ from pymphub.page import (
     ReglagesGraphe,
     Tableau,
 )
+from pymphub.tableaux import lire_csv
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 CERTIFICAT = Composante(type="B", valeur=1.0, unite="MBq", k=2.0, source="certificat")
@@ -879,3 +880,20 @@ def test_la_fiche_explique_un_graphe_devenu_impossible(arc, fiche):
     )
     fiche.afficher(arc, page.id)
     assert "« absente » n'existe plus" in fiche.graphes[0][0].message.text()
+
+
+def test_une_incertitude_calculee_donne_les_barres_du_graphe():
+    colonnes = (
+        ColonneNumerique(nom="N", unite="1"),
+        ColonneIncertitude(
+            nom="u_N",
+            composante_de="N",
+            type="B",
+            unite="1",
+            source="Calculée : sqrt(N)",
+            formule="sqrt(N)",
+        ),
+    )
+    tableau = Tableau(nom="comptage", fichier="brut/comptage.csv", colonnes=colonnes)
+    donnees = lire_csv(tableau, "N\n100.0\n400.0\n")
+    assert incertitudes_types(tableau, donnees, "N") == pytest.approx([10.0, 20.0])

@@ -13,7 +13,7 @@ s'évalue ligne par ligne, et chaque ligne donne une valeur et son incertitude.
 
 import ast
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 import GTC
@@ -411,6 +411,14 @@ def _exiger_reel(valeur: UncertainReal) -> UncertainReal:
 
 def _puissance(base: _Valeur, exposant: _Valeur) -> _Valeur:
     puissance = _vers_sans_dimension(exposant, "Un exposant")
+    if (
+        base.x.x == 0
+        and GTC.uncertainty(base.x) == 0
+        and GTC.uncertainty(puissance) == 0
+        and puissance.x > 0
+    ):
+        # Zéro exact : sqrt(N) vaut 0 pour un comptage nul, malgré sa dérivée infinie.
+        return _Valeur(_exacte(0.0), base.unite ** GTC.value(puissance))
     if registre.Quantity(1.0, base.unite).dimensionless:
         nombre = _vers_sans_dimension(base, "Une puissance")
         return _Valeur(_exiger_reel(nombre**puissance), _SANS_DIMENSION)
@@ -777,6 +785,78 @@ def creer_colonne(
         incertitudes_types=tuple(incertitudes),
         commentaire=commentaire,
     )
+
+
+class _ColonnesDeTableau:
+    """Tient lieu de page : les noms des colonnes priment sur les constantes comme `pi`."""
+
+    def __init__(self, tableau: Tableau) -> None:
+        self.mesures = tableau.colonnes
+
+
+class _ContexteColonnes(ContexteCalcul):
+    """Lit les valeurs d'un seul tableau, sans incertitude, pour une formule d'incertitude."""
+
+    def __init__(
+        self, tableau: Tableau, donnees: Mapping[str, Sequence[float]]
+    ) -> None:
+        super().__init__(_ColonnesDeTableau(tableau))  # type: ignore[arg-type]
+        self.tableau = tableau
+        self.donnees = donnees
+
+    def grandeur(self, nom: str) -> _Valeur:
+        return self.cellule(self.tableau.nom, nom, self.ligne)
+
+    def cellule(self, tableau: str, colonne: str, ligne: int) -> _Valeur:
+        cible = next((c for c in self.tableau.colonnes if c.nom == colonne), None)
+        if tableau != self.tableau.nom or not isinstance(cible, ColonneNumerique):
+            raise FormuleRefusee(
+                f"« {colonne} » : une formule d'incertitude ne lit que les colonnes "
+                f"numériques saisies du tableau « {self.tableau.nom} »."
+            )
+        valeurs = self.donnees[colonne]
+        if not 1 <= ligne <= len(valeurs):
+            raise FormuleRefusee(
+                f"« {self.tableau.nom} » a {len(valeurs)} ligne(s) : pas de ligne {ligne}."
+            )
+        valeur = float(valeurs[ligne - 1])
+        if _a_un_decalage(cible.unite):
+            quantite = registre.Quantity(valeur, cible.unite).to("K")
+            return _Valeur(_exacte(quantite.magnitude), registre.Unit("K"))
+        return _Valeur(_exacte(valeur), registre.Unit(cible.unite))
+
+
+def incertitudes_de_colonne(
+    tableau: Tableau,
+    colonne: ColonneIncertitude,
+    donnees: Mapping[str, Sequence[float]],
+    lignes: int,
+) -> list[float]:
+    """Calcule une colonne d'incertitude à formule, dans l'unité de la colonne.
+
+    Lève `ErreurCalcul` en citant la ligne fautive : une incertitude manquante ou négative
+    n'est jamais remplacée en silence.
+    """
+    arbre = _analyser(colonne.formule or "")
+    contexte = _ContexteColonnes(tableau, donnees)
+    resultats: list[float] = []
+    for ligne in range(1, lignes + 1):
+        contexte.ligne = ligne
+        try:
+            resultat, _unite = _terminer(arbre, contexte, colonne.unite or "")
+        except FormuleRefusee:
+            raise
+        except ErreurCalcul as erreur:
+            raise ErreurCalcul(
+                f"Colonne « {colonne.nom} », ligne {ligne} : {erreur}"
+            ) from erreur
+        if resultat.x < 0:
+            raise ErreurCalcul(
+                f"Colonne « {colonne.nom} », ligne {ligne} : une incertitude ne peut pas "
+                "être négative."
+            )
+        resultats.append(float(resultat.x))
+    return resultats
 
 
 def budget_de_ligne(

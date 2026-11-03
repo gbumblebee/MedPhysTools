@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from pymphub import Archive
+from pymphub.calculs import calculer
 from pymphub.depot import Depot
 from pymphub.importation import (
     Grille,
@@ -1448,3 +1449,117 @@ def test_une_page_validee_garde_ses_valeurs_importees_en_attente_d_un_motif(
     assert espace.demander_correction()
     assert relue(espace).statut == "corrigée"
     assert relue(espace).grandeur("activite_ref").valeur == 100.0
+
+
+# --- Incertitude calculée -------------------------------------------------------------
+
+
+def preparer_comptage(editeur, formule="sqrt(N)"):
+    """Un comptage N et son incertitude en racine de N."""
+    editeur.champ_nom.setText("comptage")
+    n, u = editeur.colonnes[:2]
+    n.nom.setText("N")
+    n.unite.setText("1")
+    u.nom.setText("u_N")
+    u.nature.setCurrentIndex(u.nature.findData("incertitude_calculee"))
+    u.cible.setCurrentText("N")
+    u.formule.setText(formule)
+    editeur.ecrire_cellules([["100"], ["400"], ["0"]], 0, 0)
+    return n, u
+
+
+def test_l_incertitude_calculee_s_affiche_et_ne_s_enregistre_pas_dans_le_csv(
+    espace, editeur
+):
+    _n, u = preparer_comptage(editeur)
+    assert editeur.erreur() is None
+    assert [editeur._texte(i, 1) for i in range(3)] == ["10", "20", "0"]
+    assert u.unite.text() == ""
+    espace.enregistrer_maintenant()
+
+    tableau = relue(espace).grandeur("comptage")
+    colonne = tableau.colonnes[1]
+    assert colonne.formule == "sqrt(N)"
+    assert colonne.composante_de == "N"
+    assert colonne.unite == "1"
+    assert colonne.type == "B"
+    assert colonne.ddl is None
+    csv_brut = espace.archive._dossier_page(espace.page.id) / "brut" / "comptage.csv"
+    assert csv_brut.read_text() == "N\n100.0\n400.0\n0.0\n"
+    relu = espace.archive.lire_tableau(espace.page.id, "comptage")
+    assert list(relu["u_N"]) == [10.0, 20.0, 0.0]
+
+
+def test_les_cellules_calculees_ne_se_modifient_pas(editeur):
+    preparer_comptage(editeur)
+    for ligne in range(editeur.grille.rowCount()):
+        element = editeur.grille.item(ligne, 1)
+        assert element is not None
+        assert not element.flags() & Qt.ItemFlag.ItemIsEditable
+
+
+def test_corriger_une_valeur_recalcule_son_incertitude(editeur):
+    preparer_comptage(editeur)
+    editeur.grille.item(0, 0).setText("900")
+    assert editeur._texte(0, 1) == "30"
+
+
+def test_coller_ne_remplace_pas_une_colonne_calculee(editeur):
+    preparer_comptage(editeur)
+    editeur.grille.setCurrentCell(0, 0)
+    editeur.coller("16\t999\n25\t999\n")
+    assert [editeur._texte(i, 0) for i in range(2)] == ["16", "25"]
+    assert [editeur._texte(i, 1) for i in range(2)] == ["4", "5"]
+
+
+def test_une_colonne_calculee_seule_ne_cree_pas_de_ligne(editeur):
+    preparer_comptage(editeur)
+    assert editeur.lignes_remplies() == [0, 1, 2]
+    assert editeur._texte(3, 1) == ""
+    assert editeur._texte(editeur.grille.rowCount() - 1, 1) == ""
+
+
+def test_une_formule_fausse_est_expliquee_sans_enregistrer(espace, editeur):
+    preparer_comptage(editeur, "sqrt(N - 200)")
+    assert "ligne 1" in editeur.erreur()
+    assert editeur.message.text() == editeur.erreur()
+    assert [editeur._texte(i, 1) for i in range(3)] == ["", "", ""]
+
+
+def test_une_formule_vide_est_demandee(editeur):
+    preparer_comptage(editeur, "")
+    assert "formule" in editeur.erreur()
+
+
+def test_repasser_en_nombre_rend_les_cellules_modifiables_et_vides(editeur):
+    _n, u = preparer_comptage(editeur)
+    u.nature.setCurrentIndex(0)
+    assert editeur.grille.item(0, 1) is None
+    assert not u.cellules_calculees
+
+
+def test_la_formule_se_relit_a_la_reouverture(espace, editeur):
+    preparer_comptage(editeur)
+    espace.enregistrer_maintenant()
+    rouvert = EditeurTableau(editeur.onglet, relue(espace))
+    rouvert.charger(espace.archive)
+    u = rouvert.colonnes[1]
+    assert u.nature_choisie() == "incertitude_calculee"
+    assert u.formule.text() == "sqrt(N)"
+    assert u.cible.currentText() == "N"
+    assert [rouvert._texte(i, 1) for i in range(3)] == ["10", "20", "0"]
+    assert not rouvert.grille.item(0, 1).flags() & Qt.ItemFlag.ItemIsEditable
+    assert not rouvert.tableau_modifie()
+    assert rouvert.erreur() is None
+
+
+def test_la_fiche_et_le_calcul_utilisent_l_incertitude_calculee(espace, editeur):
+    preparer_comptage(editeur)
+    espace.enregistrer_maintenant()
+    page = relue(espace)
+    budget = calculer(
+        page,
+        "comptage.N[1]",
+        lambda nom: espace.archive.lire_tableau(page.id, nom),
+    )
+    assert budget.incertitude_type == pytest.approx(10.0)
