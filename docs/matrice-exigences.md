@@ -140,6 +140,12 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | L'export n'omet aucune grandeur | `tests/test_export.py::test_une_grandeur_hors_de_tout_onglet_reste_dans_le_cahier` | Vérifié |
 | L'archive figée du format 1 se relit | `tests/test_format_1.py::test_toutes_les_pages_se_relisent` | Vérifié |
 
+## Tutoriel de lecture
+
+| Exigence | Test | État |
+|---|---|---|
+| Le tutoriel tourne du début à la fin | `tests/test_tutoriel.py::test_le_tutoriel_s_execute_du_debut_a_la_fin` | Vérifié |
+
 ## Gabarits dans l'interface
 
 | Exigence | Test | État |
