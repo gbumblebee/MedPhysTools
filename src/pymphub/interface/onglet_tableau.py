@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from pymphub.archive import Archive
 from pymphub.edition import Grandeur, lire_nombre
+from pymphub.gabarit import Gabarit, VariableTableau
 from pymphub.importation import (
     Grille,
     ImportImpossible,
@@ -66,7 +67,7 @@ from pymphub.page import (
     Tableau,
 )
 from pymphub.tableaux import TableauInvalide, ecrire_csv, incertitudes_calculees
-from pymphub.unites import verifier_unite
+from pymphub.unites import sont_compatibles, verifier_unite
 
 _LIGNES_INITIALES = 5
 _COLONNES_INITIALES = 2
@@ -172,8 +173,9 @@ class ConfigurationColonne:
             and bool(self.unite.text().strip())
             and not verification.valide
         )
-        _marquer(self.unite, fausse)
-        self.unite.setToolTip(verification.message if fausse else "")
+        incoherente = self.unite_incoherente()
+        _marquer(self.unite, fausse or incoherente is not None)
+        self.unite.setToolTip(verification.message if fausse else incoherente or "")
         if nature == "numerique":
             nombre = len(self.composantes)
             self.bouton_incertitude.setText(
@@ -187,6 +189,22 @@ class ConfigurationColonne:
             )
         else:
             self.bouton_incertitude.setText("—")
+
+    def unite_incoherente(self) -> str | None:
+        """Explique une unité valable, mais incompatible avec celle du gabarit."""
+        if self.nature_choisie() != "numerique":
+            return None
+        nom = self.nom.text().strip()
+        unite = self.unite.text().strip()
+        attendue = self.editeur.unite_attendue(nom)
+        if (
+            attendue is None
+            or not unite
+            or not verifier_unite(unite).valide
+            or sont_compatibles(unite, attendue)
+        ):
+            return None
+        return f"colonne « {nom} » en {unite}, alors que le gabarit attend {attendue}"
 
     def accepter_suggestion(self) -> bool:
         """Remplace l'unité par la suggestion, avec la touche Entrée."""
@@ -233,6 +251,9 @@ class ConfigurationColonne:
             raise ValueError(
                 f"colonne « {nom} » : l'unité est obligatoire (1 si sans dimension)"
             )
+        incoherente = self.unite_incoherente()
+        if incoherente is not None:
+            raise ValueError(incoherente)
         unite = self.unite.text().strip()
         if nature == "incertitude_calculee":
             return self._colonne_calculee(nom, unite)
@@ -306,6 +327,9 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         self._references_conservees: list[str] = []
         self._chargement = True
         self._commentaire = ""
+        # Les unités du gabarit par tableau, et le modèle préparé : il ne compte pas comme saisie.
+        self._attendues: dict[str, dict[str, str]] = {}
+        self._modele_gabarit: list[tuple[str, str, str]] | None = None
 
         self.champ_nom = QLineEdit()
         self.champ_nom.setPlaceholderText("nom du tableau, par exemple decroissance")
@@ -662,12 +686,61 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
 
     def est_vide(self) -> bool:
         """Un tableau jamais rempli n'est pas une erreur : il est simplement ignoré."""
-        return (
-            self.origine is None
-            and not self.champ_nom.text().strip()
-            and not self.lignes_remplies()
-            and not any(c.nom.text().strip() for c in self.colonnes)
+        if self.origine is not None or self.lignes_remplies():
+            return False
+        if (
+            self._modele_gabarit is not None
+            and self._signature() == self._modele_gabarit
+        ):
+            return not any(c.composantes or c.modele_cellule for c in self.colonnes)
+        return not self.champ_nom.text().strip() and not any(
+            c.nom.text().strip() for c in self.colonnes
         )
+
+    def _signature(self) -> list[tuple[str, str, str]]:
+        return [
+            (c.nom.text().strip(), c.nature_choisie(), c.unite.text().strip())
+            for c in self.colonnes
+        ]
+
+    def unite_attendue(self, colonne: str) -> str | None:
+        """L'unité que le gabarit attend pour une colonne de ce tableau."""
+        return self._attendues.get(self.champ_nom.text().strip(), {}).get(colonne)
+
+    def noter_gabarit(self, gabarit: Gabarit, preremplir: bool) -> None:
+        """Retient les unités attendues ; prépare le tableau de l'onglet portant son nom."""
+        self._attendues = {
+            v.nom: {c.nom: c.unite for c in v.colonnes if c.unite is not None}
+            for v in gabarit.variables
+            if isinstance(v, VariableTableau)
+        }
+        variable = next(
+            (
+                v
+                for v in gabarit.variables
+                if isinstance(v, VariableTableau) and v.nom == self.onglet.titre
+            ),
+            None,
+        )
+        if preremplir and variable is not None and self.est_vide():
+            chargement, self._chargement = self._chargement, True
+            self.champ_nom.setText(variable.nom)
+            self._vider_colonnes()
+            for attendue in variable.colonnes:
+                configuration = self.ajouter_colonne(attendue.nom, attendue.unite or "")
+                configuration.nature.setCurrentIndex(
+                    configuration.nature.findData(attendue.nature)
+                )
+            self._actualiser_cibles()
+            self._modele_gabarit = self._signature()
+            self._chargement = chargement
+        for configuration in self.colonnes:
+            configuration.actualiser()
+        self._actualiser_message()
+
+    def tableaux_vides(self) -> list[str]:
+        nom = self.champ_nom.text().strip()
+        return [nom] if nom and not self.lignes_remplies() else []
 
     def tableau_saisi(self) -> Tableau:
         """Construit la description du tableau. Lève `ValueError` si elle est incomplète."""

@@ -946,3 +946,128 @@ def test_l_incertitude_calculee_se_propage_sans_incertitude_propre():
     assert [ligne.source for ligne in budget.lignes] == [
         "comptage.N[2] : Calculée : sqrt(N)"
     ]
+
+
+# --- Courbes dérivée et primitive ------------------------------------------------------
+
+
+def _page_courbe(
+    composantes_y=None, x_csv=(0.0, 1.0, 2.0, 4.0), y_csv=(0.0, 1.0, 4.0, 16.0)
+):
+    """Quatre points de y = x² ; u(y) = 1 m, u(x) négligeable."""
+    composantes_y = composantes_y or (
+        Composante(type="B", valeur=1.0, unite="m", source="s"),
+    )
+    tableau = Tableau(
+        nom="t",
+        fichier="brut/t.csv",
+        colonnes=(
+            ColonneNumerique(
+                nom="x",
+                unite="s",
+                composantes=(
+                    Composante(type="B", valeur=0.0, unite="s", source="exact"),
+                ),
+            ),
+            ColonneNumerique(nom="y", unite="m", composantes=composantes_y),
+        ),
+    )
+    donnees = pd.DataFrame({"x": list(x_csv), "y": list(y_csv)})
+    page = Page(
+        id="2026-11-14_courbe_0001",
+        titre="Courbe",
+        date_mesure=HEURE,
+        date_saisie=HEURE,
+        auteur="G.",
+        mesures=(tableau,),
+    )
+    return page, (lambda _nom: donnees)
+
+
+def test_la_derivee_donne_une_colonne_avec_son_incertitude():
+    page, lire = _page_courbe()
+    colonne = creer_colonne(page, "d", "derivee(t.y, t.x)", lire)
+    assert colonne.unite == "m/s"
+    # Calcul à la main : décentrée au bout, puis (y[i+1] - y[i-1]) / (x[i+1] - x[i-1]).
+    assert colonne.valeurs == pytest.approx((1.0, 2.0, 5.0, 6.0))
+    r2 = math.sqrt(2)
+    assert colonne.incertitudes_types == pytest.approx((r2, r2 / 2, r2 / 3, r2 / 2))
+
+
+def test_la_primitive_cumule_les_trapezes_avec_son_incertitude():
+    page, lire = _page_courbe()
+    colonne = creer_colonne(page, "P", "primitive(t.y, t.x)", lire)
+    # Trapèzes à la main : 0,5 ; 2,5 ; 20 cumulés depuis 0.
+    assert colonne.valeurs == pytest.approx((0.0, 0.5, 3.0, 23.0))
+    assert colonne.unite == "m*s"
+    # P3 = (y1 + 2 y2 + y3) / 2 ; P4 ajoute (y3 + y4) * 2 / 2 avec des points communs.
+    attendues = (
+        0.0,
+        math.sqrt(0.5),
+        math.sqrt(0.25 + 1 + 0.25),
+        math.sqrt(0.25 + 1 + 1.5**2 + 1),
+    )
+    assert colonne.incertitudes_types == pytest.approx(attendues)
+
+
+def test_une_erreur_commune_s_annule_dans_la_derivee_pas_dans_la_primitive():
+    commune = (
+        Composante(type="B", valeur=1.0, unite="m", source="s", erreur_commune="CERT"),
+    )
+    page, lire = _page_courbe(commune)
+    derivee = creer_colonne(page, "d", "derivee(t.y, t.x)", lire)
+    assert derivee.incertitudes_types == pytest.approx((0.0, 0.0, 0.0, 0.0), abs=1e-12)
+    primitive = creer_colonne(page, "P", "primitive(t.y, t.x)", lire)
+    # La somme des largeurs vaut 4 s : l'erreur commune compte en entier.
+    assert primitive.incertitudes_types[3] == pytest.approx(4.0)
+
+
+def test_une_courbe_accepte_une_expression_et_reste_dans_le_budget():
+    page, lire = _page_courbe()
+    colonne = creer_colonne(page, "d", "derivee(2 * t.y, t.x)", lire)
+    assert colonne.valeurs[1] == pytest.approx(4.0)
+    budget = budget_de_ligne(page, colonne, 2, lire)
+    assert budget.valeur == pytest.approx(4.0)
+    assert budget.incertitude_type == pytest.approx(colonne.incertitudes_types[1])
+
+
+def test_les_abscisses_decroissantes_sont_acceptees():
+    page, lire = _page_courbe(x_csv=(4.0, 2.0, 1.0, 0.0), y_csv=(16.0, 4.0, 1.0, 0.0))
+    colonne = creer_colonne(page, "d", "derivee(t.y, t.x)", lire)
+    assert colonne.valeurs == pytest.approx((6.0, 5.0, 2.0, 1.0))
+
+
+@pytest.mark.parametrize("x", [(0.0, 2.0, 1.0, 3.0), (0.0, 1.0, 1.0, 2.0)])
+def test_des_abscisses_non_monotones_sont_refusees(x):
+    page, lire = _page_courbe(x_csv=x)
+    with pytest.raises(ErreurCalcul, match="strictement"):
+        creer_colonne(page, "d", "derivee(t.y, t.x)", lire)
+    with pytest.raises(ErreurCalcul, match="strictement"):
+        creer_colonne(page, "P", "primitive(t.y, t.x)", lire)
+
+
+@pytest.mark.parametrize(
+    "formule",
+    [
+        "derivee(t.y)",
+        "primitive(t.y, t.x, t.x)",
+        "derivee(y=t.y, x=t.x)",
+        "derivee(*t.y, t.x)",
+    ],
+)
+def test_une_courbe_mal_ecrite_est_refusee(formule):
+    page, lire = _page_courbe()
+    with pytest.raises(FormuleRefusee, match="tableau.y, tableau.x"):
+        creer_colonne(page, "d", formule, lire)
+
+
+def test_une_courbe_ne_donne_pas_une_seule_valeur():
+    page, lire = _page_courbe()
+    with pytest.raises(ErreurCalcul, match="colonnes"):
+        calculer(page, "derivee(t.y[1], t.x[1])", lire)
+
+
+def test_une_courbe_d_une_seule_ligne_est_refusee():
+    page, lire = _page_courbe(x_csv=(0.0,), y_csv=(1.0,))
+    with pytest.raises(ErreurCalcul, match="deux lignes"):
+        creer_colonne(page, "d", "derivee(t.y, t.x)", lire)

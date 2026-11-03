@@ -91,6 +91,8 @@ Une formule comme `A0 * exp(-ln(2) * t / T12)` se calcule sur les valeurs enregi
 
 - **Incertitude calculée d'une colonne.** Une colonne de nature « Incertitude calculée » donne une composante de la colonne visée, ligne par ligne, avec une formule comme `sqrt(N)`. La formule ne lit que les valeurs : le résultat est pris comme une incertitude-type exacte, de type B et à degrés de liberté infinis. Il ne dit pas que `sqrt(N)` est adapté : pour une loi de Poisson, `N` doit être un nombre de coups bruts, et non un taux.
 
+- **Courbe dérivée et courbe primitive.** `derivee(t.y, t.x)` et `primitive(t.y, t.x)` donnent une colonne, ligne par ligne, et l'incertitude passe par GTC. La dérivée est une différence centrée, (y[i+1] − y[i−1]) / (x[i+1] − x[i−1]), décentrée aux deux bouts. La primitive cumule des trapèzes et vaut 0, sans incertitude, à la première ligne. x doit croître ou décroître strictement. **Limites :** la dérivée amplifie le bruit, et ses lignes voisines partagent des points, donc sont corrélées ; sur un pas irrégulier, la différence centrée n'est plus que d'ordre 1, et l'erreur de méthode des trapèzes ou de la différence n'entre pas dans l'incertitude affichée.
+
 ## Ajustements
 
 **Méthode.** Moindres carrés avec lmfit, sur deux colonnes numériques d'un tableau. Une ligne sans résultat calculé est écartée.

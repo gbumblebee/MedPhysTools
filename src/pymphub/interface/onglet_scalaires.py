@@ -37,6 +37,7 @@ from pymphub.edition import (
     nom_libre,
     suggerer_nom,
 )
+from pymphub.gabarit import Gabarit, VariableIdentifiant, VariableScalaire
 from pymphub.importation import ValeurImportee
 from pymphub.incertitudes import (
     Budget,
@@ -568,6 +569,8 @@ class LigneScalaire:
         self.composantes: tuple[Composante, ...] = ()
         self.valeurs_repetees: tuple[float, ...] | None = None
         self.horodatage_origine: datetime | None = None
+        # Le nom et l'unité préparés par le gabarit : les garder ne constitue pas une saisie.
+        self.modele_gabarit: tuple[str, str] | None = None
 
         self.nature = QComboBox()
         self.nature.addItem("Nombre", "scalaire")
@@ -679,14 +682,38 @@ class LigneScalaire:
 
     def est_vide(self) -> bool:
         """Une ligne jamais remplie n'est pas une erreur : elle est simplement ignorée."""
+        identite = (self.nom.text().strip(), self.unite.text().strip())
         return (
             self.origine is None
-            and not self.nom.text().strip()
+            and identite in (("", ""), self.modele_gabarit)
             and not self.valeur.text().strip()
-            and not self.unite.text().strip()
             and not self.composantes
             and not self.commentaire.text().strip()
         )
+
+    def preparer(self, variable: VariableScalaire | VariableIdentifiant) -> None:
+        """Prépare la ligne d'une variable du gabarit : la valeur reste à saisir."""
+        unite = getattr(variable, "unite", "")
+        self.nature.setCurrentIndex(self.nature.findData(variable.nature))
+        self.nom.setText(variable.nom)
+        self.unite.setText(unite)
+        self.modele_gabarit = (variable.nom, unite)
+
+    def _unite_incoherente(self) -> str | None:
+        """Explique une unité valable, mais incompatible avec celle du gabarit."""
+        if self.est_identifiant():
+            return None
+        nom = self.nom.text().strip()
+        unite = self.unite.text().strip()
+        attendue = self.editeur.unites_attendues.get(nom)
+        if (
+            attendue is None
+            or not unite
+            or not verifier_unite(unite).valide
+            or sont_compatibles(unite, attendue)
+        ):
+            return None
+        return f"{nom} : en {unite}, alors que le gabarit attend {attendue}"
 
     def _valeur_tapee(self) -> None:
         """Une valeur retapée n'est plus la moyenne des répétitions : on les oublie."""
@@ -721,6 +748,9 @@ class LigneScalaire:
                 valeur=self.valeur.text().strip(),
                 commentaire=self.commentaire.text(),
             )
+        incoherente = self._unite_incoherente()
+        if incoherente is not None:
+            raise ValueError(incoherente)
         if not self.valeur.text().strip():
             raise ValueError(f"{nom} : la valeur est obligatoire")
         if not self.unite.text().strip():
@@ -765,7 +795,7 @@ class LigneScalaire:
             and bool(self.unite.text().strip())
             and not verification.valide
         )
-        _marquer(self.unite, unite_fausse)
+        _marquer(self.unite, unite_fausse or self._unite_incoherente() is not None)
         suggestion = verification.suggestion if unite_fausse else None
         self.bouton_suggestion.setVisible(suggestion is not None)
         if suggestion is not None:
@@ -962,6 +992,7 @@ class EditeurScalaires(ImportPersonnalise, EditeurOnglet):
 
         self._references_conservees: list[str] = []
         self._noms_possedes: list[str] = []
+        self.unites_attendues: dict[str, str] = {}
         self._charger()
         self._chargement = False
 
@@ -985,6 +1016,30 @@ class EditeurScalaires(ImportPersonnalise, EditeurOnglet):
                 self._references_conservees.append(reference)
         if not self.lignes:
             self.ajouter_ligne()
+
+    def noter_gabarit(self, gabarit: Gabarit, preremplir: bool) -> None:
+        """Retient les unités attendues et prépare les lignes des variables manquantes."""
+        self.unites_attendues = {
+            v.nom: v.unite for v in gabarit.variables if isinstance(v, VariableScalaire)
+        }
+        if preremplir:
+            presentes = {g.nom for g in self.page.mesures} if self.page else set()
+            for variable in gabarit.variables:
+                if not isinstance(variable, (VariableScalaire, VariableIdentifiant)):
+                    continue
+                if variable.nom in presentes:
+                    continue
+                vide = next(
+                    (
+                        ligne
+                        for ligne in self.lignes
+                        if ligne.est_vide() and ligne.modele_gabarit is None
+                    ),
+                    None,
+                )
+                (vide or self.ajouter_ligne()).preparer(variable)
+        for ligne in self.lignes:
+            ligne.actualiser()
 
     def ajouter_ligne(
         self, grandeur: Scalaire | Identifiant | None = None

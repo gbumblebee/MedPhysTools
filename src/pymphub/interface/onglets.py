@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 from pymphub.archive import Archive
 from pymphub.edition import Grandeur
 from pymphub.equations import RESOLUTION_ECRAN
+from pymphub.gabarit import Gabarit
 from pymphub.graphes import empreinte_tableau, tableaux_tracables
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.photos import (
@@ -125,6 +126,13 @@ class EditeurOnglet(QWidget):
     def tableau_modifie(self) -> bool:
         """Indique si les cellules diffèrent de la dernière version enregistrée."""
         return False
+
+    def noter_gabarit(self, gabarit: Gabarit, preremplir: bool) -> None:
+        """Reçoit le gabarit de la page : unités attendues, et champs à préparer."""
+
+    def tableaux_vides(self) -> list[str]:
+        """Les tableaux de cet onglet décrits mais encore sans aucune ligne."""
+        return []
 
     def noter_saisies_incompletes(self, incompletes: Sequence[str]) -> None:
         """Prévient l'éditeur de ce qui manque dans la page pour l'enregistrer."""

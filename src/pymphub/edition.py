@@ -70,8 +70,9 @@ def nouvelle_page(
     tags: Sequence[str] = (),
     description: str = "",
     onglets: Sequence[Onglet] = (),
+    gabarit: str | None = None,
 ) -> Page:
-    """Prépare une page libre en brouillon, sans encore l'enregistrer."""
+    """Prépare une page en brouillon, sans encore l'enregistrer."""
     return Page(
         id=archive.nouvel_identifiant(date_mesure, titre),
         titre=titre,
@@ -82,6 +83,7 @@ def nouvelle_page(
         machine=machine,
         tags=tuple(tags),
         onglets=tuple(onglets),
+        gabarit=gabarit,
     )
 
 

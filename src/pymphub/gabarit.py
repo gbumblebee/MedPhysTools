@@ -5,7 +5,9 @@ Il garde leur nom, leur nature et leur unité attendue, jamais leurs données : 
 sont recherchées dans l'archive au moment de l'analyse.
 """
 
+import re
 import tomllib
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -210,6 +212,58 @@ def creer_gabarit(
         description=description,
         variables=tuple(resultat.values()),
     )
+
+
+def nom_de_gabarit(titre: str) -> str:
+    """Propose un nom de gabarit d'après un titre : minuscules, sans accent."""
+    sans_accent = (
+        unicodedata.normalize("NFKD", titre).encode("ascii", "ignore").decode()
+    )
+    return re.sub(r"[^a-z0-9]+", "-", sans_accent.lower()).strip("-")
+
+
+def version_suivante(references: Sequence[str], nom: str) -> int:
+    """La version à donner à un gabarit, d'après ceux qui portent déjà ce nom."""
+    versions = [
+        int(version)
+        for reference in references
+        for prefixe, _, version in [reference.rpartition("@")]
+        if prefixe == nom
+    ]
+    return max(versions, default=0) + 1
+
+
+def colonnes_choisissables(page: Page) -> dict[str, list[str]]:
+    """Ce qu'un gabarit peut reprendre d'une page : pour un tableau, ses colonnes de données.
+
+    Les résultats de calcul n'y figurent pas : ils se déduisent des grandeurs mesurées.
+    """
+    resultat: dict[str, list[str]] = {}
+    for grandeur in page.mesures:
+        if isinstance(grandeur, Tableau):
+            resultat[grandeur.nom] = [c.nom for c in _colonnes_utiles(grandeur)]
+        elif isinstance(grandeur, (Scalaire, Identifiant, Fichier)):
+            resultat[grandeur.nom] = []
+    return resultat
+
+
+def _ecrire_colonne(colonne: ColonneAttendue) -> str:
+    return colonne.nom if colonne.unite is None else f"{colonne.nom} en {colonne.unite}"
+
+
+def decrire_attendu(gabarit: Gabarit, reference: str) -> str:
+    """Écrit ce qu'attend une variable, comme `activite (MBq)` ou `t.heure (h)`."""
+    nom, separateur, nom_colonne = reference.partition(".")
+    variable = next(v for v in gabarit.variables if v.nom == nom)
+    if separateur:
+        colonne = next(c for c in variable.colonnes if c.nom == nom_colonne)
+        return f"{reference} ({colonne.unite or 'identifiant'})"
+    if isinstance(variable, VariableScalaire):
+        return f"{nom} ({variable.unite})"
+    if isinstance(variable, VariableTableau):
+        colonnes = ", ".join(_ecrire_colonne(c) for c in variable.colonnes)
+        return f"{nom} (tableau : {colonnes})"
+    return f"{nom} ({variable.nature})"
 
 
 def vers_toml(gabarit: Gabarit) -> str:

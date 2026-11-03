@@ -118,6 +118,9 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Équation réellement dessinée par Qt | `tests/test_interface_notes.py::test_l_equation_se_dessine_dans_l_apercu` | Vérifié |
 | Équation dans le PDF | `tests/test_export.py::test_une_equation_passe_dans_le_pdf` | Vérifié |
 | Titres dans le PDF | `tests/test_export.py::test_les_titres_et_l_incertitude_calculee_passent_dans_le_pdf` | Vérifié |
+| Courbe dérivée, avec incertitude | `tests/test_calculs.py::test_la_derivee_donne_une_colonne_avec_son_incertitude` | Vérifié à la main |
+| Courbe primitive, avec incertitude | `tests/test_calculs.py::test_la_primitive_cumule_les_trapezes_avec_son_incertitude` | Vérifié à la main |
+| Courbe ajoutée depuis l'onglet de calculs | `tests/test_interface_calculs.py::test_le_bouton_ajoute_la_courbe_derivee` | Vérifié |
 | Colonne calculée affichée dans chaque tableau concerné | `tests/test_interface_calculs.py::test_une_colonne_s_affiche_dans_tous_les_tableaux_concernes` | Vérifié |
 | Une colonne calculée ne change pas les CSV bruts | `tests/test_interface_calculs.py::test_une_colonne_calculee_ne_touche_pas_au_csv` | Vérifié |
 | Colonne calculée tracée avec ses barres | `tests/test_graphes.py::test_une_colonne_calculee_se_trace_avec_ses_barres` | Vérifié |
@@ -136,6 +139,15 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Export du cahier en PDF, sans logiciel pour le relire | `tests/test_export.py::test_le_pdf_contient_le_cahier` | Vérifié sous Fedora |
 | L'export n'omet aucune grandeur | `tests/test_export.py::test_une_grandeur_hors_de_tout_onglet_reste_dans_le_cahier` | Vérifié |
 | L'archive figée du format 1 se relit | `tests/test_format_1.py::test_toutes_les_pages_se_relisent` | Vérifié |
+
+## Gabarits dans l'interface
+
+| Exigence | Test | État |
+|---|---|---|
+| Le gabarit créé depuis une page lui est conforme | `tests/test_interface_gabarit.py::test_le_gabarit_cree_depuis_une_page_lui_est_conforme` | Vérifié |
+| Une page depuis un gabarit indique ce qu'il reste à remplir | `tests/test_interface_gabarit.py::test_une_page_depuis_un_gabarit_indique_ce_qu_il_reste` | Vérifié |
+| Une unité incohérente est bloquée à la saisie | `tests/test_interface_gabarit.py::test_une_unite_incoherente_est_bloquee_a_la_saisie` | Vérifié |
+| Validation refusée tant qu'il reste à remplir | `tests/test_interface_gabarit.py::test_la_validation_est_refusee_tant_qu_il_reste_a_remplir` | Vérifié |
 
 ## Gabarits
 

@@ -40,6 +40,16 @@ from pymphub.edition import (
     nouvel_id_onglet,
     nouvelle_page,
 )
+from pymphub.gabarit import (
+    Ecart,
+    Gabarit,
+    VariableFichier,
+    VariableIdentifiant,
+    VariableScalaire,
+    VariableTableau,
+    decrire_attendu,
+    verifier_conformite,
+)
 from pymphub.importation import ResultatImport, ValeurImportee
 from pymphub.interface import (  # noqa: F401 - déclarent leur type d'onglet
     onglet_ajustements,
@@ -49,6 +59,7 @@ from pymphub.interface import (  # noqa: F401 - déclarent leur type d'onglet
     onglet_graphes,
     onglet_tableau,
 )
+from pymphub.interface.dialogue_gabarit import DialogueGabarit
 from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglet_scalaires import EditeurScalaires
 from pymphub.interface.onglets import (
@@ -60,7 +71,7 @@ from pymphub.interface.onglets import (
 )
 from pymphub.interface.pieces import PiecesDeLaPage
 from pymphub.interface.texte_en_grand import afficher_en_grand
-from pymphub.page import Page, PhotoAnnotee, Scalaire
+from pymphub.page import Onglet, Page, PhotoAnnotee, Scalaire
 
 _DELAI_ENREGISTREMENT_MS = 800
 _FORMAT_DATE = "dd/MM/yyyy HH:mm"
@@ -107,6 +118,7 @@ class DescriptionPage:
     auteur: str
     machine: str | None
     tags: tuple[str, ...]
+    gabarit: str | None = None
 
 
 class DialogueNouvellePage(QDialog):
@@ -125,9 +137,21 @@ class DialogueNouvellePage(QDialog):
         _remplir_liste_machines(self.champ_machine, archive, None)
         self.champ_tags = QLineEdit()
         self.champ_tags.setPlaceholderText("activimetre, Tc99m")
+        self.archive = archive
+        self.champ_gabarit = QComboBox()
+        self.champ_gabarit.addItem("Page libre", None)
+        for reference in archive.gabarits():
+            self.champ_gabarit.addItem(reference, reference)
+        self.attendus = QLabel("")
+        self.attendus.setObjectName("discret")
+        self.attendus.setWordWrap(True)
+        self.attendus.setTextFormat(Qt.TextFormat.PlainText)
+        self.champ_gabarit.currentIndexChanged.connect(self._afficher_attendus)
 
         formulaire = QFormLayout()
         formulaire.addRow("Titre", self.champ_titre)
+        formulaire.addRow("Gabarit", self.champ_gabarit)
+        formulaire.addRow("", self.attendus)
         formulaire.addRow("Date de mesure", self.champ_date)
         formulaire.addRow("Auteur", self.champ_auteur)
         formulaire.addRow("Machine", self.champ_machine)
@@ -149,12 +173,27 @@ class DialogueNouvellePage(QDialog):
 
         self.champ_titre.textChanged.connect(self._actualiser)
         self.champ_auteur.textChanged.connect(self._actualiser)
+        self._afficher_attendus()
         self._actualiser()
 
     def _actualiser(self) -> None:
         self.bouton_creer.setEnabled(
             bool(self.champ_titre.text().strip() and self.champ_auteur.text().strip())
         )
+
+    def _afficher_attendus(self) -> None:
+        """Montre les grandeurs attendues par le gabarit choisi, avec leurs unités."""
+        reference = self.champ_gabarit.currentData()
+        self.attendus.setVisible(reference is not None)
+        if reference is None:
+            return
+        try:
+            gabarit = self.archive.lire_gabarit(reference)
+        except (ValueError, KeyError, OSError) as erreur:
+            self.attendus.setText(f"Gabarit illisible : {message_erreur(erreur)}")
+            return
+        variables = (decrire_attendu(gabarit, v.nom) for v in gabarit.variables)
+        self.attendus.setText("Attendu : " + " ; ".join(variables))
 
     def description(self) -> DescriptionPage:
         """Renvoie les informations saisies."""
@@ -164,6 +203,7 @@ class DialogueNouvellePage(QDialog):
             auteur=self.champ_auteur.text().strip(),
             machine=self.champ_machine.currentText().strip() or None,
             tags=decouper_tags(self.champ_tags.text()),
+            gabarit=self.champ_gabarit.currentData(),
         )
 
 
@@ -177,6 +217,7 @@ class EspaceSaisie(QWidget):
         super().__init__(parent)
         self.archive: Archive | None = None
         self.page: Page | None = None
+        self.gabarit: Gabarit | None = None
         self._chargement = False
         self.pieces = PiecesDeLaPage(self)
         self.pieces.changees.connect(self._sur_modification)
@@ -217,6 +258,11 @@ class EspaceSaisie(QWidget):
         self.etat.setObjectName("discret")
         self.etat.setTextFormat(Qt.TextFormat.PlainText)
         self.etat.setWordWrap(True)
+        self.reste = QLabel("")
+        self.reste.setObjectName("discret")
+        self.reste.setWordWrap(True)
+        self.reste.setTextFormat(Qt.TextFormat.PlainText)
+        self.reste.setVisible(False)
 
         self.bouton_nouvelle = QPushButton("Nouvelle page…")
         self.bouton_nouvelle.clicked.connect(self.demander_nouvelle_page)
@@ -233,8 +279,14 @@ class EspaceSaisie(QWidget):
         self.bouton_fiche = QPushButton("Voir la fiche")
         self.bouton_fiche.setToolTip("Vue d'ensemble de la page, dans l'espace Archive")
         self.bouton_fiche.clicked.connect(self.demander_fiche)
+        self.bouton_gabarit = QPushButton("Créer un gabarit…")
+        self.bouton_gabarit.setToolTip(
+            "Crée un gabarit à partir de cette page, en choisissant ses variables"
+        )
+        self.bouton_gabarit.clicked.connect(self.demander_gabarit)
         ligne_haut.addWidget(self.identifiant, stretch=1)
         ligne_haut.addWidget(self.bouton_fiche)
+        ligne_haut.addWidget(self.bouton_gabarit)
         ligne_haut.addWidget(self.bouton_annuler)
         ligne_haut.addWidget(self.bouton_corriger)
         ligne_haut.addWidget(self.bouton_valider)
@@ -292,6 +344,7 @@ class EspaceSaisie(QWidget):
         disposition = QVBoxLayout(edition)
         disposition.addLayout(ligne_haut)
         disposition.addWidget(self.etat)
+        disposition.addWidget(self.reste)
         disposition.addWidget(self.bloc_informations)
         disposition.addWidget(self.onglets, stretch=1)
         return edition
@@ -313,6 +366,12 @@ class EspaceSaisie(QWidget):
         dialogue = DialogueNouvellePage(self.archive, self)
         if dialogue.exec() == QDialog.DialogCode.Accepted:
             return dialogue.description()
+        return None
+
+    def _choisir_gabarit(self) -> Gabarit | None:
+        dialogue = DialogueGabarit(self.page, self.archive.gabarits(), self)
+        if dialogue.exec() == QDialog.DialogCode.Accepted:
+            return dialogue.gabarit()
         return None
 
     def _demander_motif(self) -> str | None:
@@ -360,7 +419,8 @@ class EspaceSaisie(QWidget):
                 description.auteur,
                 description.machine,
                 description.tags,
-                onglets=[creer_onglet("notes", nouvel_id_onglet(()))],
+                onglets=self._premiers_onglets(description.gabarit),
+                gabarit=description.gabarit,
             )
             self.archive.creer_page(page)
         except (*_ERREURS_ENREGISTREMENT, FileExistsError) as erreur:
@@ -369,6 +429,28 @@ class EspaceSaisie(QWidget):
         self.page_modifiee.emit(page.id)
         self._charger(self.archive.lire_page(page.id))
         return True
+
+    def _premiers_onglets(self, reference: str | None) -> list[Onglet]:
+        """Les onglets d'une nouvelle page : des notes, et ce que son gabarit attend."""
+        onglets: list[Onglet] = [creer_onglet("notes", nouvel_id_onglet(()))]
+        if reference is None:
+            return onglets
+        variables = self.archive.lire_gabarit(reference).variables
+
+        def ajouter(nom_type: str, titre: str | None = None) -> None:
+            onglet = creer_onglet(nom_type, nouvel_id_onglet(onglets))
+            onglets.append(onglet.model_copy(update={"titre": titre or onglet.titre}))
+
+        if any(
+            isinstance(v, (VariableScalaire, VariableIdentifiant)) for v in variables
+        ):
+            ajouter("scalaires")
+        for variable in variables:
+            if isinstance(variable, VariableTableau):
+                ajouter("tableau", variable.nom)
+        if any(isinstance(v, VariableFichier) for v in variables):
+            ajouter("fichiers")
+        return onglets
 
     def ouvrir_page(self, id_page: str) -> bool:
         """Ouvre une page existante, après avoir enregistré la page en cours."""
@@ -415,16 +497,31 @@ class EspaceSaisie(QWidget):
             editeur = self.onglets.widget(0)
             self.onglets.removeTab(0)
             editeur.deleteLater()
+        self.gabarit = self._lire_gabarit(page)
         for onglet in page.onglets:
             self._ajouter_editeur(onglet)
+        if self.gabarit is not None and page.statut == "brouillon":
+            for editeur in self.editeurs():
+                editeur.noter_gabarit(self.gabarit, preremplir=True)
         self.pile.setCurrentWidget(self.edition)
         self._chargement = False
         self._actualiser_etat()
+
+    def _lire_gabarit(self, page: Page) -> Gabarit | None:
+        """Le gabarit de la page. S'il manque, l'archive refusera d'enregistrer en le disant."""
+        if page.gabarit is None:
+            return None
+        try:
+            return self.archive.lire_gabarit(page.gabarit)
+        except (ValueError, KeyError, OSError):
+            return None
 
     def _ajouter_editeur(self, onglet: object) -> EditeurOnglet:
         editeur = creer_editeur(onglet, self.page)
         editeur.attacher_pieces(self.pieces)
         editeur.charger(self.archive)
+        if self.gabarit is not None:
+            editeur.noter_gabarit(self.gabarit, preremplir=False)
         editeur.modifie.connect(self._sur_modification)
         editeur.mesure_proposee.connect(self.ajouter_mesure_proposee)
         editeur.valeurs_importees.connect(self.ajouter_valeurs_importees)
@@ -473,9 +570,58 @@ class EspaceSaisie(QWidget):
             f"le nom « {nom} » est déjà utilisé dans cette page"
             for nom in self._conflits()
         ]
-        return conflits + [
-            erreur for editeur in self.editeurs() for erreur in editeur.erreurs()
+        return (
+            conflits
+            + [erreur for editeur in self.editeurs() for erreur in editeur.erreurs()]
+            + self._ecarts_bloquants()
+        )
+
+    def _ecarts_du_gabarit(self) -> list[Ecart]:
+        if self.page is None or self.gabarit is None:
+            return []
+        try:
+            return verifier_conformite(self._page_saisie(), self.gabarit)
+        except ValidationError:
+            return verifier_conformite(self.page, self.gabarit)
+
+    def _ecarts_bloquants(self) -> list[str]:
+        """Les erreurs de saisie par rapport au gabarit : la page ne s'enregistre pas."""
+        return [e.message for e in self._ecarts_du_gabarit() if e.probleme != "absente"]
+
+    def reste_a_remplir(self) -> list[str]:
+        """Ce que le gabarit attend encore, avec les unités : rien pour une page libre."""
+        if self.gabarit is None:
+            return []
+        reste = [
+            decrire_attendu(self.gabarit, ecart.variable)
+            for ecart in self._ecarts_du_gabarit()
+            if ecart.probleme == "absente"
         ]
+        attendus = {v.nom for v in self.gabarit.variables}
+        vides = [nom for e in self.editeurs() for nom in e.tableaux_vides()]
+        presents = {g.nom for g in (self.page.mesures if self.page else ())}
+        reste += [
+            f"{nom} (lignes du tableau)"
+            for nom in vides
+            if nom in attendus and nom in presents
+        ]
+        return reste
+
+    def _afficher_reste(self) -> None:
+        self.reste.setVisible(self.page is not None and self.page.gabarit is not None)
+        if self.page is None or self.page.gabarit is None:
+            return
+        if self.gabarit is None:
+            self.reste.setText(
+                f"Gabarit {self.page.gabarit} introuvable dans l'archive."
+            )
+            return
+        reste = self.reste_a_remplir()
+        self.reste.setText(
+            f"Gabarit {self.gabarit.reference} · à remplir : {' ; '.join(reste)}"
+            if reste
+            else f"Gabarit {self.gabarit.reference} · tout est rempli"
+        )
 
     def _conflits(self) -> list[str]:
         """Noms qui écraseraient une autre grandeur : rien n'est enregistré dans ce cas."""
@@ -520,6 +666,7 @@ class EspaceSaisie(QWidget):
     def _actualiser_etat(self) -> None:
         if self.page is None:
             return
+        self._afficher_reste()
         brouillon = self.page.statut == "brouillon"
         attente = self.modifications_en_attente()
         erreur = self._erreur_de_saisie()
@@ -575,7 +722,7 @@ class EspaceSaisie(QWidget):
         self._minuteur.stop()
         if self.page is None or self.page.statut != "brouillon":
             return True
-        if self._conflits():
+        if self._conflits() or self._ecarts_bloquants():
             self._actualiser_etat()
             return False
         try:
@@ -604,6 +751,22 @@ class EspaceSaisie(QWidget):
         self._charger(self.page)
         return True
 
+    def demander_gabarit(self) -> bool:
+        """Crée un gabarit à partir de la page, sans changer la page elle-même."""
+        if self.page is None:
+            return False
+        self.enregistrer_maintenant()
+        try:
+            gabarit = self._choisir_gabarit()
+            if gabarit is None:
+                return False
+            self.archive.enregistrer_gabarit(gabarit)
+        except (*_ERREURS_ENREGISTREMENT, FileExistsError) as erreur:
+            self.afficher_erreur(message_erreur(erreur))
+            return False
+        self.etat.setText(f"Gabarit {gabarit.reference} créé.")
+        return True
+
     def demander_fiche(self) -> None:
         """Enregistre un brouillon, puis demande la vue d'ensemble de la page."""
         if self.page is not None:
@@ -618,6 +781,12 @@ class EspaceSaisie(QWidget):
     def demander_validation(self) -> bool:
         """Enregistre le brouillon, demande confirmation, puis valide la page."""
         if self.page is None or not self.enregistrer_maintenant():
+            return False
+        reste = self.reste_a_remplir()
+        if reste:
+            self.afficher_erreur(
+                "Le gabarit attend encore, avant de valider : " + " ; ".join(reste)
+            )
             return False
         question = (
             "Une fois validée, cette page ne se modifiera plus que par une correction "

@@ -5,7 +5,7 @@ grandeur de la page, avec sa formule : les valeurs brutes ne sont jamais remplac
 facteur k ne change que l'affichage.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 
 import pandas as pd
 from pydantic import ValidationError
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFormLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -63,7 +64,7 @@ _LARGEUR_COMMENTAIRE = 240
 _INDICATION = (
     "Exemples : A0 * exp(-ln(2) * t / T12) sur des scalaires ; decroissance.activite / A0 "
     "ligne par ligne, qui donne une colonne dans le tableau ; decroissance.activite[3] pour "
-    "une seule cellule. Le calcul utilise la dernière version enregistrée des grandeurs."
+    "une seule cellule ; derivee(t.y, t.x) ou primitive(t.y, t.x) pour une courbe. Le calcul utilise la dernière version enregistrée des grandeurs."
 )
 _TITRES = ("Nom", "Formule", "Unité", "Résultat", "", "Commentaire", "")
 _SANS_RESULTAT = "—"
@@ -174,6 +175,78 @@ class DialogueBudget(QDialog):
                 )
             ):
                 self.table.setItem(rang, colonne, QTableWidgetItem(texte))
+
+
+class DialogueCourbe(QDialog):
+    """Choisit une opération et ses deux colonnes : y, et x par rapport auquel calculer."""
+
+    def __init__(
+        self, tableaux: Mapping[str, Sequence[str]], parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Dérivée ou primitive d'une courbe")
+        self.tableaux = tableaux
+        self.operation = QComboBox()
+        self.operation.addItem("Dérivée dy/dx", "derivee")
+        self.operation.addItem("Primitive de y dx", "primitive")
+        self.tableau = QComboBox()
+        self.tableau.addItems(list(tableaux))
+        self.y = QComboBox()
+        self.x = QComboBox()
+        self.tableau.currentTextChanged.connect(self._proposer_colonnes)
+        indication = QLabel(
+            "La primitive part de 0 à la première ligne du tableau. x doit croître ou "
+            "décroître strictement."
+            if tableaux
+            else "Aucun tableau enregistré dans cette page."
+        )
+        indication.setObjectName("discret")
+        indication.setWordWrap(True)
+        formulaire = QFormLayout()
+        formulaire.addRow("Opération", self.operation)
+        formulaire.addRow("Tableau", self.tableau)
+        formulaire.addRow("Colonne y", self.y)
+        formulaire.addRow("Colonne x", self.x)
+        boutons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.bouton_ok = boutons.button(QDialogButtonBox.StandardButton.Ok)
+        self.bouton_ok.setText("Ajouter")
+        boutons.button(QDialogButtonBox.StandardButton.Cancel).setText("Annuler")
+        boutons.accepted.connect(self.accept)
+        boutons.rejected.connect(self.reject)
+        disposition = QVBoxLayout(self)
+        disposition.addLayout(formulaire)
+        disposition.addWidget(indication)
+        disposition.addWidget(boutons)
+        self._proposer_colonnes(self.tableau.currentText())
+        self.y.currentTextChanged.connect(self._actualiser)
+        self.x.currentTextChanged.connect(self._actualiser)
+        self._actualiser()
+
+    def _proposer_colonnes(self, tableau: str) -> None:
+        colonnes = list(self.tableaux.get(tableau, ()))
+        self.y.clear()
+        self.y.addItems(colonnes)
+        self.x.clear()
+        self.x.addItems(colonnes)
+        # Le plus souvent, x est la première colonne et y la suivante.
+        if len(colonnes) > 1:
+            self.y.setCurrentIndex(1)
+
+    def _actualiser(self) -> None:
+        self.bouton_ok.setEnabled(
+            bool(self.y.currentText()) and self.y.currentText() != self.x.currentText()
+        )
+
+    def choix(self) -> tuple[str, str, str, str]:
+        """Renvoie l'opération, le tableau, la colonne y et la colonne x."""
+        return (
+            self.operation.currentData(),
+            self.tableau.currentText(),
+            self.y.currentText(),
+            self.x.currentText(),
+        )
 
 
 class LigneCalcul:
@@ -371,6 +444,12 @@ class EditeurCalculs(EditeurOnglet):
 
         self.bouton_ajouter = QPushButton("Ajouter un calcul")
         self.bouton_ajouter.clicked.connect(lambda: self.ajouter_ligne().nom.setFocus())
+        self.bouton_courbe = QPushButton("Dérivée ou primitive…")
+        self.bouton_courbe.setToolTip(
+            "Calcule la courbe dérivée ou la courbe primitive d'une colonne, "
+            "ligne par ligne : elle s'affiche dans le tableau et se trace dans un graphe."
+        )
+        self.bouton_courbe.clicked.connect(self.demander_courbe)
         self.insertion = QComboBox()
         self.insertion.setToolTip("Insère ce nom dans la formule en cours")
         self.insertion.activated.connect(self._inserer_choix)
@@ -384,6 +463,7 @@ class EditeurCalculs(EditeurOnglet):
         self.champ_k.valueChanged.connect(self._k_change)
         ligne_haut = QHBoxLayout()
         ligne_haut.addWidget(self.bouton_ajouter)
+        ligne_haut.addWidget(self.bouton_courbe)
         ligne_haut.addWidget(self.insertion)
         ligne_haut.addStretch()
         ligne_haut.addWidget(QLabel("k ="))
@@ -459,6 +539,7 @@ class EditeurCalculs(EditeurOnglet):
                 ]
             )
         self.insertion.addItems([f"{nom}()" for nom in (*sorted(FONCTIONS), "sqrt")])
+        self.insertion.addItems(["derivee()", "primitive()"])
         self.insertion.addItems(list(CONSTANTES))
 
     def _inserer_choix(self, rang: int) -> None:
@@ -494,6 +575,39 @@ class EditeurCalculs(EditeurOnglet):
         self._ligne_active = ligne
         ligne.afficher()
         return ligne
+
+    def ajouter_courbe(
+        self, operation: str, tableau: str, y: str, x: str
+    ) -> LigneCalcul:
+        """Ajoute la courbe dérivée ou primitive d'une colonne, avec un nom libre."""
+        prefixe = {"derivee": "d", "primitive": "P"}[operation]
+        pris = {g.nom for g in (self.page.mesures if self.page else ())}
+        pris.update(ligne.nom.text().strip() for ligne in self.lignes)
+        nom = f"{prefixe}_{y}"
+        rang = 2
+        while nom in pris:
+            nom = f"{prefixe}_{y}_{rang}"
+            rang += 1
+        vide = next((ligne for ligne in self.lignes if ligne.est_vide()), None)
+        ligne = vide or self.ajouter_ligne()
+        ligne.nom.setText(nom)
+        ligne.formule.setText(f"{operation}({tableau}.{y}, {tableau}.{x})")
+        return ligne
+
+    def _choisir_courbe(self) -> tuple[str, str, str, str] | None:
+        tableaux = tableaux_tracables(self.page) if self.page else {}
+        dialogue = DialogueCourbe(tableaux, self)
+        if dialogue.exec() == QDialog.DialogCode.Accepted:
+            return dialogue.choix()
+        return None
+
+    def demander_courbe(self) -> bool:
+        """Demande la colonne à dériver ou à intégrer, puis ajoute son calcul."""
+        choix = self._choisir_courbe()
+        if choix is None:
+            return False
+        self.ajouter_courbe(*choix)
+        return True
 
     def retirer_ligne(self, ligne: LigneCalcul) -> None:
         """Retire un calcul : il quittera la page, et l'historique le garde."""

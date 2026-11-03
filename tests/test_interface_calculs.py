@@ -13,6 +13,7 @@ from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
 from pymphub.interface.fiche_page import FichePage
 from pymphub.interface.onglet_calculs import (
     DialogueBudget,
+    DialogueCourbe,
     EditeurCalculs,
     ecrire_resultat,
 )
@@ -784,3 +785,61 @@ def test_l_api_lit_la_colonne_avec_le_tableau(espace, releves):
     assert list(tableau["double"]) == pytest.approx([200.0, 100.0, 50.0])
     assert tableau.attrs["unites"]["double"] == "MBq"
     assert lue.mesures["double"].incertitudes_types[0] == pytest.approx(2.0)
+
+
+# --- Courbes dérivée et primitive ------------------------------------------------------
+
+
+def _tableau_pour_courbe(espace):
+    tableau = espace.ajouter_onglet("tableau")
+    tableau.champ_nom.setText("t")
+    x, y = tableau.colonnes[:2]
+    x.nom.setText("x")
+    x.unite.setText("s")
+    x.composantes = (Composante(type="B", valeur=0.1, unite="s", source="horloge"),)
+    y.nom.setText("y")
+    y.unite.setText("m")
+    y.composantes = (Composante(type="B", valeur=0.5, unite="m", source="regle"),)
+    tableau.ecrire_cellules([["0", "0"], ["1", "1"], ["2", "4"]], 0, 0)
+    assert espace.enregistrer_maintenant()
+    return tableau
+
+
+def test_le_bouton_ajoute_la_courbe_derivee(espace, monkeypatch):
+    tableau = _tableau_pour_courbe(espace)
+    calculs = espace.ajouter_onglet("calculs")
+    monkeypatch.setattr(calculs, "_choisir_courbe", lambda: ("derivee", "t", "y", "x"))
+    assert calculs.demander_courbe()
+    ligne = calculs.lignes[0]
+    assert ligne.nom.text() == "d_y"
+    assert ligne.formule.text() == "derivee(t.y, t.x)"
+    assert espace.enregistrer_maintenant()
+    colonne = espace.archive.lire_page(espace.page.id).grandeur("d_y")
+    assert colonne.valeurs == pytest.approx((1.0, 2.0, 3.0))
+    assert colonne.unite == "m/s"
+    assert colonne.tableaux == ("t",)
+    assert [c.nom for c in tableau.colonnes_calculees()] == ["d_y"]
+
+
+def test_le_nom_de_la_courbe_ne_reprend_pas_un_nom_pris(espace):
+    _tableau_pour_courbe(espace)
+    calculs = espace.ajouter_onglet("calculs")
+    assert calculs.ajouter_courbe("primitive", "t", "y", "x").nom.text() == "P_y"
+    assert calculs.ajouter_courbe("primitive", "t", "y", "x").nom.text() == "P_y_2"
+
+
+def test_le_dialogue_de_courbe_propose_les_colonnes(qtbot):
+    dialogue = DialogueCourbe({"t": ["x", "y"], "u": ["a", "b", "c"]})
+    qtbot.addWidget(dialogue)
+    assert dialogue.choix() == ("derivee", "t", "y", "x")
+    dialogue.operation.setCurrentIndex(1)
+    dialogue.tableau.setCurrentText("u")
+    assert dialogue.choix() == ("primitive", "u", "b", "a")
+    dialogue.y.setCurrentText("a")
+    assert not dialogue.bouton_ok.isEnabled()
+
+
+def test_le_dialogue_de_courbe_sans_tableau_ne_propose_rien(qtbot):
+    dialogue = DialogueCourbe({})
+    qtbot.addWidget(dialogue)
+    assert not dialogue.bouton_ok.isEnabled()

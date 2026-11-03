@@ -158,6 +158,10 @@ class ContexteCalcul:
         # Numéro de la ligne en cours, à partir de 1, pour un calcul de colonne.
         self.ligne: int | None = None
         self._coefficients: dict[str, dict[str, _Valeur]] = {}
+        # Valeurs déjà cumulées d'une primitive, par formule puis par ligne.
+        self.primitives: dict[str, dict[int, _Valeur]] = {}
+        # Nombre de lignes d'une courbe déjà vérifiée, par formule.
+        self.courbes: dict[str, int] = {}
 
     def donnees_tableau(self, tableau: str) -> pd.DataFrame:
         """Relit un tableau une seule fois par calcul."""
@@ -452,8 +456,92 @@ def _operation(noeud: ast.BinOp, contexte: ContexteCalcul) -> _Valeur:
     )
 
 
+def _a_la_ligne(noeud: ast.AST, contexte: ContexteCalcul, ligne: int) -> _Valeur:
+    """Évalue une expression de colonnes à une autre ligne que la ligne en cours."""
+    ligne_en_cours, contexte.ligne = contexte.ligne, ligne
+    try:
+        return _evaluer(noeud, contexte)
+    finally:
+        contexte.ligne = ligne_en_cours
+
+
+def _lignes_de_la_courbe(appel: ast.Call, contexte: ContexteCalcul) -> int:
+    """Le nombre de lignes de la courbe, en vérifiant que ses abscisses sont ordonnées."""
+    cle = ast.dump(appel)
+    if cle in contexte.courbes:
+        return contexte.courbes[cle]
+    references = _references_colonnes(appel, contexte.page)
+    if not references or contexte.ligne is None:
+        raise ErreurCalcul(
+            f"{appel.func.id}(y, x) donne une colonne : l'écrire avec des colonnes "
+            "entières, comme derivee(tableau.y, tableau.x)."
+        )
+    nombre = len(contexte.donnees_tableau(references[0][0]))
+    if nombre < 2:
+        raise ErreurCalcul(f"{appel.func.id}(y, x) demande au moins deux lignes.")
+    abscisses = [
+        _a_la_ligne(appel.args[1], contexte, ligne).x.x
+        for ligne in range(1, nombre + 1)
+    ]
+    ecarts = [b - a for a, b in zip(abscisses, abscisses[1:])]
+    if not all(e > 0 for e in ecarts) and not all(e < 0 for e in ecarts):
+        raise ErreurCalcul(
+            f"{appel.func.id}(y, x) : x doit croître ou décroître strictement, sans valeur "
+            "répétée. Trier d'abord le tableau selon cette colonne."
+        )
+    contexte.courbes[cle] = nombre
+    return nombre
+
+
+def _derivee(appel: ast.Call, contexte: ContexteCalcul) -> _Valeur:
+    """Différence centrée, et décentrée aux deux bouts de la courbe."""
+    nombre = _lignes_de_la_courbe(appel, contexte)
+    avant = max(contexte.ligne - 1, 1)
+    apres = min(contexte.ligne + 1, nombre)
+    y, x = appel.args
+    dy = _additionner(
+        _a_la_ligne(y, contexte, apres), _a_la_ligne(y, contexte, avant), -1.0
+    )
+    dx = _additionner(
+        _a_la_ligne(x, contexte, apres), _a_la_ligne(x, contexte, avant), -1.0
+    )
+    return _Valeur(dy.x / dx.x, dy.unite / dx.unite)
+
+
+def _primitive(appel: ast.Call, contexte: ContexteCalcul) -> _Valeur:
+    """Trapèzes cumulés : la primitive vaut 0 à la première ligne du tableau."""
+    _lignes_de_la_courbe(appel, contexte)
+    y, x = appel.args
+    cumul = contexte.primitives.setdefault(ast.dump(appel), {})
+    if 1 not in cumul:
+        premier = _a_la_ligne(y, contexte, 1).unite * _a_la_ligne(x, contexte, 1).unite
+        cumul[1] = _Valeur(_exacte(0.0), premier)
+    for ligne in range(max(cumul) + 1, contexte.ligne + 1):
+        y1, y2 = _a_la_ligne(y, contexte, ligne - 1), _a_la_ligne(y, contexte, ligne)
+        x1, x2 = _a_la_ligne(x, contexte, ligne - 1), _a_la_ligne(x, contexte, ligne)
+        somme = _additionner(y1, y2, 1.0)
+        largeur = _additionner(x2, x1, -1.0)
+        trapeze = _Valeur(somme.x * largeur.x * 0.5, somme.unite * largeur.unite)
+        cumul[ligne] = _additionner(cumul[ligne - 1], trapeze, 1.0)
+    return cumul[contexte.ligne]
+
+
+_COURBES: dict[str, Callable[[ast.Call, ContexteCalcul], _Valeur]] = {
+    "derivee": _derivee,
+    "primitive": _primitive,
+}
+
+
 def _appel(noeud: ast.Call, contexte: ContexteCalcul) -> _Valeur:
     nom = noeud.func.id if isinstance(noeud.func, ast.Name) else None
+    if nom in _COURBES:
+        if (
+            noeud.keywords
+            or len(noeud.args) != 2
+            or any(isinstance(argument, ast.Starred) for argument in noeud.args)
+        ):
+            raise FormuleRefusee(f"{nom} s'écrit {nom}(tableau.y, tableau.x).")
+        return _COURBES[nom](noeud, contexte)
     if (
         (nom not in FONCTIONS and nom != "sqrt")
         or noeud.keywords
@@ -461,7 +549,8 @@ def _appel(noeud: ast.Call, contexte: ContexteCalcul) -> _Valeur:
     ):
         permises = ", ".join(sorted((*FONCTIONS, "sqrt")))
         raise FormuleRefusee(
-            f"Seules ces fonctions à un argument sont autorisées : {permises}."
+            f"Seules ces fonctions à un argument sont autorisées : {permises}. "
+            "S'y ajoutent derivee(y, x) et primitive(y, x)."
         )
     if isinstance(noeud.args[0], ast.Starred):
         raise FormuleRefusee("Cette écriture n'est pas autorisée dans une formule.")
