@@ -87,6 +87,11 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Balises identifiantes non affichées | `tests/test_interface_dicom.py::test_les_balises_identifiantes_ne_s_affichent_jamais` | Vérifié |
 | Grosse série sans bloquer l'interface | `tests/test_interface_dicom.py::test_une_grosse_serie_ne_bloque_pas_l_interface` | Vérifié avec une lecture ralentie ; pas encore sur une vraie grosse série |
 | Cache des empreintes | `tests/test_dicom_import.py::test_le_cache_evite_de_relire_une_grosse_serie` | Vérifié |
+| Une série importée apparaît dans l'onglet de fichiers | `tests/test_interface_dicom.py::test_une_serie_importee_apparait_dans_l_onglet_de_fichiers` | Vérifié |
+| La retirer du DICOM la retire de l'onglet de fichiers | `tests/test_interface_dicom.py::test_retirer_la_serie_la_retire_aussi_de_l_onglet_de_fichiers` | Vérifié |
+| Changer de série libère l'ancienne | `tests/test_interface_dicom.py::test_changer_de_serie_libere_vraiment_l_ancienne` | Vérifié |
+| Un seul volume en mémoire entre plusieurs onglets | `tests/test_interface_dicom.py::test_deux_onglets_dicom_ne_gardent_qu_un_volume` | Vérifié |
+| Très gros volume sur le disque | `tests/test_volumes.py::test_au_dela_du_seuil_le_volume_est_sur_le_disque` | Vérifié avec un seuil abaissé, pas encore sur un vrai volume de plus de 2 Go |
 | Commentaire d'une pièce jointe | `tests/test_interface_photos.py::test_commenter_une_piece_jointe` | Vérifié |
 | Import personnalisé de scalaires et d'informations | `tests/test_interface_tableau.py::test_un_import_complet_remplit_le_tableau_et_les_scalaires` | Vérifié |
 | Une valeur importée sans incertitude ne s'enregistre pas | `tests/test_interface_tableau.py::test_un_scalaire_importe_sans_incertitude_reste_a_completer` | Vérifié |

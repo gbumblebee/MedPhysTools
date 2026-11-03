@@ -53,6 +53,10 @@ from pymphub.page import (
 
 _COLONNES = ("Nom", "État", "Stockage", "Détail", "Commentaire")
 _NOM, _ETAT, _STOCKAGE, _DETAIL, _COMMENTAIRE = range(5)
+_MESSAGE_SERIE = (
+    "Cette série DICOM se regarde et se retire dans son onglet DICOM : "
+    "elle disparaîtra alors d'ici aussi."
+)
 
 
 @dataclass
@@ -88,6 +92,7 @@ class EditeurFichiers(EditeurOnglet):
         self.liens: list[LienFichier] = []
         self._possedees: list[str] = []
         self._references_conservees: list[str] = []
+        self.series_dicom: list[Fichier] = []
         self._remplissage = False
 
         self.bouton_joindre = QPushButton("Joindre un fichier…")
@@ -168,7 +173,19 @@ class EditeurFichiers(EditeurOnglet):
                 self._possedees.append(grandeur.nom)
             else:
                 self._references_conservees.append(reference)
+        self.series_dicom = self._series_de_la_page()
         self._remplir()
+
+    def _series_de_la_page(self) -> list[Fichier]:
+        """Les séries des onglets DICOM : la page en fait des fichiers bruts comme les autres."""
+        miennes = {lien.fichier.nom for lien in self.liens}
+        return [
+            g
+            for g in (self.page.mesures if self.page is not None else ())
+            if isinstance(g, Fichier)
+            and g.type_fichier == "dicom"
+            and g.nom not in miennes
+        ]
 
     def _verifier(self, fichier: Fichier) -> str:
         """Vérifie un fichier une seule fois par ouverture de la page."""
@@ -202,6 +219,11 @@ class EditeurFichiers(EditeurOnglet):
         self._possedees = [lien.grandeur().nom for lien in self.liens]
         for lien in self.liens:
             lien.fichier = lien.grandeur()
+        series = self._series_de_la_page()
+        # Seulement si elles ont changé : réécrire la table fermerait une saisie en cours.
+        if series != self.series_dicom:
+            self.series_dicom = series
+            self._remplir()
 
     # --- Affichage ------------------------------------------------------------------------
 
@@ -239,13 +261,32 @@ class EditeurFichiers(EditeurOnglet):
             detail = f"{stockage.noeud} — {stockage.series_instance_uid}"
         return (lien.nom, nature, detail, lien.etat, lien.commentaire)
 
+    def _ecrire_serie(self, rang: int, serie: Fichier) -> None:
+        """Une série DICOM : en lecture seule ici, car elle appartient à son onglet."""
+        if serie.dicom is not None:
+            nature, detail = "Copie DICOM", serie.dicom.resume
+        else:
+            nature = "Référence DICOM"
+            detail = f"{serie.stockage.noeud} — {serie.stockage.series_instance_uid}"
+        etat = self.archive.etat_fichier_brut(serie, taille_max=0) or "—"
+        self._ecrire_ligne(
+            rang, (serie.nom, nature, detail, etat, serie.commentaire), False
+        )
+        self.table.item(rang, _COMMENTAIRE).setFlags(
+            self.table.item(rang, _COMMENTAIRE).flags() & ~Qt.ItemFlag.ItemIsEditable
+        )
+
+    def _est_serie(self, rang: int) -> bool:
+        return rang >= len(self.liens) + len(self._pieces_listees())
+
     def _remplir(self) -> None:
-        """Réécrit la table : liens d'abord, puis pièces jointes."""
+        """Réécrit la table : liens, puis pièces jointes, puis séries DICOM de la page."""
         if self._remplissage:
             return  # Le changement vient de cette table : elle est déjà à jour.
         self._remplissage = True
         pieces = self._pieces_listees()
-        self.table.setRowCount(len(self.liens) + len(pieces))
+        debut_series = len(self.liens) + len(pieces)
+        self.table.setRowCount(debut_series + len(self.series_dicom))
         for rang, lien in enumerate(self.liens):
             self._ecrire_ligne(rang, self._decrire_lien(lien), nom_modifiable=True)
         for rang, piece in enumerate(pieces, start=len(self.liens)):
@@ -260,11 +301,13 @@ class EditeurFichiers(EditeurOnglet):
                 ),
                 nom_modifiable=False,
             )
+        for rang, serie in enumerate(self.series_dicom, start=debut_series):
+            self._ecrire_serie(rang, serie)
         self._remplissage = False
         self.table.resizeColumnsToContents()
 
     def _cellule_changee(self, element: QTableWidgetItem) -> None:
-        if self._remplissage:
+        if self._remplissage or self._est_serie(element.row()):
             return
         if element.row() >= len(self.liens):
             piece = self._pieces_listees()[element.row() - len(self.liens)]
@@ -381,6 +424,9 @@ class EditeurFichiers(EditeurOnglet):
         rang = self._ligne_choisie()
         if rang is None:
             return
+        if self._est_serie(rang):
+            self._signaler(_MESSAGE_SERIE)
+            return
         chemin = self._emplacement(rang)
         if chemin is None or not chemin.is_file():
             self._signaler("Ce fichier n'est pas disponible sur cet ordinateur.")
@@ -402,6 +448,9 @@ class EditeurFichiers(EditeurOnglet):
         """Retire de la page le fichier choisi, sans effacer le fichier lui-même."""
         rang = self._ligne_choisie()
         if rang is None:
+            return
+        if self._est_serie(rang):
+            self._signaler(_MESSAGE_SERIE)
             return
         if rang < len(self.liens):
             if self._confirmer_retrait(self.liens[rang].nom):

@@ -647,7 +647,9 @@ class FichePage(QWidget):
         """Ouvre les séries DICOM de la page dans le visualiseur, sans rien pouvoir y changer."""
         from pymphub.interface.onglet_dicom import DialogueSeries  # noqa: PLC0415
 
-        DialogueSeries(self.archive, self.page, self).exec()
+        dialogue = DialogueSeries(self.archive, self.page, self)
+        dialogue.exec()
+        dialogue.deleteLater()
 
     def _construire_notes(self, page: Page) -> None:
         for onglet in page.onglets:

@@ -7,12 +7,20 @@ pour que l'interface reste utilisable pendant une grosse série.
 
 import contextlib
 import threading
+import weakref
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QHideEvent,
+    QShowEvent,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -52,6 +60,9 @@ if TYPE_CHECKING:
 _COLONNES = ("Nom", "Modalité", "Fichiers", "Traitement", "État", "Commentaire")
 _NOM, _MODALITE, _FICHIERS, _TRAITEMENT, _ETAT, _COMMENTAIRE = range(6)
 _REFERENCE = "reference"
+_MESSAGE_CHOISIR = "Choisissez une série pour l'afficher."
+# Revenir vite sur l'onglet évite une relecture. Passé ce délai, la mémoire revient au système.
+DELAI_LIBERATION_MS = 30_000
 _ERREURS_LECTURE = (
     ValueError,
     OSError,
@@ -72,6 +83,7 @@ class _Signaux(QObject):
     import_echec = Signal(int, str)
     avancement = Signal(int, int, int)
     empreinte = Signal(str, str)
+    lecture_finie = Signal()
 
 
 def _emettre(signal: Signal, *valeurs: object) -> None:
@@ -84,8 +96,19 @@ def _lancer(fonction: Callable[..., None], *arguments: object) -> None:
     threading.Thread(target=fonction, args=arguments, daemon=True).start()
 
 
+# Le dernier panneau qui a chargé une série : un seul volume reste en mémoire dans le logiciel.
+_panneau_actif: "weakref.ref[PanneauSerie] | None" = None
+
+
 class PanneauSerie(QWidget):
-    """Le visualiseur, et le chargement d'une série sans figer l'interface."""
+    """Le visualiseur, et le chargement d'une série sans figer l'interface.
+
+    Pour ménager la mémoire, seule la série affichée est lue, et :
+    - changer de série libère l'ancienne avant de lire la nouvelle, et arrête sa lecture ;
+    - une série n'est lue que si le panneau est visible ;
+    - ouvrir une série ailleurs libère celle-ci, qui sera relue au retour ;
+    - un panneau caché libère sa série après un court délai.
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -94,10 +117,17 @@ class PanneauSerie(QWidget):
         assurer_ramasse_miettes_principal()
         self._generation = 0
         self.en_cours = False
+        self._demande: tuple[Archive, Fichier, tuple[Fichier, ...]] | None = None
+        self._fil_occupe = False
+        self._a_relancer = False
         self._signaux = _Signaux(self)
         self._signaux.charge.connect(self._charge)
         self._signaux.charge_echec.connect(self._charge_echec)
-        self.etat = QLabel("Choisissez une série pour l'afficher.")
+        self._signaux.lecture_finie.connect(self._lecture_finie)
+        self._minuteur = QTimer(self)
+        self._minuteur.setSingleShot(True)
+        self._minuteur.timeout.connect(self.liberer)
+        self.etat = QLabel(_MESSAGE_CHOISIR)
         self.etat.setObjectName("discret")
         self.etat.setWordWrap(True)
         self.etat.setTextFormat(Qt.TextFormat.PlainText)
@@ -110,26 +140,82 @@ class PanneauSerie(QWidget):
     def montrer(
         self, archive: Archive, fichier: Fichier | None, voisins: Sequence[Fichier]
     ) -> None:
-        """Charge une série dans un fil de travail : seule la dernière demandée s'affichera."""
-        self._generation += 1
-        self.visualiseur.vider()
+        """Choisit la série à afficher. L'ancienne quitte la mémoire avant la lecture."""
+        self._demande = None
+        self.liberer()
         if fichier is None:
-            self.en_cours = False
-            self.etat.setText("Choisissez une série pour l'afficher.")
-            self.etat.setVisible(True)
+            self.etat.setText(_MESSAGE_CHOISIR)
             return
         if fichier.dicom is None:
-            self.en_cours = False
             self.etat.setText(
                 "Cette série est seulement référencée : ses fichiers restent sur le PACS, et "
                 "l'archive n'en a aucune image à afficher."
             )
-            self.etat.setVisible(True)
             return
+        self._demande = (archive, fichier, tuple(voisins))
+        self.recharger()
+
+    def recharger(self) -> None:
+        """Relit la série choisie si elle n'est plus en mémoire et que le panneau est visible."""
+        if (
+            self._demande is None
+            or self.en_cours
+            or self.visualiseur.volume is not None
+            or not self.isVisible()
+        ):
+            return
+        self._prendre_la_place()
         self.en_cours = True
-        self.etat.setText(f"Lecture de « {fichier.nom} »…")
+        self.etat.setText(f"Lecture de « {self._demande[1].nom} »…")
         self.etat.setVisible(True)
-        _lancer(self._lire, self._generation, archive, fichier, tuple(voisins))
+        if self._fil_occupe:
+            # La lecture précédente s'arrête au prochain fichier : deux lectures à la fois
+            # additionneraient leur mémoire.
+            self._a_relancer = True
+            return
+        self._demarrer_la_lecture()
+
+    def _demarrer_la_lecture(self) -> None:
+        self._fil_occupe = True
+        self._a_relancer = False
+        _lancer(self._lire, self._generation, *self._demande)
+
+    def _prendre_la_place(self) -> None:
+        """Un seul volume en mémoire : celui d'un autre panneau s'en va."""
+        global _panneau_actif  # noqa: PLW0603
+        autre = _panneau_actif() if _panneau_actif is not None else None
+        if autre is not None and autre is not self:
+            with contextlib.suppress(RuntimeError):
+                autre.liberer()
+        _panneau_actif = weakref.ref(self)
+
+    def liberer(self) -> None:
+        """Retire la série de la mémoire. Elle reste choisie, et sera relue au besoin."""
+        self._generation += 1
+        self._minuteur.stop()
+        self.en_cours = False
+        self._a_relancer = False
+        self.visualiseur.vider()
+        if self._demande is not None:
+            self.etat.setText(f"« {self._demande[1].nom} » sera relue à son affichage.")
+        self.etat.setVisible(True)
+
+    def oublier(self) -> None:
+        """Libère la mémoire pour de bon : ce panneau ne relira plus rien."""
+        self._demande = None
+        self.liberer()
+
+    def showEvent(self, evenement: QShowEvent) -> None:  # noqa: N802
+        super().showEvent(evenement)
+        self._minuteur.stop()
+        self.recharger()
+
+    def hideEvent(self, evenement: QHideEvent) -> None:  # noqa: N802
+        super().hideEvent(evenement)
+        if self.en_cours:
+            self.liberer()
+        elif self.visualiseur.volume is not None:
+            self._minuteur.start(DELAI_LIBERATION_MS)
 
     def _lire(
         self,
@@ -138,10 +224,18 @@ class PanneauSerie(QWidget):
         fichier: Fichier,
         voisins: tuple[Fichier, ...],
     ) -> None:
+        from pymphub.dicom import LectureAnnulee  # noqa: PLC0415
         from pymphub.volumes import assembler_contenu  # noqa: PLC0415
 
+        def annule() -> bool:
+            return generation != self._generation
+
         try:
-            contenu = assembler_contenu(fichier, voisins, archive.emplacement_fichier)
+            contenu = assembler_contenu(
+                fichier, voisins, archive.emplacement_fichier, annule
+            )
+        except LectureAnnulee:
+            pass
         except MemoryError:
             _emettre(
                 self._signaux.charge_echec,
@@ -152,6 +246,13 @@ class PanneauSerie(QWidget):
             _emettre(self._signaux.charge_echec, generation, message_erreur(erreur))
         else:
             _emettre(self._signaux.charge, generation, contenu)
+        finally:
+            _emettre(self._signaux.lecture_finie)
+
+    def _lecture_finie(self) -> None:
+        self._fil_occupe = False
+        if self._a_relancer and self._demande is not None:
+            self._demarrer_la_lecture()
 
     def _charge(self, generation: int, contenu: object) -> None:
         if generation != self._generation:
@@ -165,6 +266,8 @@ class PanneauSerie(QWidget):
             contenu.balises,
             contenu.remarques,
         )
+        if not self.isVisible():
+            self._minuteur.start(DELAI_LIBERATION_MS)
 
     def _charge_echec(self, generation: int, message: str) -> None:
         if generation != self._generation:
@@ -620,7 +723,11 @@ class EditeurDicom(EditeurOnglet):
             return
         rang = self.table.currentRow()
         choisi = self.liens[rang].fichier if 0 <= rang < len(self.liens) else None
-        DialogueSeries(self.archive, self.page, self, fichiers, choisi).exec()
+        dialogue = DialogueSeries(self.archive, self.page, self, fichiers, choisi)
+        dialogue.exec()
+        dialogue.deleteLater()
+        # Le dialogue a pris la place en mémoire : la série de l'onglet se relit.
+        self.panneau.recharger()
 
     # --- Retrait --------------------------------------------------------------------------
 
@@ -698,6 +805,11 @@ class DialogueSeries(QDialog):
                 else 0
             )
             self.liste.setCurrentRow(depart)
+
+    def done(self, resultat: int) -> None:
+        # Fermé, le dialogue existe encore un instant : il ne garde pas son volume pour autant.
+        self.panneau.oublier()
+        super().done(resultat)
 
     def _choisie(self, rang: int) -> None:
         if 0 <= rang < len(self.fichiers):

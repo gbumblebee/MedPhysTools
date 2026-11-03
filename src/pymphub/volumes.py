@@ -12,7 +12,9 @@ position, sa pente et son ordonnée), puis les trames forment un volume (t, z, y
 """
 
 import math
-from collections.abc import Callable, Sequence
+import shutil
+import tempfile
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,10 +22,13 @@ import numpy as np
 from pydicom.dataset import Dataset
 from scipy.ndimage import affine_transform, map_coordinates
 
-from pymphub.dicom import ErreurDicom, lire_jeux
+from pymphub.dicom import ErreurDicom, lire_entete_de_serie, lire_serie
 from pymphub.page import Fichier
 
-_TAILLE_MAX_OCTETS = 8 * 1024**3
+# Au-delà de cette taille, le volume est écrit dans un fichier temporaire que le système charge
+# à la demande : une 4D volumineuse n'occupe en mémoire que les coupes regardées.
+SEUIL_SUR_DISQUE_OCTETS = 2 * 1024**3
+_TAILLE_MAX_OCTETS = 16 * 1024**3
 _TOLERANCE_POSITION_MM = 1e-3
 _TOLERANCE_ESPACEMENT = 0.01
 _SEUIL_OBLIQUE = 0.99
@@ -385,55 +390,106 @@ def _unite(jeu: Dataset) -> str:
 # --- Assemblage ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _Entete:
+    """Ce qu'il faut garder du premier fichier : garder le fichier garderait aussi ses pixels."""
+
+    unite: str
+    modalite: str
+    cadre_reference: str | None
+    inverse_monochrome: bool
+    epaisseur: float
+
+    @classmethod
+    def depuis(cls, jeu: Dataset) -> "_Entete":
+        return cls(
+            _unite(jeu),
+            str(jeu.get("Modality", "OT")),
+            str(jeu.get("FrameOfReferenceUID", "")) or None,
+            str(jeu.get("PhotometricInterpretation", "")) == "MONOCHROME1",
+            _nombre(jeu, "SliceThickness", 1.0) or 1.0,
+        )
+
+
+def allouer_volume(forme: tuple[int, ...]) -> np.ndarray:
+    """Réserve un volume en mémoire ou, s'il est très gros, dans un fichier temporaire.
+
+    Ce fichier ne contient que des pixels. Le système l'efface à sa fermeture.
+    """
+    octets = int(np.prod(forme)) * 4
+    if octets <= SEUIL_SUR_DISQUE_OCTETS:
+        return np.empty(forme, dtype=np.float32)
+    dossier = tempfile.gettempdir()
+    if shutil.disk_usage(dossier).free < octets:
+        raise ErreurDicom(
+            f"Pas assez de place sur le disque pour afficher cette série ({octets / 1024**3:.1f} Go)."
+        )
+    fichier = tempfile.TemporaryFile(prefix="pymphub_volume_", dir=dossier)
+    fichier.truncate(octets)
+    # La projection en mémoire garde son propre accès au fichier une fois celui-ci fermé.
+    return np.memmap(fichier, dtype=np.float32, mode="r+", shape=forme)
+
+
+def _vers_physique(trame: _Trame) -> np.ndarray:
+    # En double pendant le calcul : un entier sur 32 bits dépasse la précision de 32 bits.
+    return trame.pixels.astype(np.float64) * trame.pente + trame.ordonnee
+
+
 def _assembler_sans_geometrie(
-    trames: list[_Trame], jeu: Dataset, avertissements: list[str]
+    trames: list[_Trame], entete: _Entete, avertissements: list[str]
 ) -> Volume:
     """Sans position, les images s'empilent dans l'ordre : ce n'est pas un volume physique."""
     trames.sort(key=lambda t: (t.temps if t.temps is not None else 0.0, t.rang))
     formes = {t.pixels.shape for t in trames}
     if len(formes) > 1:
         raise ErreurDicom("Les images de cette série n'ont pas toutes la même taille.")
-    donnees = np.stack(
-        [
-            (t.pixels.astype(np.float64) * t.pente + t.ordonnee).astype(np.float32)
-            for t in trames
-        ]
-    )[np.newaxis]
+    donnees = allouer_volume((1, len(trames), *trames[0].pixels.shape))
     ligne, colonne = trames[0].espacement
+    for rang, trame in enumerate(trames):
+        donnees[0, rang] = _vers_physique(trame)
+        trame.pixels = None
     affine = np.diag([colonne, ligne, 1.0, 1.0])
     if len(trames) > 1:
         avertissements.append("Images sans position : affichées dans leur ordre.")
     return Volume(
         donnees,
         affine,
-        _unite(jeu),
-        str(jeu.get("Modality", "OT")),
+        entete.unite,
+        entete.modalite,
         None,
         False,
-        str(jeu.get("PhotometricInterpretation", "")) == "MONOCHROME1",
+        entete.inverse_monochrome,
         tuple(avertissements),
     )
 
 
-def construire_volume(jeux: Sequence[Dataset]) -> Volume:
-    """Construit un volume aux valeurs physiques. Lève `ErreurDicom` en l'expliquant."""
-    jeux = [j for j in jeux if "PixelData" in j]
-    if not jeux:
-        raise ErreurDicom("Cette série ne contient pas d'image.")
-    premier = jeux[0]
-    lignes = int(premier.get("Rows", 0))
-    colonnes = int(premier.get("Columns", 0))
-    images = sum(int(j.get("NumberOfFrames", 1) or 1) for j in jeux)
-    if lignes * colonnes * images * 4 > _TAILLE_MAX_OCTETS:
-        raise ErreurDicom(
-            f"Série trop grande pour la mémoire : {images} images de {colonnes} × {lignes}."
-        )
+def construire_volume(jeux: Iterable[Dataset]) -> Volume:
+    """Construit un volume aux valeurs physiques. Lève `ErreurDicom` en l'expliquant.
+
+    `jeux` peut être un générateur, comme `lire_serie` : chaque fichier est alors relâché dès ses
+    images extraites, et chaque image dès sa copie dans le volume.
+    """
+    entete: _Entete | None = None
     trames: list[_Trame] = []
+    octets = 0
     for jeu in jeux:
+        if "PixelData" not in jeu:
+            continue
+        if entete is None:
+            entete = _Entete.depuis(jeu)
+        images = int(jeu.get("NumberOfFrames", 1) or 1)
+        octets += int(jeu.get("Rows", 0)) * int(jeu.get("Columns", 0)) * images * 4
+        if octets > _TAILLE_MAX_OCTETS:
+            raise ErreurDicom(
+                f"Série trop grande pour être affichée : plus de {_TAILLE_MAX_OCTETS // 1024**3} Go."
+            )
         trames.extend(_trames_du_fichier(jeu))
+        del jeu
+    if entete is None:
+        raise ErreurDicom("Cette série ne contient pas d'image.")
     avertissements: list[str] = []
     if any(t.position is None or t.orientation is None for t in trames):
-        return _assembler_sans_geometrie(trames, premier, avertissements)
+        return _assembler_sans_geometrie(trames, entete, avertissements)
 
     orientation = trames[0].orientation
     if any(not np.allclose(t.orientation, orientation, atol=1e-3) for t in trames):
@@ -457,7 +513,7 @@ def construire_volume(jeux: Sequence[Dataset]) -> Volume:
         )
     phases = nombres.pop()
     forme = trames[0].pixels.shape
-    donnees = np.empty((phases, len(cles), *forme), dtype=np.float32)
+    donnees = allouer_volume((phases, len(cles), *forme))
     temps_premiere: tuple[float, ...] = ()
     for z, cle in enumerate(cles):
         groupe = sorted(
@@ -470,10 +526,8 @@ def construire_volume(jeux: Sequence[Dataset]) -> Volume:
                 for rang, t in enumerate(groupe)
             )
         for t, trame in enumerate(groupe):
-            # En double pendant le calcul : un entier sur 32 bits dépasse la précision de 32 bits.
-            donnees[t, z] = (
-                trame.pixels.astype(np.float64) * trame.pente + trame.ordonnee
-            )
+            donnees[t, z] = _vers_physique(trame)
+            trame.pixels = None
 
     positions = np.array([c * _TOLERANCE_POSITION_MM for c in cles])
     if len(positions) > 1:
@@ -485,7 +539,7 @@ def construire_volume(jeux: Sequence[Dataset]) -> Volume:
                 "médiane, les positions intermédiaires sont approchées."
             )
     else:
-        pas = _nombre(premier, "SliceThickness", 1.0) or 1.0
+        pas = entete.epaisseur
     espace_ligne, espace_colonne = trames[0].espacement
     origine = groupes[cles[0]][0].position
     affine = np.eye(4)
@@ -496,11 +550,11 @@ def construire_volume(jeux: Sequence[Dataset]) -> Volume:
     volume = Volume(
         donnees,
         affine,
-        _unite(premier),
-        str(premier.get("Modality", "OT")),
-        str(premier.get("FrameOfReferenceUID", "")) or None,
+        entete.unite,
+        entete.modalite,
+        entete.cadre_reference,
         True,
-        str(premier.get("PhotometricInterpretation", "")) == "MONOCHROME1",
+        entete.inverse_monochrome,
         tuple(avertissements),
         temps_premiere,
     )
@@ -949,19 +1003,23 @@ def assembler_contenu(
     fichier: Fichier,
     voisins: Sequence[Fichier],
     emplacement: Callable[[Fichier], Path | None],
+    annule: Callable[[], bool] | None = None,
 ) -> ContenuSerie:
     """Prépare l'affichage d'une série : seuls les fichiers de même repère se superposent.
 
     Choisir une dose ou des structures les montre sur l'image de même repère, si la page en
     contient une. Deux séries de repères différents ne sont jamais superposées : leurs
-    coordonnées ne se correspondent pas.
+    coordonnées ne se correspondent pas. Seules les séries affichées sont lues.
     """
 
-    def jeux_de(cible: Fichier) -> list[Dataset]:
+    def chemin_de(cible: Fichier) -> Path:
         chemin = emplacement(cible)
         if chemin is None:
             raise ErreurDicom("Cette série n'est pas disponible sur cet ordinateur.")
-        return lire_jeux(chemin)
+        return chemin
+
+    def volume_de(cible: Fichier) -> Volume:
+        return construire_volume(lire_serie(chemin_de(cible), annule))
 
     if fichier.dicom is None:
         raise ErreurDicom("Ce fichier n'a pas de copie DICOM à afficher.")
@@ -979,35 +1037,35 @@ def assembler_contenu(
     doses = [v for v in proches if v.dicom.modalite == "RTDOSE"]
     remarques: list[str] = []
 
-    jeux_choisis = jeux_de(fichier)
-    if not jeux_choisis:
+    entete = lire_entete_de_serie(chemin_de(fichier))
+    if entete is None:
         raise ErreurDicom("Cette série est vide.")
-    balises = balises_principales(jeux_choisis[0])
+    balises = balises_principales(entete)
 
     structures: list[Structure] = []
     a_lire = [fichier] if modalite == "RTSTRUCT" else []
     a_lire += [v for v in proches if v.dicom.modalite == "RTSTRUCT"]
     for source in a_lire:
-        for jeu in jeux_choisis if source is fichier else jeux_de(source):
+        for jeu in lire_serie(chemin_de(source), annule):
             structures.extend(lire_structures(jeu))
 
     dose: Volume | None = None
     if modalite == "RTDOSE" and images:
-        volume = construire_volume(jeux_de(images[0]))
-        dose = construire_volume(jeux_choisis)
+        volume = volume_de(images[0])
+        dose = volume_de(fichier)
         remarques.append(
             f"Dose affichée sur l'image « {images[0].nom} », de même repère."
         )
     elif modalite == "RTSTRUCT":
         if images:
-            volume = construire_volume(jeux_de(images[0]))
+            volume = volume_de(images[0])
             remarques.append(f"Structures affichées sur l'image « {images[0].nom} ».")
         else:
             volume = volume_pour_structures(structures)
     else:
-        volume = construire_volume(jeux_choisis)
+        volume = volume_de(fichier)
         if doses and modalite != "RTDOSE":
-            dose = construire_volume(jeux_de(doses[0]))
+            dose = volume_de(doses[0])
             remarques.append(f"Dose superposée : « {doses[0].nom} », de même repère.")
     return ContenuSerie(volume, tuple(structures), dose, balises, tuple(remarques))
 

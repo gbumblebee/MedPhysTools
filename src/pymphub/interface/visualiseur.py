@@ -600,6 +600,7 @@ class VisualiseurVolume(QWidget):
         self.volume: Volume | None = None
         self.dose: Volume | None = None
         self.structures: tuple[Structure, ...] = ()
+        self._dose_maximale = 0.0
         self.voxel: list[int] = [0, 0, 0]
         self.t = 0
         self._agrandie: QWidget | None = None
@@ -890,6 +891,9 @@ class VisualiseurVolume(QWidget):
 
     def _preparer_dose(self) -> None:
         self.zone_dose.setVisible(self.dose is not None)
+        # Une seule fois : ce parcours de tout le volume ne suit pas le curseur d'opacité.
+        if self.dose is not None:
+            self._dose_maximale = float(np.nanmax(self.dose.donnees))
         self._dose_changee()
 
     def _dose_changee(self, *_args: object) -> None:
@@ -897,7 +901,7 @@ class VisualiseurVolume(QWidget):
             return
         dose = self.dose if self.case_dose.isChecked() else None
         if self.dose is not None:
-            maximum = float(np.nanmax(self.dose.donnees))
+            maximum = self._dose_maximale
             seuil = maximum * self.champ_seuil.value() / 100.0
             self.echelle_dose.setText(f"{seuil:.4g} à {maximum:.4g} {self.dose.unite}")
             for vue in self.vues.values():

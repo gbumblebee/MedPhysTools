@@ -151,6 +151,10 @@ class ErreurDicom(ValueError):
     """Ce fichier DICOM ne peut pas être lu ou importé : le message explique pourquoi."""
 
 
+class LectureAnnulee(Exception):  # noqa: N818 - ce n'est pas une erreur
+    """La lecture n'est plus utile, car l'utilisateur est passé à autre chose."""
+
+
 # --- Pseudonymisation ---------------------------------------------------------------------
 
 
@@ -522,11 +526,18 @@ def creer_references(
 # --- Relecture ----------------------------------------------------------------------------
 
 
-def lire_serie(chemin: Path) -> Iterator[Dataset]:
-    """Relit les fichiers d'une série du magasin, sans rien écrire sur le disque."""
+def lire_serie(
+    chemin: Path, annule: Callable[[], bool] | None = None
+) -> Iterator[Dataset]:
+    """Relit une série du magasin un fichier à la fois : seul le fichier en cours reste en mémoire.
+
+    `annule` est consulté avant chaque fichier : changer de série arrête la lecture en cours.
+    """
     try:
         with zipfile.ZipFile(chemin_long(chemin)) as archive_zip:
             for nom in sorted(archive_zip.namelist()):
+                if annule is not None and annule():
+                    raise LectureAnnulee
                 yield pydicom.dcmread(io.BytesIO(archive_zip.read(nom)))
     except FileNotFoundError as erreur:
         raise FichierManquant("La série est introuvable dans le magasin.") from erreur
@@ -534,6 +545,22 @@ def lire_serie(chemin: Path) -> Iterator[Dataset]:
         raise ErreurDicom(f"Série illisible : {erreur}") from erreur
 
 
+def lire_entete_de_serie(chemin: Path) -> Dataset | None:
+    """Relit les balises du premier fichier d'une série, sans garder ses pixels."""
+    try:
+        with zipfile.ZipFile(chemin_long(chemin)) as archive_zip:
+            noms = sorted(archive_zip.namelist())
+            if not noms:
+                return None
+            return pydicom.dcmread(
+                io.BytesIO(archive_zip.read(noms[0])), stop_before_pixels=True
+            )
+    except FileNotFoundError as erreur:
+        raise FichierManquant("La série est introuvable dans le magasin.") from erreur
+    except (zipfile.BadZipFile, InvalidDicomError, EOFError) as erreur:
+        raise ErreurDicom(f"Série illisible : {erreur}") from erreur
+
+
 def lire_jeux(chemin: Path) -> list[Dataset]:
-    """Relit toute une série du magasin."""
+    """Relit toute une série du magasin d'un coup : à réserver aux petites séries."""
     return list(lire_serie(chemin))

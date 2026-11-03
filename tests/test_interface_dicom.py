@@ -1,6 +1,8 @@
 """Vérifie le visualiseur et l'onglet DICOM, dans de vrais widgets, avec le thème appliqué."""
 
+import gc
 import time
+import weakref
 from datetime import date as date_
 from datetime import datetime, timedelta, timezone
 
@@ -561,7 +563,9 @@ def espace(qtbot, arc, monkeypatch, theme_applique):
 
 @pytest.fixture
 def editeur(espace):
-    return espace.ajouter_onglet("dicom")
+    resultat = espace.ajouter_onglet("dicom")
+    espace.onglets.setCurrentWidget(resultat)
+    return resultat
 
 
 def importer(qtbot, editeur, chemins):
@@ -888,7 +892,9 @@ def test_afficher_en_grand_ouvre_la_serie_choisie(
 
     def exec_(dialogue):
         vus.append(dialogue)
+        dialogue.show()
         qtbot.waitUntil(lambda: not dialogue.panneau.en_cours, timeout=20000)
+        assert dialogue.panneau.visualiseur.volume is not None
         return 0
 
     monkeypatch.setattr(DialogueSeries, "exec", exec_)
@@ -896,7 +902,6 @@ def test_afficher_en_grand_ouvre_la_serie_choisie(
     dialogue = vus[0]
     qtbot.addWidget(dialogue)
     assert dialogue.liste.currentRow() == 1
-    assert dialogue.panneau.visualiseur.volume is not None
 
 
 def test_afficher_en_grand_sans_serie_s_explique(espace, editeur):
@@ -999,6 +1004,7 @@ def test_fermer_pendant_une_lecture_ne_plante_pas(qtbot, arc, tmp_path, monkeypa
     monkeypatch.setattr(volumes, "assembler_contenu", lente)
     fichier = _importer_une_serie_de_test(arc, tmp_path)
     panneau = PanneauSerie()
+    panneau.show()
     panneau.montrer(arc, fichier, [fichier])
     panneau.deleteLater()
     QApplication.processEvents()
@@ -1023,6 +1029,254 @@ def test_ouvrir_un_onglet_de_notes_ne_charge_pas_pydicom():
         "assert not [m for m in sys.modules if m.startswith('scipy.ndimage')]"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=120)
+
+
+# --- Mémoire ------------------------------------------------------------------------------
+
+
+def serie_en_memoire(panneau):
+    """Une référence faible : elle ne retient pas le volume qu'elle observe."""
+    return weakref.ref(panneau.visualiseur.volume.donnees)
+
+
+def attendre_la_lecture(qtbot, panneau):
+    qtbot.waitUntil(lambda: not panneau.en_cours, timeout=20000)
+    return panneau.visualiseur.volume
+
+
+@pytest.fixture
+def deux_series(qtbot, editeur, tmp_path):
+    importer(qtbot, editeur, ecrire(serie_ct() + serie_ct(), tmp_path / "src"))
+    attendre_la_lecture(qtbot, editeur.panneau)
+    return editeur
+
+
+def test_changer_de_serie_libere_vraiment_l_ancienne(qtbot, deux_series):
+    panneau = deux_series.panneau
+    # La vue 3D garde le volume le temps de son calcul.
+    qtbot.waitUntil(lambda: not panneau.visualiseur.vue_3d._occupe, timeout=20000)
+    ancienne = serie_en_memoire(panneau)
+    deux_series.table.selectRow(1)
+    attendre_la_lecture(qtbot, panneau)
+    qtbot.waitUntil(lambda: not panneau.visualiseur.vue_3d._occupe, timeout=20000)
+    gc.collect()
+    QApplication.processEvents()
+    assert ancienne() is None
+    assert panneau.visualiseur.volume is not None
+
+
+def test_un_onglet_cache_ne_lit_pas_sa_serie(qtbot, espace, deux_series, monkeypatch):
+    espace.onglets.setCurrentIndex(0)
+    deux_series.table.selectRow(1)
+    assert not deux_series.panneau.en_cours
+    assert deux_series.panneau.visualiseur.volume is None
+    espace.onglets.setCurrentWidget(deux_series)
+    assert attendre_la_lecture(qtbot, deux_series.panneau) is not None
+
+
+def test_un_onglet_cache_rend_sa_memoire_apres_le_delai(
+    qtbot, espace, deux_series, monkeypatch
+):
+    monkeypatch.setattr("pymphub.interface.onglet_dicom.DELAI_LIBERATION_MS", 50)
+    panneau = deux_series.panneau
+    espace.onglets.setCurrentIndex(0)
+    assert panneau.visualiseur.volume is not None
+    qtbot.waitUntil(lambda: panneau.visualiseur.volume is None, timeout=5000)
+    espace.onglets.setCurrentWidget(deux_series)
+    assert attendre_la_lecture(qtbot, panneau) is not None
+
+
+def test_revenir_vite_sur_l_onglet_evite_une_relecture(qtbot, espace, deux_series):
+    panneau = deux_series.panneau
+    volume = panneau.visualiseur.volume
+    espace.onglets.setCurrentIndex(0)
+    espace.onglets.setCurrentWidget(deux_series)
+    assert not panneau.en_cours
+    assert panneau.visualiseur.volume is volume
+    assert not panneau._minuteur.isActive()
+
+
+def test_deux_onglets_dicom_ne_gardent_qu_un_volume(
+    qtbot, espace, deux_series, tmp_path
+):
+    second = espace.ajouter_onglet("dicom")
+    espace.onglets.setCurrentWidget(second)
+    importer(qtbot, second, ecrire(serie_ct(), tmp_path / "autre"))
+    assert attendre_la_lecture(qtbot, second.panneau) is not None
+    assert deux_series.panneau.visualiseur.volume is None
+    espace.onglets.setCurrentWidget(deux_series)
+    assert attendre_la_lecture(qtbot, deux_series.panneau) is not None
+    assert second.panneau.visualiseur.volume is None
+
+
+def test_la_grande_fenetre_prend_la_place_et_la_rend_a_sa_fermeture(
+    qtbot, deux_series, monkeypatch
+):
+    onglet = deux_series.panneau
+    vus = []
+
+    def exec_(dialogue):
+        vus.append(dialogue)
+        dialogue.show()
+        attendre_la_lecture(qtbot, dialogue.panneau)
+        # Le volume de l'onglet a laissé sa place à celui de la grande fenêtre.
+        assert onglet.visualiseur.volume is None
+        assert dialogue.panneau.visualiseur.volume is not None
+        dialogue.reject()
+        return 0
+
+    monkeypatch.setattr(DialogueSeries, "exec", exec_)
+    deux_series.afficher_en_grand()
+    assert vus[0].panneau.visualiseur.volume is None
+    assert attendre_la_lecture(qtbot, onglet) is not None
+
+
+def test_changer_de_serie_arrete_la_lecture_en_cours(qtbot, deux_series, monkeypatch):
+    """Une seule lecture à la fois : la précédente s'arrête au fichier suivant."""
+    import pymphub.dicom as module
+    import pymphub.volumes as volumes
+
+    lues = []
+    vraie = module.lire_serie
+
+    def lente(chemin, annule=None):
+        for jeu in vraie(chemin, annule):
+            lues.append(chemin)
+            time.sleep(0.2)
+            yield jeu
+
+    monkeypatch.setattr(volumes, "lire_serie", lente)
+    panneau = deux_series.panneau
+    deux_series.table.selectRow(1)
+    assert panneau.en_cours
+    qtbot.waitUntil(lambda: bool(lues), timeout=5000)
+    premier = lues[0]
+    deux_series.table.selectRow(0)
+    assert attendre_la_lecture(qtbot, panneau) is not None
+    # 4 fichiers par série : la première n'a pas été lue jusqu'au bout.
+    assert lues.count(premier) < 4
+
+
+def test_seule_la_serie_affichee_est_lue(qtbot, editeur, tmp_path, monkeypatch):
+    """Une capture sans repère et un scanner : afficher l'un ne lit pas les pixels de l'autre."""
+    import pymphub.dicom as module
+    import pymphub.volumes as volumes
+
+    importer(qtbot, editeur, ecrire(serie_ct() + [capture_ecran()], tmp_path / "src"))
+    attendre_la_lecture(qtbot, editeur.panneau)
+    lus = []
+    vraie = module.lire_serie
+
+    def espion(chemin, annule=None):
+        lus.append(chemin)
+        return vraie(chemin, annule)
+
+    monkeypatch.setattr(volumes, "lire_serie", espion)
+    autre = 1 if editeur.table.currentRow() == 0 else 0
+    editeur.table.selectRow(autre)
+    attendre_la_lecture(qtbot, editeur.panneau)
+    assert lus == [espace_de(editeur, autre)]
+
+
+def espace_de(editeur, rang):
+    return editeur.archive.emplacement_fichier(editeur.liens[rang].fichier)
+
+
+# --- Les séries dans l'onglet de fichiers -------------------------------------------------
+
+
+@pytest.fixture
+def fichiers(espace):
+    return espace.ajouter_onglet("fichiers")
+
+
+def lignes_de(table):
+    return [table.item(i, 0).text() for i in range(table.rowCount())]
+
+
+def test_une_serie_importee_apparait_dans_l_onglet_de_fichiers(
+    qtbot, espace, fichiers, editeur, tmp_path
+):
+    importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
+    relue(espace)
+    assert lignes_de(fichiers.table) == ["dicom_CT"]
+    assert fichiers.table.item(0, 2).text() == "Copie DICOM"
+    assert fichiers.table.item(0, 3).text() == "CT, 4 fichier(s), pseudonymisé"
+
+
+def test_retirer_la_serie_la_retire_aussi_de_l_onglet_de_fichiers(
+    qtbot, espace, fichiers, editeur, tmp_path, monkeypatch
+):
+    importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
+    relue(espace)
+    assert lignes_de(fichiers.table) == ["dicom_CT"]
+    monkeypatch.setattr(editeur, "_confirmer_retrait", lambda _n: True)
+    editeur.table.selectRow(0)
+    editeur.demander_retrait()
+    relue(espace)
+    assert lignes_de(fichiers.table) == []
+
+
+def test_une_reference_uid_apparait_aussi_et_se_retire(
+    qtbot, espace, fichiers, editeur, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(editeur, "_demander_noeud", lambda: "PACS_CHU")
+    editeur.choix_mode.setCurrentIndex(2)
+    importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
+    relue(espace)
+    assert fichiers.table.item(0, 2).text() == "Référence DICOM"
+    assert "PACS_CHU" in fichiers.table.item(0, 3).text()
+
+
+def test_la_serie_se_retrouve_dans_l_onglet_de_fichiers_a_la_reouverture(
+    qtbot, espace, fichiers, editeur, tmp_path
+):
+    importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
+    relue(espace)
+    assert espace.ouvrir_page(espace.page.id)
+    rouvert = next(
+        e for e in espace.editeurs() if type(e).__name__ == "EditeurFichiers"
+    )
+    assert lignes_de(rouvert.table) == ["dicom_CT"]
+
+
+def test_l_onglet_de_fichiers_ne_retire_pas_une_serie_et_l_explique(
+    qtbot, espace, fichiers, editeur, tmp_path
+):
+    importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
+    page = relue(espace)
+    fichiers.table.selectRow(0)
+    fichiers.demander_retrait()
+    assert "onglet DICOM" in fichiers.message.text()
+    fichiers.ouvrir_selection()
+    assert "onglet DICOM" in fichiers.message.text()
+    assert relue(espace).grandeur("dicom_CT") == page.grandeur("dicom_CT")
+    flags = fichiers.table.item(0, 4).flags()
+    assert not flags & Qt.ItemFlag.ItemIsEditable
+
+
+def test_une_autre_ligne_de_l_onglet_de_fichiers_reste_utilisable(
+    qtbot, espace, fichiers, editeur, tmp_path
+):
+    """Les séries s'ajoutent à la fin : les pièces jointes gardent leur rang et leur commentaire."""
+    piece = tmp_path / "note.txt"
+    piece.write_text("x", encoding="utf-8")
+    fichiers.joindre([piece])
+    importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
+    relue(espace)
+    assert lignes_de(fichiers.table) == ["pieces_jointes/note.txt", "dicom_CT"]
+    fichiers.table.item(0, 4).setText("Commentaire")
+    assert relue(espace).pieces_jointes[0].commentaire == "Commentaire"
+
+
+def test_un_enregistrement_ne_ferme_pas_une_saisie_dans_l_onglet_de_fichiers(
+    qtbot, espace, fichiers, editeur, tmp_path
+):
+    importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
+    relue(espace)
+    element = fichiers.table.item(0, 0)
+    espace.enregistrer_maintenant()
+    assert fichiers.table.item(0, 0) is element
 
 
 # --- Fiche et export ---------------------------------------------------------------------

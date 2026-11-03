@@ -1,7 +1,10 @@
 """Vérifie les valeurs physiques, la géométrie, la 4D et les structures, sur des cas connus."""
 
+import gc
 import math
 import time
+import weakref
+from datetime import date
 
 import numpy as np
 import pytest
@@ -207,6 +210,85 @@ def test_une_serie_4d_incomplete_s_explique():
         construire_volume(jeux[:-1])
 
 
+# --- Mémoire ------------------------------------------------------------------------------
+
+
+def test_un_volume_se_construit_depuis_un_generateur():
+    """Chaque fichier est relâché dès que possible : il n'y a donc pas de liste à garder."""
+    volume = construire_volume(iter(serie_ct(melanger=False)))
+    assert volume.valeur(0, 3, 5, 7) == 5090.0
+
+
+def test_un_fichier_lu_n_est_plus_retenu(tmp_path):
+    jeux = serie_ct()
+    observes = []
+
+    def un_a_un():
+        while jeux:
+            jeu = jeux.pop()
+            observes.append(weakref.ref(jeu))
+            yield jeu
+            del jeu
+
+    volume = construire_volume(un_a_un())
+    gc.collect()
+    assert volume.donnees.shape == (1, 4, 8, 10)
+    assert [o() for o in observes] == [None] * 4
+
+
+def test_au_dela_du_seuil_le_volume_est_sur_le_disque(monkeypatch):
+    """Mêmes valeurs, mais dans un fichier temporaire que le système charge à la demande."""
+    en_memoire = construire_volume(serie_ct(melanger=False))
+    assert not isinstance(en_memoire.donnees, np.memmap)
+    monkeypatch.setattr("pymphub.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
+    sur_disque = construire_volume(serie_ct(melanger=False))
+    assert isinstance(sur_disque.donnees, np.memmap)
+    assert np.array_equal(sur_disque.donnees, en_memoire.donnees)
+    assert coupe(sur_disque, "sagittal", 3) == pytest.approx(
+        coupe(en_memoire, "sagittal", 3)
+    )
+
+
+def test_une_4d_sur_le_disque_garde_ses_phases(monkeypatch):
+    monkeypatch.setattr("pymphub.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
+    volume = construire_volume(serie_4d_classique(phases=3, coupes=2))
+    assert isinstance(volume.donnees, np.memmap)
+    assert volume.donnees[2, 1, 0, 0] == 201
+
+
+def test_le_fichier_temporaire_ne_reste_pas_sur_le_disque(monkeypatch, tmp_path):
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    monkeypatch.setattr("pymphub.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
+    volume = construire_volume(serie_ct())
+    assert volume.valeur(0, 0, 0, 0) is not None
+    del volume
+    gc.collect()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_sans_place_sur_le_disque_cela_s_explique(monkeypatch):
+    monkeypatch.setattr("pymphub.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
+    monkeypatch.setattr("shutil.disk_usage", lambda _d: type("U", (), {"free": 0})())
+    with pytest.raises(ErreurDicom, match="place sur le disque"):
+        construire_volume(serie_ct())
+
+
+def test_une_lecture_annulee_s_arrete_au_fichier_suivant(tmp_path):
+    from fabrique_dicom import ecrire
+
+    from pymphub import Archive
+    from pymphub.dicom import LectureAnnulee, importer_series, lire_serie
+
+    arc = Archive.creer(tmp_path / "A", "CHU X", "Resp.", date(2026, 11, 1))
+    fichier = importer_series(arc, ecrire(serie_ct(), tmp_path / "s")).fichiers[0]
+    chemin = arc.emplacement_fichier(fichier)
+    lus = []
+    with pytest.raises(LectureAnnulee):
+        for jeu in lire_serie(chemin, annule=lambda: len(lus) >= 2):
+            lus.append(jeu)
+    assert len(lus) == 2
+
+
 # --- Erreurs ------------------------------------------------------------------------------
 
 
@@ -240,7 +322,7 @@ def test_un_espacement_irregulier_est_signale():
 
 def test_une_serie_gigantesque_est_refusee_avant_de_saturer_la_memoire():
     jeu = dose_rt()
-    jeu.NumberOfFrames = 1
+    jeu.NumberOfFrames = 2
     jeu.Rows = 65535
     jeu.Columns = 65535
     with pytest.raises(ErreurDicom, match="trop grande"):
