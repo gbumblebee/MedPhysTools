@@ -3,6 +3,9 @@
 Un gabarit se crée après coup depuis une page libre, en choisissant ses variables.
 Il garde leur nom, leur nature et leur unité attendue, jamais leurs données : celles-ci
 sont recherchées dans l'archive au moment de l'analyse.
+
+Il peut aussi garder des onglets tout prêts : le texte de notes (méthode, équations), et les
+réglages d'un graphe ou d'un ajustement, qui se construisent quand les données arrivent.
 """
 
 import re
@@ -16,8 +19,10 @@ from typing import Annotated, Literal
 import tomli_w
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from pymphub.graphes import reglages_par_defaut
 from pymphub.page import (
     Ajustement,
+    CoefficientPrevu,
     ColonneCalculee,
     ColonneIdentifiant,
     ColonneIncertitude,
@@ -27,14 +32,22 @@ from pymphub.page import (
     Identifiant,
     Indicateur,
     Nom,
+    Onglet,
+    OngletAjustements,
+    OngletGraphes,
+    OngletNotes,
     Page,
+    PrereglageAjustement,
+    ReglagesGraphe,
     Scalaire,
     Tableau,
     Unite,
 )
 from pymphub.unites import sont_compatibles
 
-VERSION_SCHEMA_GABARIT = 1
+# Format 2 : ajout des onglets préparés. Un gabarit au format 1 reste lisible.
+VERSION_SCHEMA_GABARIT = 2
+_MODELE_PERSONNALISE = "Personnalisé"
 
 
 class _Modele(BaseModel):
@@ -96,6 +109,35 @@ Variable = Annotated[
 ]
 
 
+class NotesPrevues(_Modele):
+    """Un onglet de notes prérempli : méthode, équations. Ses photos ne sont pas reprises."""
+
+    type: Literal["notes"] = "notes"
+    titre: str = ""
+    texte: str = Field(min_length=1)
+
+
+class GraphePrevu(_Modele):
+    """Un onglet de graphes déjà réglé : il se trace dès que son tableau a des données."""
+
+    type: Literal["graphes"] = "graphes"
+    titre: str = ""
+    reglages: ReglagesGraphe
+
+
+class AjustementPrevu(_Modele):
+    """Un onglet d'ajustement déjà réglé : il s'ajuste dès que son tableau a des données."""
+
+    type: Literal["ajustements"] = "ajustements"
+    titre: str = ""
+    prereglage: PrereglageAjustement
+
+
+OngletPrevu = Annotated[
+    NotesPrevues | GraphePrevu | AjustementPrevu, Field(discriminator="type")
+]
+
+
 class Gabarit(_Modele):
     """Le contenu d'un fichier de gabarit TOML."""
 
@@ -104,6 +146,7 @@ class Gabarit(_Modele):
     version: int = Field(ge=1)
     description: str = ""
     variables: tuple[Variable, ...] = Field(min_length=1)
+    onglets: tuple[OngletPrevu, ...] = ()
 
     @model_validator(mode="after")
     def _verifier(self) -> "Gabarit":
@@ -116,7 +159,51 @@ class Gabarit(_Modele):
         doublons = sorted({nom for nom in noms if noms.count(nom) > 1})
         if doublons:
             raise ValueError(f"Variables répétées : {', '.join(doublons)}.")
+        self._verifier_onglets()
         return self
+
+    def _verifier_onglets(self) -> None:
+        """Un onglet préparé ne peut utiliser que des colonnes que le gabarit attend."""
+        colonnes = {
+            variable.nom: {c.nom for c in variable.colonnes if c.nature == "numerique"}
+            for variable in self.variables
+            if isinstance(variable, VariableTableau)
+        }
+        ajustements = [
+            o.prereglage.nom for o in self.onglets if isinstance(o, AjustementPrevu)
+        ]
+        pris = [variable.nom for variable in self.variables]
+        repetes = sorted(
+            {nom for nom in ajustements if ajustements.count(nom) > 1 or nom in pris}
+        )
+        if repetes:
+            raise ValueError(f"Noms d'ajustement déjà pris : {', '.join(repetes)}.")
+
+        def verifier(nom: str, tableau: str, utilisees: Sequence[str]) -> None:
+            for colonne in utilisees:
+                if colonne not in colonnes.get(tableau, ()):
+                    raise ValueError(
+                        f"L'onglet « {nom} » utilise {tableau}.{colonne} : cocher cette "
+                        "variable, ou décocher cet onglet."
+                    )
+
+        for onglet in self.onglets:
+            if isinstance(onglet, GraphePrevu):
+                r = onglet.reglages
+                verifier(
+                    onglet.titre,
+                    r.tableau,
+                    [r.x, *r.y, *(() if r.z is None else (r.z,))],
+                )
+                inconnues = sorted(set(r.courbes) - set(ajustements))
+                if inconnues:
+                    raise ValueError(
+                        f"L'onglet « {onglet.titre} » superpose un ajustement absent du "
+                        f"gabarit : {', '.join(inconnues)}."
+                    )
+            elif isinstance(onglet, AjustementPrevu):
+                p = onglet.prereglage
+                verifier(onglet.titre, p.tableau, [p.x, p.y])
 
     @property
     def reference(self) -> str:
@@ -137,25 +224,169 @@ def _colonnes_utiles(tableau: Tableau) -> list[ColonneNumerique | ColonneIdentif
     return [c for c in tableau.colonnes if not isinstance(c, ColonneIncertitude)]
 
 
+def _ajustement_de(page: Page, onglet: Onglet) -> Ajustement | None:
+    """L'ajustement que montre un onglet d'ajustement, s'il en a un."""
+    for nom in getattr(onglet, "grandeurs", ()):
+        grandeur = next((g for g in page.mesures if g.nom == nom), None)
+        if isinstance(grandeur, Ajustement):
+            return grandeur
+    return None
+
+
+def _prereglage_de(ajustement: Ajustement) -> PrereglageAjustement:
+    """Garde le modèle d'un ajustement, sans son résultat.
+
+    Une formule personnalisée a besoin d'un point de départ pour converger, et ses unités
+    ne se déduisent pas des colonnes : ses coefficients servent donc de départ.
+    """
+    personnalise = ajustement.modele == _MODELE_PERSONNALISE
+    return PrereglageAjustement(
+        nom=ajustement.nom,
+        tableau=ajustement.tableau,
+        x=ajustement.x,
+        y=ajustement.y,
+        modele=ajustement.modele,
+        formule=ajustement.formule,
+        coefficients=tuple(
+            CoefficientPrevu(nom=p.nom, unite=p.unite, depart=p.valeur)
+            for p in ajustement.parametres
+        )
+        if personnalise
+        else (),
+    )
+
+
+def _colonnes_calculees_de(
+    page: Page, tableau: str, utilisees: Sequence[str]
+) -> list[str]:
+    """Parmi ces colonnes, celles qui sont calculées : un gabarit ne garde pas les calculs."""
+    grandeur = next((g for g in page.mesures if g.nom == tableau), None)
+    mesurees = (
+        {c.nom for c in grandeur.colonnes if isinstance(c, ColonneNumerique)}
+        if isinstance(grandeur, Tableau)
+        else set()
+    )
+    return [nom for nom in utilisees if nom not in mesurees]
+
+
+@dataclass(frozen=True)
+class OngletChoisissable:
+    """Un onglet qu'un gabarit peut reprendre. `probleme` dit pourquoi il ne le peut pas."""
+
+    id: str
+    titre: str
+    type: str
+    probleme: str | None = None
+
+
+def onglets_choisissables(page: Page) -> list[OngletChoisissable]:
+    """Les onglets de notes, de graphes et d'ajustements qui ont quelque chose à reprendre."""
+    resultat: list[OngletChoisissable] = []
+    for onglet in page.onglets:
+        utilisees: tuple[str, Sequence[str]] | None = None
+        if isinstance(onglet, OngletNotes):
+            if not onglet.texte.strip():
+                continue
+        elif isinstance(onglet, OngletGraphes):
+            reglages = reglages_par_defaut(page, onglet)
+            if reglages is None:
+                continue
+            utilisees = (
+                reglages.tableau,
+                [reglages.x, *reglages.y, *((reglages.z,) if reglages.z else ())],
+            )
+        elif onglet.type == "ajustements":
+            ajustement = _ajustement_de(page, onglet)
+            if ajustement is None:
+                continue
+            utilisees = (ajustement.tableau, [ajustement.x, ajustement.y])
+        else:
+            continue
+        calculees = _colonnes_calculees_de(page, *utilisees) if utilisees else []
+        resultat.append(
+            OngletChoisissable(
+                onglet.id,
+                onglet.titre or onglet.type,
+                onglet.type,
+                f"utilise {', '.join(calculees)}, une colonne calculée"
+                if calculees
+                else None,
+            )
+        )
+    return resultat
+
+
+def _onglet_prevu(
+    page: Page, onglet: Onglet, ajustements: Sequence[str]
+) -> NotesPrevues | GraphePrevu | AjustementPrevu:
+    titre = onglet.titre or onglet.type
+    if isinstance(onglet, OngletNotes):
+        return NotesPrevues(titre=titre, texte=onglet.texte)
+    if isinstance(onglet, OngletGraphes):
+        reglages = reglages_par_defaut(page, onglet)
+        if reglages is not None:
+            return GraphePrevu(
+                titre=titre,
+                reglages=reglages.model_copy(
+                    update={
+                        "courbes": tuple(
+                            c for c in reglages.courbes if c in ajustements
+                        )
+                    }
+                ),
+            )
+    else:
+        ajustement = _ajustement_de(page, onglet)
+        if ajustement is not None:
+            return AjustementPrevu(titre=titre, prereglage=_prereglage_de(ajustement))
+    raise ValueError(f"L'onglet « {titre} » n'a rien à reprendre dans un gabarit.")
+
+
+def _onglets_prevus(
+    page: Page, choisis: Sequence[str]
+) -> tuple[NotesPrevues | GraphePrevu | AjustementPrevu, ...]:
+    """Prépare les onglets choisis. Un graphe ne superpose que les ajustements repris."""
+    par_id = {onglet.id: onglet for onglet in page.onglets}
+    inconnus = sorted(set(choisis) - set(par_id))
+    if inconnus:
+        raise KeyError(f"Aucun onglet « {', '.join(inconnus)} » dans cette page.")
+    ajustements = [
+        a.nom
+        for identifiant in choisis
+        if (a := _ajustement_de(page, par_id[identifiant])) is not None
+    ]
+    return tuple(_onglet_prevu(page, par_id[i], ajustements) for i in choisis)
+
+
 def creer_gabarit(
     page: Page,
     nom: str,
     variables: Sequence[str],
     version: int = 1,
     description: str = "",
+    onglets: Sequence[str] = (),
 ) -> Gabarit:
     """Crée un gabarit à partir d'une page, en choisissant les variables utiles.
 
     Chaque variable désigne une grandeur (`activite`), un tableau entier (`decroissance`)
     ou une colonne (`decroissance.heure`). Les colonnes choisies d'un même tableau sont
     regroupées. Aucune valeur mesurée ni incertitude n'est reprise.
+
+    `onglets` donne les identifiants des onglets à reprendre : le texte des notes, et les
+    réglages des graphes et des ajustements, jamais leurs résultats.
     """
+    courbes = {g.courbe for g in page.mesures if isinstance(g, Ajustement)}
     resultat: dict[str, Variable] = {}
     colonnes_choisies: dict[str, list[ColonneAttendue]] = {}
 
     for choix in variables:
         nom_grandeur, separateur, nom_colonne = choix.partition(".")
         grandeur = page.grandeur(nom_grandeur)
+        if nom_grandeur in courbes:
+            raise ValueError(
+                f"« {nom_grandeur} » est la courbe d'un ajustement : reprendre plutôt "
+                "l'onglet d'ajustement."
+            )
 
         if separateur:
             if not isinstance(grandeur, Tableau):
@@ -211,6 +442,7 @@ def creer_gabarit(
         version=version,
         description=description,
         variables=tuple(resultat.values()),
+        onglets=_onglets_prevus(page, onglets),
     )
 
 
@@ -239,7 +471,10 @@ def colonnes_choisissables(page: Page) -> dict[str, list[str]]:
     Les résultats de calcul n'y figurent pas : ils se déduisent des grandeurs mesurées.
     """
     resultat: dict[str, list[str]] = {}
+    courbes = {g.courbe for g in page.mesures if isinstance(g, Ajustement)}
     for grandeur in page.mesures:
+        if grandeur.nom in courbes:
+            continue
         if isinstance(grandeur, Tableau):
             resultat[grandeur.nom] = [c.nom for c in _colonnes_utiles(grandeur)]
         elif isinstance(grandeur, (Scalaire, Identifiant, Fichier)):
@@ -374,6 +609,26 @@ def rattacher_gabarit(page: Page, gabarit: Gabarit) -> Page:
     return page.model_copy(update={"gabarit": gabarit.reference})
 
 
+def onglet_depuis_gabarit(
+    prevu: NotesPrevues | GraphePrevu | AjustementPrevu, identifiant: str
+) -> Onglet:
+    """Crée l'onglet d'une nouvelle page à partir de ce que le gabarit a prévu."""
+    if isinstance(prevu, NotesPrevues):
+        return OngletNotes(
+            id=identifiant, type="notes", titre=prevu.titre, texte=prevu.texte
+        )
+    if isinstance(prevu, GraphePrevu):
+        return OngletGraphes(
+            id=identifiant, type="graphes", titre=prevu.titre, reglages=prevu.reglages
+        )
+    return OngletAjustements(
+        id=identifiant,
+        type="ajustements",
+        titre=prevu.titre,
+        prereglage=prevu.prereglage,
+    )
+
+
 def page_depuis_gabarit(
     gabarit: Gabarit,
     id: str,
@@ -385,7 +640,8 @@ def page_depuis_gabarit(
     """Crée une page vide rattachée à un gabarit.
 
     Les variables restent à remplir : `verifier_conformite` les signale comme absentes
-    tant qu'elles n'ont pas de valeur, d'unité et d'incertitude.
+    tant qu'elles n'ont pas de valeur, d'unité et d'incertitude. Les onglets prévus par le
+    gabarit sont déjà là : notes, graphes et ajustements réglés.
     """
     return Page(
         id=id,
@@ -394,4 +650,8 @@ def page_depuis_gabarit(
         date_saisie=date_saisie,
         auteur=auteur,
         gabarit=gabarit.reference,
+        onglets=tuple(
+            onglet_depuis_gabarit(prevu, f"onglet_{rang}")
+            for rang, prevu in enumerate(gabarit.onglets, start=1)
+        ),
     )

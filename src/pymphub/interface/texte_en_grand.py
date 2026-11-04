@@ -44,7 +44,8 @@ class DialogueTexte(QDialog):
 class AffichageEnGrand(QObject):
     """Ajoute l'action « Afficher en grand » au menu contextuel d'un widget.
 
-    Le menu habituel du widget (copier, coller…) reste disponible en dessous.
+    Le menu habituel du widget (copier, coller…) reste disponible en dessous. Un widget n'a
+    qu'un menu de clic droit : `complement` y ajoute d'autres actions, à la fin.
     """
 
     def __init__(
@@ -54,13 +55,15 @@ class AffichageEnGrand(QObject):
         self.widget = widget
         self.titre = titre
         self.lire_texte = lire_texte
+        self.complement: Callable[[QMenu, QPoint], None] | None = None
         widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         widget.customContextMenuRequested.connect(self._montrer_menu)
 
     def _menu_habituel(self) -> QMenu:
         if isinstance(self.widget, (QLineEdit, QPlainTextEdit, QTextEdit)):
             return self.widget.createStandardContextMenu()
-        menu = QMenu(self.widget)
+        # Enfant de la fenêtre : le widget peut être reconstruit tant que le menu est ouvert.
+        menu = QMenu(self.widget.window())
         if isinstance(self.widget, QLabel):
             menu.addAction("Copier", self._copier_etiquette)
         return menu
@@ -76,17 +79,20 @@ class AffichageEnGrand(QObject):
         texte = self.lire_texte(position)
         action = QAction(LIBELLE_ACTION, menu)
         action.setEnabled(bool(texte.strip()))
-        action.triggered.connect(lambda: self.afficher(texte))
+        fenetre = self.widget.window()
+        action.triggered.connect(lambda: self.afficher(texte, fenetre))
         premiere = menu.actions()[0] if menu.actions() else None
         menu.insertAction(premiere, action)
         if premiere is not None:
             menu.insertSeparator(premiere)
+        if self.complement is not None:
+            self.complement(menu, position)
         return menu
 
-    def afficher(self, texte: str) -> None:
-        """Ouvre le texte en grand."""
+    def afficher(self, texte: str, fenetre: QWidget | None = None) -> None:
+        """Ouvre le texte en grand, par défaut devant la fenêtre du widget."""
         titre = self.titre() if callable(self.titre) else self.titre
-        dialogue = DialogueTexte(titre, texte, self.widget.window())
+        dialogue = DialogueTexte(titre, texte, fenetre or self.widget.window())
         dialogue.exec()
         dialogue.deleteLater()
 

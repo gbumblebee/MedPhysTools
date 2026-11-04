@@ -56,6 +56,8 @@ def test_creer_une_archive(fenetre, tmp_path, qtbot):
     assert fenetre.archive.configuration.site == "CHU X"
     assert fenetre.pile.currentWidget() is fenetre.espaces
     assert "ArchiveStage1" in fenetre.windowTitle()
+    # La barre d'état montre l'emplacement une fois les fichiers vérifiés.
+    qtbot.waitUntil(fenetre.espace_archive.au_repos, timeout=30000)
     assert str(tmp_path) in fenetre.statusBar().currentMessage()
     assert fenetre.erreurs == []
 

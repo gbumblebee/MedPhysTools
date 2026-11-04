@@ -154,6 +154,28 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Une page depuis un gabarit indique ce qu'il reste à remplir | `tests/test_interface_gabarit.py::test_une_page_depuis_un_gabarit_indique_ce_qu_il_reste` | Vérifié |
 | Une unité incohérente est bloquée à la saisie | `tests/test_interface_gabarit.py::test_une_unite_incoherente_est_bloquee_a_la_saisie` | Vérifié |
 | Validation refusée tant qu'il reste à remplir | `tests/test_interface_gabarit.py::test_la_validation_est_refusee_tant_qu_il_reste_a_remplir` | Vérifié |
+| Notes, graphes et ajustements cochés entrent dans le gabarit | `tests/test_interface_gabarit.py::test_le_dialogue_coche_les_onglets_et_les_met_dans_le_gabarit` | Vérifié |
+| Le gabarit ne garde aucun résultat d'ajustement | `tests/test_gabarit.py::test_le_gabarit_garde_les_reglages_sans_aucun_resultat` | Vérifié |
+| Un graphe préparé se trace à la saisie, avec sa courbe | `tests/test_interface_gabarit.py::test_le_graphe_attend_ses_donnees_puis_se_trace_tout_seul` | Vérifié |
+| Une page validée ne se réajuste jamais seule | `tests/test_interface_gabarit.py::test_une_page_validee_ne_se_reajuste_jamais_toute_seule` | Vérifié |
+
+## Modifications hors du logiciel et chemin d'une page
+
+| Exigence | Test | État |
+|---|---|---|
+| Ouvrir le logiciel crée la nouvelle version et le signale | `tests/test_modifications_externes.py::test_ouvrir_le_logiciel_cree_la_version_et_le_signale` | Vérifié |
+| Le fichier est gardé tel quel, l'ancienne valeur reste lisible | `tests/test_modifications_externes.py::test_une_modification_a_la_main_devient_une_version_fidele` | Vérifié |
+| Une archive saine ne crée aucune version | `tests/test_modifications_externes.py::test_ouvrir_une_archive_saine_n_affiche_rien_et_ne_cree_rien` | Vérifié |
+| Relire depuis un script n'écrit rien | `tests/test_modifications_externes.py::test_relire_une_archive_depuis_un_script_n_ecrit_rien` | Vérifié |
+| Une page validée modifiée est signalée, sa valeur barrée | `tests/test_modifications_externes.py::test_la_fiche_signale_une_page_validee_modifiee_et_barre_l_ancienne_valeur` | Vérifié |
+| Le clic droit copie le chemin du dossier de la page | `tests/test_modifications_externes.py::test_le_menu_d_une_page_copie_son_chemin` | Vérifié |
+| Le clic droit copie le chemin d'une pièce jointe | `tests/test_copie_chemin.py::test_une_piece_jointe_donne_son_chemin_dans_la_page` | Vérifié |
+| Le clic droit copie le chemin d'une photo des notes | `tests/test_copie_chemin.py::test_une_photo_des_notes_donne_son_chemin_avant_tout_enregistrement` | Vérifié |
+| Le clic droit copie le zip d'une série de l'onglet DICOM | `tests/test_copie_chemin.py::test_une_serie_de_l_onglet_dicom_donne_son_zip` | Vérifié |
+| Une série restée sur le PACS dit qu'elle n'a pas de chemin | `tests/test_copie_chemin.py::test_une_serie_restee_sur_le_pacs_explique_qu_elle_n_a_pas_de_chemin` | Vérifié |
+| La fiche d'une page copie aussi ces chemins | `tests/test_copie_chemin.py::test_la_fiche_donne_le_chemin_des_fichiers_et_des_photos` | Vérifié |
+| Un enregistrement automatique ne ferme pas le menu d'une photo | `tests/test_copie_chemin.py::test_un_enregistrement_menu_ouvert_ne_casse_pas_le_menu_d_une_photo` | Vérifié |
+| Afficher une photo n'ouvre aucune fenêtre parasite | `tests/test_copie_chemin.py::test_construire_une_vignette_n_ouvre_aucune_fenetre` | Vérifié |
 
 ## Gabarits
 

@@ -593,6 +593,10 @@ class _Ecrivain:
         ]
         if page.statut == "brouillon":
             parties.append(_alerte("Page non validée : ceci est un brouillon."))
+        if self.archive.modifications_externes(page.id):
+            parties.append(
+                _alerte("Page modifiée hors du logiciel : voir son historique.")
+            )
         if a_signaler:
             parties.append(_alerte("Fichiers à vérifier : " + " ; ".join(a_signaler)))
         parties.extend(self.onglet(onglet, etats) for onglet in page.onglets)

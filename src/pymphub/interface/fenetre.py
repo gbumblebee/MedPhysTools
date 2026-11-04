@@ -198,6 +198,7 @@ class FenetrePrincipale(QMainWindow):
         self.espace_saisie = EspaceSaisie()
         self.espace_saisie.page_modifiee.connect(self.espace_archive.page_modifiee)
         self.espace_archive.reprise_effectuee.connect(self.espace_saisie.recharger)
+        self.espace_archive.verification_terminee.connect(self._archive_verifiee)
         self.espace_archive.fiche.edition_demandee.connect(self._modifier_page)
         self.espace_archive.fiche.suppression_demandee.connect(self._supprimer_page)
         self.espace_archive.fiche.export_demande.connect(self.demander_export_page)
@@ -294,7 +295,7 @@ class FenetrePrincipale(QMainWindow):
 
     def _modifier_page(self, id_page: str) -> None:
         """Ouvre dans l'espace Saisie la page choisie dans l'espace Archive."""
-        if self.espace_saisie.ouvrir_page(id_page):
+        if self.espace_saisie.isEnabled() and self.espace_saisie.ouvrir_page(id_page):
             self.espaces.setCurrentWidget(self.espace_saisie)
 
     def _supprimer_page(self, id_page: str) -> None:
@@ -383,13 +384,22 @@ class FenetrePrincipale(QMainWindow):
     def _installer(self, archive: Archive) -> None:
         self.archive = archive
         self.setWindowTitle(f"{archive.configuration.nom} — pymphub")
-        self.statusBar().showMessage(chemin_affichable(archive.racine))
+        self.statusBar().showMessage("Vérification des fichiers de l'archive…")
         self.pile.setCurrentWidget(self.espaces)
         self.action_exporter.setEnabled(True)
-        self.espace_archive.installer(archive)
+        # Une saisie écrit ses fichiers avant son commit : pendant la vérification, elle
+        # passerait pour une modification faite hors du logiciel.
+        self.espace_saisie.setEnabled(False)
+        self.espace_archive.installer(archive, enregistrer_externes=True)
         self.espace_saisie.installer(archive)
         memoriser_derniere_archive(os.path.abspath(chemin_affichable(archive.racine)))
         self.archive_ouverte.emit(archive)
+
+    def _archive_verifiee(self) -> None:
+        """Les fichiers sont vérifiés : la saisie peut commencer."""
+        self.espace_saisie.setEnabled(True)
+        if self.archive is not None:
+            self.statusBar().showMessage(chemin_affichable(self.archive.racine))
 
     def closeEvent(self, evenement: QCloseEvent) -> None:  # noqa: N802
         """Enregistre la page en cours et attend la fin des travaux en arrière-plan."""

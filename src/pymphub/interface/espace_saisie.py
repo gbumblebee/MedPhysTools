@@ -41,13 +41,17 @@ from pymphub.edition import (
     nouvelle_page,
 )
 from pymphub.gabarit import (
+    AjustementPrevu,
     Ecart,
     Gabarit,
+    GraphePrevu,
+    NotesPrevues,
     VariableFichier,
     VariableIdentifiant,
     VariableScalaire,
     VariableTableau,
     decrire_attendu,
+    onglet_depuis_gabarit,
     verifier_conformite,
 )
 from pymphub.importation import ResultatImport, ValeurImportee
@@ -193,7 +197,10 @@ class DialogueNouvellePage(QDialog):
             self.attendus.setText(f"Gabarit illisible : {message_erreur(erreur)}")
             return
         variables = (decrire_attendu(gabarit, v.nom) for v in gabarit.variables)
-        self.attendus.setText("Attendu : " + " ; ".join(variables))
+        texte = "Attendu : " + " ; ".join(variables)
+        if gabarit.onglets:
+            texte += "\nDéjà prêt : " + ", ".join(o.titre for o in gabarit.onglets)
+        self.attendus.setText(texte)
 
     def description(self) -> DescriptionPage:
         """Renvoie les informations saisies."""
@@ -431,11 +438,27 @@ class EspaceSaisie(QWidget):
         return True
 
     def _premiers_onglets(self, reference: str | None) -> list[Onglet]:
-        """Les onglets d'une nouvelle page : des notes, et ce que son gabarit attend."""
-        onglets: list[Onglet] = [creer_onglet("notes", nouvel_id_onglet(()))]
+        """Les onglets d'une nouvelle page : des notes, et ce que son gabarit attend.
+
+        Viennent les notes, qui expliquent la méthode, puis les données à saisir, et enfin
+        les ajustements et les graphes qui en découlent.
+        """
+        onglets: list[Onglet] = []
         if reference is None:
-            return onglets
-        variables = self.archive.lire_gabarit(reference).variables
+            return [creer_onglet("notes", nouvel_id_onglet(()))]
+        gabarit = self.archive.lire_gabarit(reference)
+        variables = gabarit.variables
+
+        def ajouter_prevus(classe: type) -> None:
+            for prevu in gabarit.onglets:
+                if isinstance(prevu, classe):
+                    onglets.append(
+                        onglet_depuis_gabarit(prevu, nouvel_id_onglet(onglets))
+                    )
+
+        ajouter_prevus(NotesPrevues)
+        if not onglets:
+            onglets.append(creer_onglet("notes", nouvel_id_onglet(())))
 
         def ajouter(nom_type: str, titre: str | None = None) -> None:
             onglet = creer_onglet(nom_type, nouvel_id_onglet(onglets))
@@ -450,6 +473,8 @@ class EspaceSaisie(QWidget):
                 ajouter("tableau", variable.nom)
         if any(isinstance(v, VariableFichier) for v in variables):
             ajouter("fichiers")
+        ajouter_prevus(AjustementPrevu)
+        ajouter_prevus(GraphePrevu)
         return onglets
 
     def ouvrir_page(self, id_page: str) -> bool:

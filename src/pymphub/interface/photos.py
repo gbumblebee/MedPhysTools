@@ -12,6 +12,7 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
+    QContextMenuEvent,
     QImage,
     QImageReader,
     QMouseEvent,
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -40,6 +42,7 @@ from PySide6.QtWidgets import (
 from pymphub.disque import chemin_affichable
 from pymphub.edition import point_normalise
 from pymphub.fichiers import ETATS_ALERTE
+from pymphub.interface.pieces import ajouter_chemin
 from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.interface.theme import ANNOTATION, ANNOTATION_CHOISIE
 from pymphub.page import Annotation, PhotoAnnotee
@@ -249,6 +252,7 @@ class VignettePhoto(QFrame):
     ) -> None:
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.chemin = chemin
         self.photo = photo
         self.image = QLabel()
         self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -265,13 +269,13 @@ class VignettePhoto(QFrame):
         self.alerte.setObjectName("alerte")
         self.alerte.setWordWrap(True)
         self.alerte.setFixedWidth(_COTE_VIGNETTE)
-        self.alerte.setVisible(bool(self.alerte.text()))
         self.legende = QLabel(photo.legende)
         self.legende.setTextFormat(Qt.TextFormat.PlainText)
         self.legende.setWordWrap(True)
-        self.legende.setVisible(bool(photo.legende))
         self.legende.setFixedWidth(_COTE_VIGNETTE)
-        afficher_en_grand(self.legende, "Légende")
+        afficher_en_grand(self.legende, "Légende").complement = lambda menu, _position: (
+            ajouter_chemin(menu, self.chemin, self)
+        )
 
         self.bouton_ouvrir = QPushButton("Annoter…" if modifiable else "Voir…")
         self.bouton_ouvrir.setEnabled(self.lisible)
@@ -280,7 +284,6 @@ class VignettePhoto(QFrame):
         ligne.addWidget(self.bouton_ouvrir)
         self.bouton_retirer = QPushButton("Retirer")
         self.bouton_retirer.clicked.connect(self.retrait_demande)
-        self.bouton_retirer.setVisible(modifiable)
         ligne.addWidget(self.bouton_retirer)
 
         disposition = QVBoxLayout(self)
@@ -288,10 +291,23 @@ class VignettePhoto(QFrame):
         disposition.addWidget(self.alerte)
         disposition.addWidget(self.legende)
         disposition.addLayout(ligne)
+        # Seulement maintenant : montré sans parent, un widget ouvre sa propre fenêtre, ce qui
+        # ferme au passage un menu ouvert.
+        self.alerte.setVisible(bool(self.alerte.text()))
+        self.legende.setVisible(bool(photo.legende))
+        self.bouton_retirer.setVisible(modifiable)
 
     def mouseDoubleClickEvent(self, _evenement: QMouseEvent) -> None:  # noqa: N802
         if self.lisible:
             self.ouverture_demandee.emit()
+
+    def contextMenuEvent(self, evenement: QContextMenuEvent) -> None:  # noqa: N802
+        # Enfant de la fenêtre : un enregistrement automatique reconstruit les vignettes,
+        # et emporterait avec elles un menu ouvert.
+        menu = QMenu(self.window())
+        ajouter_chemin(menu, self.chemin, self)
+        menu.exec(evenement.globalPos())
+        menu.deleteLater()
 
 
 class BandePhotos(QScrollArea):
@@ -470,7 +486,10 @@ class DialogueAnnotation(QDialog):
         formulaire = QFormLayout()
         formulaire.addRow("Texte", self.champ_texte)
         formulaire.addRow("Légende", self.champ_legende)
-        self.indication = QLabel("Choisissez une forme, puis dessinez sur la photo.")
+        # Avec un parent dès le départ : montré sans parent, il ouvrirait sa propre fenêtre.
+        self.indication = QLabel(
+            "Choisissez une forme, puis dessinez sur la photo.", self
+        )
         self.indication.setObjectName("discret")
         self.indication.setVisible(modifiable)
         droite = QVBoxLayout()
@@ -483,7 +502,7 @@ class DialogueAnnotation(QDialog):
         conteneur_droite.setLayout(droite)
         conteneur_droite.setFixedWidth(400)
 
-        self.alerte = QLabel(message_etat(etat))
+        self.alerte = QLabel(message_etat(etat), self)
         self.alerte.setObjectName("alerte")
         self.alerte.setVisible(bool(self.alerte.text()))
 

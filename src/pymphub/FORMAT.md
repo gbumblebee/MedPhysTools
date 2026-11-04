@@ -22,6 +22,16 @@ index.sqlite       cache de recherche : peut être supprimé et reconstruit
 .git/              historique des pages et des fichiers légers
 ```
 
+## Gabarits
+
+Un fichier `gabarits/<nom>@<version>.toml` liste les `variables` attendues : nom, nature, colonnes et unités, jamais leurs valeurs. À partir de son format 2, ses `onglets` préparent une nouvelle page :
+
+- `type = "notes"` : `titre` et `texte`. Les photos ne sont pas reprises.
+- `type = "graphes"` : `titre` et `reglages`, décrits plus bas.
+- `type = "ajustements"` : `titre` et `prereglage`, décrit à la section sur les ajustements.
+
+Un onglet préparé n'utilise que des colonnes numériques attendues par le gabarit. Une fois créée, la page garde sa propre copie de ces onglets.
+
 ## Identifiant d'une page
 
 `AAAA-MM-JJ_sujet_NNNN` : date de la mesure, sujet en minuscules sans accent, puis numéro d'ordre dans l'archive. Exemple : `2026-11-14_activimetre-linearite_0007`.
@@ -94,6 +104,16 @@ La nature `ajustement` garde un modèle ajusté sur deux colonnes d'un `tableau`
 La nature `indicateur` garde un résultat lu sur une courbe : `methode` (`minimum`, `maximum`, `moyenne`, `mediane`, `percentile`, `ecart_type`, `coefficient_variation`, `moyenne_quadratique`, `somme`, `etendue`, `nombre_points`, `integrale`, `derivee`, `largeur_mi_hauteur`, `abscisse_de_valeur`), `source` (`points` ou `ajustement`), ses données d'origine (`tableau`, `x`, `y`, `ajustement`), son intervalle (`de`, `a`), `parametre`, son abscisse (`position`, `incertitude_position`, `unite_position`), `valeur`, `incertitude_type`, `unite` et `afficher`, qui place un repère sur le graphe.
 
 Dans une formule, `ajustement.coefficient` désigne un coefficient, corrélé aux autres, et `indicateur.x` l'abscisse d'un indicateur.
+
+Un onglet de type `ajustements` issu d'un gabarit garde son `prereglage` : `nom`, `tableau`, `x`, `y`, `modele` et `formule`. Pour un modèle `Personnalisé`, `coefficients` donne le `nom`, l'`unite` et le `depart` de chacun. Tant que la page est un brouillon, l'ajustement se refait à chaque enregistrement de ses points. Une page validée ne se réajuste jamais seule.
+
+## Modifications hors du logiciel
+
+À chaque ouverture dans l'application, tout fichier suivi par Git qui diffère du dernier commit donne une nouvelle version : le fichier est enregistré tel quel, jamais réécrit. Le commit a la nature `modification externe` et l'auteur `hors logiciel`. Son motif, écrit par le logiciel, dit que le changement vient d'une modification hors du logiciel ou d'un enregistrement interrompu, sans pouvoir les distinguer, et donne le nom et la date de chaque fichier. La date du commit est celle de la détection. Le champ `statut` de la page reste celui du fichier.
+
+Les fichiers hors de Git (`objets/`, `pieces_jointes/`) ne sont pas concernés : leur ancien contenu n'est pas conservé. Ils sont contrôlés par empreinte à l'affichage.
+
+Relire une archive depuis un script n'écrit jamais rien.
 
 ## Tableaux CSV
 

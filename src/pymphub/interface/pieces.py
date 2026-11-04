@@ -4,17 +4,21 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from PySide6.QtCore import QMimeData, QObject, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QGuiApplication
+from PySide6.QtWidgets import QMainWindow, QMenu, QWidget
 
 from pymphub.archive import TAILLE_MAX_VERIFICATION, Archive
 from pymphub.disque import chemin_affichable
 from pymphub.fichiers import EtatFichier, semble_dicom
-from pymphub.page import Page, PieceJointe
+from pymphub.page import Fichier, Page, PieceJointe
 
 MESSAGE_DICOM = (
     "« {nom} » est un fichier DICOM : il pourrait contenir des données de patient. "
     "L'importer dans un onglet DICOM, qui le pseudonymise."
 )
+LIBELLE_CHEMIN = "Copier le chemin d'accès"
+LIBELLE_CHEMIN_SERIE = "Copier le chemin d'accès (zip de la série)"
+LIBELLE_SANS_CHEMIN = "Pas de chemin d'accès : série restée sur le PACS"
 
 
 class FichierRefuse(ValueError):
@@ -35,6 +39,44 @@ def chemins_deposes(donnees: QMimeData) -> list[Path]:
 def ouvrir_avec_le_systeme(chemin: Path) -> bool:
     """Ouvre un fichier avec le logiciel associé par le système."""
     return QDesktopServices.openUrl(QUrl.fromLocalFile(chemin_affichable(chemin)))
+
+
+def copier_chemin(chemin: Path, widget: QWidget) -> str:
+    """Copie le chemin complet, tel qu'on peut le coller, et l'annonce dans la barre d'état."""
+    texte = chemin_affichable(chemin.resolve())
+    QGuiApplication.clipboard().setText(texte)
+    fenetre = widget.window()
+    if isinstance(fenetre, QMainWindow):
+        fenetre.statusBar().showMessage(f"Chemin copié : {texte}")
+    return texte
+
+
+def ajouter_chemin(
+    menu: QMenu, chemin: Path, widget: QWidget, libelle: str = LIBELLE_CHEMIN
+) -> None:
+    """Ajoute au menu de clic droit l'action qui copie ce chemin.
+
+    Elle retient la fenêtre : le widget peut être reconstruit tant que le menu est ouvert.
+    """
+    if menu.actions():
+        menu.addSeparator()
+    fenetre = widget.window()
+    action = menu.addAction(libelle)
+    action.triggered.connect(lambda: copier_chemin(chemin, fenetre))
+
+
+def ajouter_chemin_fichier(
+    menu: QMenu, archive: Archive, fichier: Fichier, widget: QWidget
+) -> None:
+    """Pareil pour un fichier brut. Une série sur le PACS n'a pas de chemin : c'est dit."""
+    chemin = archive.emplacement_fichier(fichier)
+    if chemin is None:
+        if menu.actions():
+            menu.addSeparator()
+        menu.addAction(LIBELLE_SANS_CHEMIN).setEnabled(False)
+        return
+    libelle = LIBELLE_CHEMIN if fichier.dicom is None else LIBELLE_CHEMIN_SERIE
+    ajouter_chemin(menu, chemin, widget, libelle)
 
 
 class PiecesDeLaPage(QObject):

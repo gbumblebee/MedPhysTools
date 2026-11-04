@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QDragEnterEvent,
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QListWidget,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -48,7 +49,7 @@ from pymphub.interface.messages import message_erreur
 from pymphub.interface.onglet_fichiers import LienFichier
 from pymphub.interface.onglets import EditeurOnglet, declarer_onglet
 from pymphub.interface.photos import message_etat
-from pymphub.interface.pieces import chemins_deposes
+from pymphub.interface.pieces import ajouter_chemin_fichier, chemins_deposes
 from pymphub.interface.ramasse_miettes import assurer_ramasse_miettes_principal
 from pymphub.interface.texte_en_grand import afficher_en_grand_colonne
 from pymphub.interface.theme import ALERTE
@@ -345,7 +346,9 @@ class EditeurDicom(EditeurOnglet):
         entete.setStretchLastSection(True)
         self.table.itemChanged.connect(self._cellule_changee)
         self.table.itemSelectionChanged.connect(self._selection_changee)
-        afficher_en_grand_colonne(self.table, _COMMENTAIRE, "Commentaire")
+        afficher_en_grand_colonne(
+            self.table, _COMMENTAIRE, "Commentaire"
+        ).complement = self._completer_menu
         # De quoi voir au moins trois séries : image, dose et structures.
         self.table.setMinimumHeight(130)
 
@@ -495,6 +498,13 @@ class EditeurDicom(EditeurOnglet):
             self.table.selectRow(rang_choisi)
         self._remplissage = False
         self.table.resizeColumnsToContents()
+
+    def _completer_menu(self, menu: QMenu, position: QPoint) -> None:
+        """Le clic droit sur une ligne propose de copier le chemin de sa série."""
+        element = self.table.itemAt(position)
+        if element is not None:
+            fichier = self.liens[element.row()].fichier
+            ajouter_chemin_fichier(menu, self.archive, fichier, self.table)
 
     def _cellule_changee(self, element: QTableWidgetItem) -> None:
         if self._remplissage:

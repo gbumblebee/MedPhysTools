@@ -42,6 +42,7 @@ from pymphub.fichiers import (
 )
 from pymphub.gabarit import Gabarit, depuis_toml, verifier_conformite, vers_toml
 from pymphub.historique import (
+    NATURE_EXTERNE,
     EntreeHistorique,
     Modification,
     differences,
@@ -82,6 +83,8 @@ _LONGUEUR_MAX_SUJET = 40
 _FICHIER_CONFIGURATION = "archive.toml"
 _NUMERO_PAGE = re.compile(r"_(\d{4,})$")
 _CHAMPS_FIXES = ("id", "date_saisie", "auteur")
+# Le commit d'une modification externe ne connaît pas son auteur : il ne faut pas en inventer un.
+_AUTEUR_EXTERNE = "hors logiciel"
 # Au-delà, un affichage ne calcule pas l'empreinte : il resterait bloqué trop longtemps.
 TAILLE_MAX_VERIFICATION = 100 * 1024 * 1024
 
@@ -178,7 +181,8 @@ def _comparer_versions(
         return ()
     try:
         return differences(json.loads(ancien), json.loads(nouveau))
-    except json.JSONDecodeError:
+    except ValueError:
+        # JSON abîmé, ou enregistré dans un autre encodage qu'UTF-8.
         return ()
 
 
@@ -211,6 +215,23 @@ def _tableaux_du_json(contenu: bytes) -> list[tuple[str, str]]:
         ):
             tableaux.append((nom, fichier))
     return tableaux
+
+
+def _motif_externe(details: str) -> str:
+    """Le motif d'une version créée toute seule : il dit ce qu'on sait, et rien de plus."""
+    return (
+        "Détecté à l'ouverture : modification hors du logiciel ou enregistrement "
+        f"interrompu. {details}"
+    )
+
+
+def _differences_csv_brutes(
+    nom: str, ancien: bytes, nouveau: bytes
+) -> tuple[Modification, ...]:
+    """Compare deux versions d'un CSV, même réenregistré dans un autre encodage par un tableur."""
+    return differences_csv(
+        nom, ancien.decode("utf-8", "replace"), nouveau.decode("utf-8", "replace")
+    )
 
 
 def _decrire_reference(chemin: str) -> ReferenceFichier:
@@ -660,6 +681,10 @@ class Archive:
         )
         return cible
 
+    def emplacement_page(self, id_page: str) -> Path:
+        """Renvoie le dossier où une page est réellement stockée."""
+        return self._dossier_page(id_page)
+
     def lire_page(self, id_page: str) -> Page:
         """Relit une page d'après son identifiant."""
         chemin = self._dossier_page(id_page) / "page.json"
@@ -996,15 +1021,11 @@ class Archive:
             ancien = self._depot.contenu(commit.parents[0], chemin)
             nouveau = self._depot.contenu(commit.id, chemin)
             if ancien is not None and nouveau is not None:
-                modifications.extend(
-                    differences_csv(
-                        nom, ancien.decode("utf-8"), nouveau.decode("utf-8")
-                    )
-                )
+                modifications.extend(_differences_csv_brutes(nom, ancien, nouveau))
         return tuple(modifications)
 
     def _entrees(
-        self, id_page: str | None = None, nature: str | None = None
+        self, id_page: str | None = None, natures: Sequence[str] | None = None
     ) -> list[EntreeHistorique]:
         entrees: list[EntreeHistorique] = []
         for commit in self._depot.commits():
@@ -1012,7 +1033,7 @@ class Archive:
             page = infos.get("Page")
             if page is None or (id_page is not None and page != id_page):
                 continue
-            if nature is not None and infos.get("Nature") != nature:
+            if natures is not None and infos.get("Nature") not in natures:
                 continue
             chemin = _chemin_page_json(page)
             ancien = (
@@ -1050,8 +1071,14 @@ class Archive:
         return entrees
 
     def corrections(self, id_page: str | None = None) -> list[EntreeHistorique]:
-        """Renvoie les corrections motivées d'une page, ou de toute l'archive."""
-        return self._entrees(id_page, nature="correction")
+        """Renvoie les corrections d'une page ou de toute l'archive, y compris celles à la main."""
+        return self._entrees(id_page, ("correction", NATURE_EXTERNE))
+
+    def modifications_externes(
+        self, id_page: str | None = None
+    ) -> list[EntreeHistorique]:
+        """Renvoie les versions créées toutes seules après une modification hors du logiciel."""
+        return self._entrees(id_page, (NATURE_EXTERNE,))
 
     def version_page(self, id_page: str, commit: str) -> Page:
         """Relit une page telle qu'elle était à un commit de son historique."""
@@ -1122,5 +1149,76 @@ class Archive:
                 message_commit("reprise", page, motif_normalise, sujet=sujet),
                 [fichier],
                 auteur or self.configuration.responsable,
+            )
+        return fichiers
+
+    def _decrire_fichier_externe(self, relatif: str, base: str = "") -> str:
+        """Nomme un fichier changé, avec sa date : le commit date seulement la détection."""
+        chemin = self.racine / relatif
+        nom = relatif.removeprefix(base)
+        if not chemin.is_file():
+            return f"{nom} supprimé"
+        date_fichier = datetime.fromtimestamp(chemin.stat().st_mtime).astimezone()
+        return f"{nom} daté du {date_fichier:%d/%m/%Y %H:%M}"
+
+    def _modifications_sur_disque(
+        self, id_page: str, fichiers: Sequence[str]
+    ) -> tuple[Modification, ...]:
+        """Compare à son dernier commit une page changée hors du logiciel."""
+        chemin = self.racine / _chemin_page_json(id_page)
+        ancien = self._depot.contenu_actuel(_chemin_page_json(id_page))
+        nouveau = chemin.read_bytes() if chemin.is_file() else None
+        modifications = list(_comparer_versions(ancien, nouveau))
+        for nom, fichier in _tableaux_du_json(nouveau or ancien or b""):
+            relatif = f"pages/{id_page}/{fichier}"
+            avant = self._depot.contenu_actuel(relatif)
+            if relatif in fichiers and avant is not None:
+                if (self.racine / relatif).is_file():
+                    apres = (self.racine / relatif).read_bytes()
+                    modifications.extend(_differences_csv_brutes(nom, avant, apres))
+        return tuple(modifications)
+
+    def enregistrer_modifications_externes(self) -> list[str]:
+        """Crée une nouvelle version de tout fichier suivi qui a changé hors du logiciel.
+
+        Les fichiers sont enregistrés tels quels, sans jamais être réécrits, et leur ancienne
+        version reste lisible dans Git. Une page donne un seul commit, même si son `page.json`
+        et ses tableaux ont changé ensemble. Le motif est écrit par le logiciel : il ne peut
+        pas distinguer une modification à la main d'un enregistrement interrompu. Renvoie les
+        fichiers enregistrés.
+
+        Ouvrir une archive depuis un script n'appelle jamais cette méthode : la relire n'écrit
+        rien. L'interface l'appelle à chaque ouverture.
+        """
+        fichiers = self.modifications_non_tracees()
+        par_page: dict[str, list[str]] = {}
+        for fichier in fichiers:
+            parties = fichier.split("/")
+            cle = parties[1] if parties[0] == "pages" and len(parties) > 2 else ""
+            if cle:
+                par_page.setdefault(cle, []).append(fichier)
+            else:
+                self._depot.enregistrer(
+                    message_commit(
+                        NATURE_EXTERNE,
+                        motif=_motif_externe(self._decrire_fichier_externe(fichier)),
+                        sujet=f"{NATURE_EXTERNE} : {fichier}",
+                    ),
+                    [fichier],
+                    _AUTEUR_EXTERNE,
+                )
+        for id_page, chemins in par_page.items():
+            details = ", ".join(
+                self._decrire_fichier_externe(c, f"pages/{id_page}/") for c in chemins
+            )
+            self._depot.enregistrer(
+                message_commit(
+                    NATURE_EXTERNE,
+                    id_page,
+                    _motif_externe(details),
+                    self._modifications_sur_disque(id_page, chemins),
+                ),
+                chemins,
+                _AUTEUR_EXTERNE,
             )
         return fichiers

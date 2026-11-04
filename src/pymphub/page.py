@@ -682,6 +682,36 @@ class OngletGraphes(OngletDonnees):
         return [*self.grandeurs, *self.indicateurs]
 
 
+class CoefficientPrevu(_Modele):
+    """Un coefficient d'une formule personnalisée : son unité et sa valeur de départ."""
+
+    nom: Nom
+    unite: Unite
+    depart: Nombre
+
+
+class PrereglageAjustement(_Modele):
+    """Ce qu'un gabarit prépare pour un ajustement : le modèle et ses colonnes, sans résultat.
+
+    `modele` est le libellé d'un modèle usuel, ou « Personnalisé ». Comme pour un graphe, un
+    nom absent n'invalide pas la page : le tableau n'existe qu'une fois sa saisie commencée.
+    """
+
+    nom: Nom
+    tableau: str = Field(min_length=1)
+    x: str = Field(min_length=1)
+    y: str = Field(min_length=1)
+    modele: str = Field(min_length=1)
+    formule: str = Field(min_length=1)
+    coefficients: tuple[CoefficientPrevu, ...] = ()
+
+
+class OngletAjustements(OngletDonnees):
+    """Un onglet d'ajustement. Avec un préréglage, un brouillon s'ajuste tout seul."""
+
+    prereglage: PrereglageAjustement | None = None
+
+
 class OngletNotes(Onglet):
     """Un onglet de commentaires et de photos annotées."""
 
@@ -711,6 +741,7 @@ enregistrer_type_onglet("tableau", OngletDonnees)
 enregistrer_type_onglet("fichiers", OngletDonnees)
 enregistrer_type_onglet("dicom", OngletDonnees)
 enregistrer_type_onglet("graphes", OngletGraphes)
+enregistrer_type_onglet("ajustements", OngletAjustements)
 
 
 def _lire_onglet(onglet: Any) -> Any:  # noqa: ANN401 - donnée brute validée par pydantic

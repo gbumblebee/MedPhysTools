@@ -19,6 +19,7 @@ from PySide6.QtCore import (
     QModelIndex,
     QObject,
     QPersistentModelIndex,
+    QPoint,
     Qt,
     QTimer,
     Signal,
@@ -36,6 +37,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -48,6 +50,7 @@ from pymphub.archive import Archive, PageRefusee
 from pymphub.index import Criteres, PageIllisible, ResumePage, ValeursPossibles
 from pymphub.interface.fiche_page import FichePage, formater_date
 from pymphub.interface.messages import message_erreur
+from pymphub.interface.pieces import ajouter_chemin
 from pymphub.interface.ramasse_miettes import assurer_ramasse_miettes_principal
 from pymphub.page import Page
 
@@ -75,8 +78,9 @@ class _Signaux(QObject):
     recherche_reussie = Signal(object, object)
     recherche_echouee = Signal(object, str)
     recherche_finie = Signal(object)
-    verification_reussie = Signal(object, list)
+    verification_reussie = Signal(object, list, list)
     verification_echouee = Signal(object, str)
+    enregistrement_automatique_echoue = Signal(object, str)
     verification_finie = Signal(object)
 
 
@@ -102,15 +106,27 @@ def _rechercher(signaux: _Signaux, archive: Archive, criteres: Criteres) -> None
         _emettre(signaux.recherche_finie, archive)
 
 
-def _verifier(signaux: _Signaux, archive: Archive) -> None:
-    """Compare les fichiers de l'archive au dernier commit, hors du fil de l'interface."""
+def _verifier(signaux: _Signaux, archive: Archive, enregistrer: bool) -> None:
+    """Compare les fichiers de l'archive au dernier commit, hors du fil de l'interface.
+
+    À l'ouverture, `enregistrer` crée aussitôt une nouvelle version de ce qui a changé. Si
+    c'est impossible, sur un partage en lecture seule par exemple, l'écart reste signalé.
+    """
+    enregistres: list[str] = []
     try:
+        if enregistrer:
+            try:
+                enregistres = archive.enregistrer_modifications_externes()
+            except (OSError, ValueError, KeyError) as erreur:
+                _emettre(
+                    signaux.enregistrement_automatique_echoue, archive, str(erreur)
+                )
         fichiers = archive.modifications_non_tracees()
         archive.precharger_historique()
     except (OSError, ValueError, KeyError) as erreur:
         _emettre(signaux.verification_echouee, archive, str(erreur))
     else:
-        _emettre(signaux.verification_reussie, archive, fichiers)
+        _emettre(signaux.verification_reussie, archive, fichiers, enregistres)
     finally:
         _emettre(signaux.verification_finie, archive)
 
@@ -348,6 +364,9 @@ class EspaceArchive(QWidget):
         self.archive: Archive | None = None
         self.illisibles: list[PageIllisible] = []
         self.non_tracees: list[str] = []
+        self.versions_automatiques: list[str] = []
+        self.erreur_version_automatique: str | None = None
+        self._archive_a_enregistrer: Archive | None = None
         self.erreur_recherche: str | None = None
         self._recherche: threading.Thread | None = None
         self._recherche_en_attente = False
@@ -360,6 +379,9 @@ class EspaceArchive(QWidget):
         self._signaux.verification_reussie.connect(self._verification_reussie)
         self._signaux.verification_echouee.connect(self._verification_echouee)
         self._signaux.verification_finie.connect(self._verification_finie)
+        self._signaux.enregistrement_automatique_echoue.connect(
+            self._enregistrement_automatique_echoue
+        )
 
         self.filtres = Filtres()
         self.modele = ModelePages(self)
@@ -384,6 +406,8 @@ class EspaceArchive(QWidget):
             entete.setSectionResizeMode(colonne, mode)
         self.liste.setColumnWidth(2, 110)
         self.liste.selectionModel().currentRowChanged.connect(self._page_selectionnee)
+        self.liste.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.liste.customContextMenuRequested.connect(self._ouvrir_menu_page)
 
         self.compteur = QLabel("")
         self.compteur.setObjectName("discret")
@@ -435,11 +459,18 @@ class EspaceArchive(QWidget):
         self.filtres.frappe.connect(self._minuteur.start)
         self.filtres.modifies.connect(self.lancer_recherche)
 
-    def installer(self, archive: Archive) -> None:
-        """Affiche une archive : les filtres repartent à zéro."""
+    def installer(self, archive: Archive, enregistrer_externes: bool = False) -> None:
+        """Affiche une archive : les filtres repartent à zéro.
+
+        Avec `enregistrer_externes`, ce qui a changé hors du logiciel devient d'abord une
+        nouvelle version. Aucune saisie ne doit commencer avant `verification_terminee`.
+        """
         self.archive = archive
         self.illisibles = []
         self.non_tracees = []
+        self.versions_automatiques = []
+        self.erreur_version_automatique = None
+        self._archive_a_enregistrer = archive if enregistrer_externes else None
         self.fiche.vider()
         self.modele.remplacer([])
         self.filtres.reinitialiser()
@@ -521,16 +552,35 @@ class EspaceArchive(QWidget):
         if self._verification is not None:
             self._verification_en_attente = True
             return
+        enregistrer = self._archive_a_enregistrer is self.archive
+        self._archive_a_enregistrer = None
         self._verification = threading.Thread(
-            target=_verifier, args=(self._signaux, self.archive), daemon=True
+            target=_verifier,
+            args=(self._signaux, self.archive, enregistrer),
+            daemon=True,
         )
         self._verification.start()
 
-    def _verification_reussie(self, archive: Archive, fichiers: list[str]) -> None:
+    def _verification_reussie(
+        self, archive: Archive, fichiers: list[str], enregistres: list[str]
+    ) -> None:
         if archive is not self.archive:
             return
         self.non_tracees = fichiers
+        if enregistres:
+            self.versions_automatiques = enregistres
+            # La recherche a pu partir avant ce commit : la liste doit le refléter.
+            self.lancer_recherche()
         self._actualiser_alerte()
+
+    def _enregistrement_automatique_echoue(
+        self, archive: Archive, message: str
+    ) -> None:
+        if archive is self.archive:
+            self.erreur_version_automatique = (
+                f"Nouvelle version automatique impossible : {message}"
+            )
+            self._actualiser_alerte()
 
     def _verification_echouee(self, archive: Archive, message: str) -> None:
         if archive is not self.archive:
@@ -548,9 +598,17 @@ class EspaceArchive(QWidget):
 
     def _actualiser_alerte(self) -> None:
         morceaux: list[str] = []
+        if self.versions_automatiques:
+            nombre = len(self.versions_automatiques)
+            morceaux.append(
+                f"{nombre} fichier(s) modifié(s) hors du logiciel : "
+                "nouvelle version créée à l'ouverture"
+            )
         if self.non_tracees:
             nombre = len(self.non_tracees)
             morceaux.append(f"{nombre} fichier(s) modifié(s) hors du logiciel")
+        if self.erreur_version_automatique:
+            morceaux.append(self.erreur_version_automatique)
         if self.illisibles:
             morceaux.append(f"{len(self.illisibles)} page(s) illisible(s)")
         if self.erreur_recherche:
@@ -562,11 +620,20 @@ class EspaceArchive(QWidget):
     def texte_details(self) -> str:
         """Décrit les alertes en cours."""
         morceaux: list[str] = []
+        if self.versions_automatiques:
+            morceaux.append(
+                "Ces fichiers avaient changé hors du logiciel, ou un enregistrement a été "
+                "interrompu. Une nouvelle version les garde tels quels, et l'ancienne reste "
+                "dans l'historique de la page :\n"
+                + "\n".join(self.versions_automatiques)
+            )
         if self.non_tracees:
             morceaux.append(
                 "Fichiers modifiés hors du logiciel, ou enregistrement interrompu :\n"
                 + "\n".join(self.non_tracees)
             )
+        if self.erreur_version_automatique:
+            morceaux.append(self.erreur_version_automatique)
         if self.illisibles:
             morceaux.append(
                 "Pages illisibles :\n"
@@ -658,6 +725,23 @@ class EspaceArchive(QWidget):
         if self.fiche.page is not None and self.fiche.page.id == id_page:
             self.fiche.afficher(self.archive, id_page)
         self.lancer_recherche()
+
+    # --- Menu d'une page -----------------------------------------------------------------
+
+    def creer_menu_page(self, id_page: str) -> QMenu:
+        """Le menu du clic droit sur une page de la liste."""
+        menu = QMenu(self.liste)
+        ajouter_chemin(menu, self.archive.emplacement_page(id_page), self)
+        return menu
+
+    def _ouvrir_menu_page(self, position: QPoint) -> None:
+        index = self.liste.indexAt(position)
+        if self.archive is None or not index.isValid():
+            return
+        id_page = self.modele.resumes[index.row()].id
+        menu = self.creer_menu_page(id_page)
+        menu.exec(self.liste.viewport().mapToGlobal(position))
+        menu.deleteLater()
 
     def _afficher_details(self) -> None:
         QMessageBox.warning(self, "Alertes de l'archive", self.texte_details())

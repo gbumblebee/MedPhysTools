@@ -8,14 +8,16 @@ from pydantic import ValidationError
 from pymphub.gabarit import (
     Gabarit,
     PageNonConforme,
+    colonnes_choisissables,
     creer_gabarit,
     depuis_toml,
+    onglets_choisissables,
     page_depuis_gabarit,
     rattacher_gabarit,
     verifier_conformite,
     vers_toml,
 )
-from pymphub.page import Page, Scalaire
+from pymphub.page import Page, Scalaire, depuis_json, vers_json
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 
@@ -321,3 +323,227 @@ def test_une_page_remplie_selon_le_gabarit_devient_conforme(gabarit):
 def test_nouvelle_version_d_un_gabarit():
     gabarit = creer_gabarit(page(scalaire()), "g", ["activite"], version=2)
     assert gabarit.reference == "g@2"
+
+
+# --- Onglets préparés ------------------------------------------------------------------
+
+
+def colonne_numerique(nom, unite):
+    return {
+        "nature": "numerique",
+        "nom": nom,
+        "unite": unite,
+        "composantes": [composante(unite)],
+    }
+
+
+def tableau_xy():
+    return {
+        "nature": "tableau",
+        "nom": "t",
+        "fichier": "brut/t.csv",
+        "colonnes": [
+            colonne_numerique("h", "h"),
+            colonne_numerique("act", "MBq"),
+        ],
+    }
+
+
+def ajustement(modele="Droite", formule="a * x + b"):
+    return {
+        "nature": "ajustement",
+        "nom": "fit",
+        "modele": modele,
+        "formule": formule,
+        "tableau": "t",
+        "x": "h",
+        "y": "act",
+        "unite_x": "h",
+        "unite_y": "MBq",
+        "x_min": 0.0,
+        "x_max": 2.0,
+        "points": 3,
+        "parametres": [
+            {"nom": "a", "valeur": -3.25, "incertitude_type": 0.1, "unite": "MBq/h"},
+            {"nom": "b", "valeur": 100.0, "incertitude_type": 0.2, "unite": "MBq"},
+        ],
+        "correlation": [[1.0, 0.0], [0.0, 1.0]],
+        "methode": "moindres carrés",
+        "empreinte_donnees": "0" * 64,
+        "courbe": "fit_courbe",
+    }
+
+
+def courbe_de_fit():
+    return {
+        "nature": "tableau",
+        "nom": "fit_courbe",
+        "fichier": "brut/fit_courbe.csv",
+        "colonnes": [
+            colonne_numerique("x", "h"),
+            colonne_numerique("y", "MBq"),
+            colonne_numerique("u_y", "MBq"),
+        ],
+    }
+
+
+NOTE_METHODE = "# Méthode\nOn ajuste $A_0 e^{-\\lambda t}$ puis {{fit.a}}."
+
+
+def page_complete(modele="Droite", formule="a * x + b"):
+    return page(
+        tableau_xy(),
+        ajustement(modele, formule),
+        courbe_de_fit(),
+        onglets=[
+            {"id": "n", "type": "notes", "titre": "Méthode", "texte": NOTE_METHODE},
+            {"id": "vide", "type": "notes", "titre": "Vide", "texte": "  "},
+            {"id": "tab", "type": "tableau", "titre": "t", "grandeurs": ["t"]},
+            {
+                "id": "f",
+                "type": "ajustements",
+                "titre": "Le fit",
+                "grandeurs": ["fit", "fit_courbe"],
+            },
+            {
+                "id": "g",
+                "type": "graphes",
+                "titre": "Courbe",
+                "reglages": {
+                    "tableau": "t",
+                    "x": "h",
+                    "y": ["act"],
+                    "echelle_y": "log",
+                    "courbes": ["fit"],
+                },
+            },
+        ],
+    )
+
+
+def test_seuls_les_onglets_utiles_sont_proposes():
+    choix = onglets_choisissables(page_complete())
+    assert [(o.id, o.titre, o.type, o.probleme) for o in choix] == [
+        ("n", "Méthode", "notes", None),
+        ("f", "Le fit", "ajustements", None),
+        ("g", "Courbe", "graphes", None),
+    ]
+
+
+def test_un_graphe_d_une_colonne_calculee_ne_peut_pas_etre_repris():
+    calculee = {
+        "nature": "colonne_calculee",
+        "nom": "log_act",
+        "formule": "ln(t.act)",
+        "unite": "1",
+        "tableaux": ["t"],
+        "valeurs": [1.0],
+        "incertitudes_types": [0.1],
+    }
+    source = page(
+        tableau_xy(),
+        calculee,
+        onglets=[
+            {
+                "id": "g",
+                "type": "graphes",
+                "titre": "Log",
+                "reglages": {"tableau": "t", "x": "h", "y": ["log_act"]},
+            }
+        ],
+    )
+    assert "log_act" in onglets_choisissables(source)[0].probleme
+    with pytest.raises(ValueError, match="log_act"):
+        creer_gabarit(source, "g", ["t"], onglets=["g"])
+
+
+def test_le_gabarit_garde_les_reglages_sans_aucun_resultat():
+    gabarit = creer_gabarit(page_complete(), "g", ["t"], onglets=["n", "f", "g"])
+    notes, fit, graphe = gabarit.onglets
+    assert notes.texte == NOTE_METHODE
+    assert graphe.reglages.echelle_y == "log"
+    assert graphe.reglages.courbes == ("fit",)
+    assert fit.prereglage.modele == "Droite"
+    # Un modèle usuel estime seul son départ : rien du résultat source n'est gardé.
+    assert fit.prereglage.coefficients == ()
+    toml = vers_toml(gabarit)
+    assert "-3.25" not in toml
+    assert "chi2" not in toml
+    assert "empreinte" not in toml
+    assert "fit_courbe" not in toml
+
+
+def test_une_formule_personnalisee_garde_ses_unites_et_son_depart():
+    source = page_complete("Personnalisé", "a * x + b")
+    gabarit = creer_gabarit(source, "g", ["t"], onglets=["f"])
+    coefficients = gabarit.onglets[0].prereglage.coefficients
+    assert [(c.nom, c.unite, c.depart) for c in coefficients] == [
+        ("a", "MBq/h", -3.25),
+        ("b", "MBq", 100.0),
+    ]
+
+
+def test_aller_retour_toml_avec_equation_et_retours_a_la_ligne():
+    gabarit = creer_gabarit(page_complete(), "g", ["t"], onglets=["n", "f", "g"])
+    assert depuis_toml(vers_toml(gabarit)) == gabarit
+    assert depuis_toml(vers_toml(gabarit)).onglets[0].texte == NOTE_METHODE
+
+
+def test_un_gabarit_de_l_ancien_format_reste_lisible():
+    ancien = 'version_schema = 1\nnom = "g"\nversion = 1\n[[variables]]\nnature = "identifiant"\nnom = "lot"\n'
+    relu = depuis_toml(ancien)
+    assert relu.version_schema == 1
+    assert relu.onglets == ()
+
+
+def test_un_graphe_sur_une_colonne_decochee_est_refuse_en_l_expliquant():
+    with pytest.raises(ValueError, match=r"t\.h.*décocher cet onglet"):
+        creer_gabarit(page_complete(), "g", ["t.act"], onglets=["g"])
+    # Le graphe seul, sans son ajustement : la superposition disparaît.
+    gabarit = creer_gabarit(page_complete(), "g", ["t"], onglets=["g"])
+    assert gabarit.onglets[0].reglages.courbes == ()
+
+
+def test_un_ajustement_portant_le_nom_d_une_variable_est_refuse():
+    source = page_complete()
+    with pytest.raises(ValueError, match="déjà pris"):
+        Gabarit(
+            nom="g",
+            version=1,
+            variables=(*creer_gabarit(source, "g", ["t"]).variables,),
+            onglets=(
+                {
+                    "type": "ajustements",
+                    "titre": "x",
+                    "prereglage": {
+                        "nom": "t",
+                        "tableau": "t",
+                        "x": "h",
+                        "y": "act",
+                        "modele": "Droite",
+                        "formule": "a * x + b",
+                    },
+                },
+            ),
+        )
+
+
+def test_la_courbe_d_un_ajustement_n_est_pas_une_variable():
+    source = page_complete()
+    assert list(colonnes_choisissables(source)) == ["t"]
+    with pytest.raises(ValueError, match="courbe d'un ajustement"):
+        creer_gabarit(source, "g", ["fit_courbe"])
+
+
+def test_une_page_depuis_le_gabarit_a_ses_onglets_et_reste_valide():
+    gabarit = creer_gabarit(page_complete(), "g", ["t"], onglets=["n", "f", "g"])
+    nouvelle = page_depuis_gabarit(
+        gabarit, "2026-11-15_suite_0008", "Suite", HEURE, HEURE, "G."
+    )
+    assert [o.type for o in nouvelle.onglets] == ["notes", "ajustements", "graphes"]
+    assert nouvelle.onglets[0].texte == NOTE_METHODE
+    assert nouvelle.onglets[1].prereglage.nom == "fit"
+    assert nouvelle.onglets[2].reglages.tableau == "t"
+    # Le tableau n'existe pas encore : la page se relit quand même, et reste sans données.
+    assert nouvelle.mesures == ()
+    assert depuis_json(vers_json(nouvelle)) == nouvelle

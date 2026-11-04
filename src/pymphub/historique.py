@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+# Nature d'un commit créé tout seul, pour un fichier changé hors du logiciel.
+NATURE_EXTERNE = "modification externe"
+
 # Clé qui identifie un élément dans une liste : son nom plutôt que sa position.
 _CLES_IDENTIFIANTES = ("nom", "id", "chemin")
 
@@ -145,7 +148,10 @@ def message_commit(
     if page is not None:
         lignes.append(f"Page: {page}")
     if modifications:
-        lignes.append(f"Champs: {', '.join(m.champ for m in modifications)}")
+        # Un fichier modifié à la main peut avoir n'importe quel nom de champ, même sur deux
+        # lignes : il ne doit pas pouvoir imiter les autres informations du message.
+        champs = ", ".join(" ".join(m.champ.split()) for m in modifications)
+        lignes.append(f"Champs: {champs}")
     if motif is not None:
         lignes.append(f"Motif: {motif}")
     # Les fichiers lourds sont hors de Git : le commit garde au moins la trace du changement.

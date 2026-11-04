@@ -1,12 +1,14 @@
 """Onglet d'ajustement : un modèle ajusté sur deux colonnes, et des indicateurs de courbe.
 
 L'ajustement se fait à la demande et reste figé : si les points changent, l'onglet le signale.
+Seul un brouillon préparé par un gabarit s'ajuste tout seul, à chaque enregistrement de ses
+points : une page validée ne change jamais sans correction motivée.
 Les coefficients, la courbe et les indicateurs sont enregistrés dans la page, et les valeurs
 brutes ne changent jamais. Le facteur k ne change que l'affichage.
 """
 
 import pandas as pd
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -55,8 +57,9 @@ from pymphub.page import (
     Ajustement,
     Indicateur,
     Onglet,
-    OngletDonnees,
+    OngletAjustements,
     Page,
+    PrereglageAjustement,
     ReglagesGraphe,
     Tableau,
 )
@@ -93,6 +96,11 @@ class EditeurAjustements(EditeurOnglet):
         self._noms_possedes: list[str] = []
         self._references_conservees: list[str] = []
         self._avertissements: tuple[str, ...] = ()
+        # L'ajustement automatique attend que tous les onglets aient reçu la page enregistrée.
+        self._attente_ajustement = QTimer(self)
+        self._attente_ajustement.setSingleShot(True)
+        self._attente_ajustement.setInterval(0)
+        self._attente_ajustement.timeout.connect(self._ajuster_tout_seul)
 
         self.champ_nom = QLineEdit()
         self.champ_nom.setPlaceholderText("nom de l'ajustement, par exemple fit")
@@ -299,8 +307,24 @@ class EditeurAjustements(EditeurOnglet):
         if len(colonnes) >= 2:
             self.champ_y.setCurrentIndex(1)
 
+    @property
+    def prereglage(self) -> PrereglageAjustement | None:
+        """Ce que le gabarit a prévu pour cet onglet."""
+        return getattr(self.onglet, "prereglage", None)
+
+    @staticmethod
+    def _cle_du_modele(libelle: str, formule: str) -> str:
+        return next(
+            (
+                cle
+                for cle, modele in MODELES.items()
+                if modele.libelle == libelle and modele.formule == formule
+            ),
+            _PERSONNALISE,
+        )
+
     def _remplir_reglages(self) -> None:
-        """Montre les réglages de l'ajustement, ou propose les premières colonnes."""
+        """Montre les réglages de l'ajustement, ceux du gabarit, ou les premières colonnes."""
         self._remplissage = True
         tables = tableaux_tracables(self.page) if self.page is not None else {}
         self.champ_tableau.clear()
@@ -314,17 +338,19 @@ class EditeurAjustements(EditeurOnglet):
             self.champ_x.setCurrentText(ajustement.x)
             self.champ_y.setCurrentText(ajustement.y)
             self.champ_commentaire.setText(ajustement.commentaire)
-            cle = next(
-                (
-                    c
-                    for c, m in MODELES.items()
-                    if m.libelle == ajustement.modele
-                    and m.formule == ajustement.formule
-                ),
-                _PERSONNALISE,
-            )
+            cle = self._cle_du_modele(ajustement.modele, ajustement.formule)
             self.champ_modele.setCurrentIndex(self.champ_modele.findData(cle))
             self.champ_formule.setText(ajustement.formule)
+        elif self.prereglage is not None:
+            prevu = self.prereglage
+            self.champ_nom.setText(prevu.nom)
+            self.champ_tableau.setCurrentText(prevu.tableau)
+            self._remplir_colonnes(self.champ_tableau.currentText())
+            self.champ_x.setCurrentText(prevu.x)
+            self.champ_y.setCurrentText(prevu.y)
+            cle = self._cle_du_modele(prevu.modele, prevu.formule)
+            self.champ_modele.setCurrentIndex(self.champ_modele.findData(cle))
+            self.champ_formule.setText(prevu.formule)
         else:
             self.champ_modele.setCurrentIndex(0)
             self.champ_formule.setText(MODELES["droite"].formule)
@@ -352,9 +378,16 @@ class EditeurAjustements(EditeurOnglet):
             if self.ajustement is not None
             else {}
         )
+        prevus = (
+            {c.nom: (repr(c.depart), c.unite) for c in self.prereglage.coefficients}
+            if self.prereglage is not None
+            else {}
+        )
         self.table_depart.setRowCount(len(noms))
         for rang, nom in enumerate(noms):
-            depart, unite = anciens.get(nom, ("", enregistres.get(nom, "")))
+            depart, unite = anciens.get(
+                nom, prevus.get(nom, ("", enregistres.get(nom, "")))
+            )
             colonne_nom = QTableWidgetItem(nom)
             colonne_nom.setFlags(colonne_nom.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table_depart.setItem(rang, 0, colonne_nom)
@@ -480,6 +513,9 @@ class EditeurAjustements(EditeurOnglet):
         if self.ajustement is None:
             return
         nom = self.ajustement.nom
+        # Retirer un ajustement est un choix : il ne doit pas revenir tout seul.
+        if self.prereglage is not None:
+            self.onglet = self.onglet.model_copy(update={"prereglage": None})
         self.ajustement = None
         self.tableau_courbe = None
         self.donnees_courbe = None
@@ -644,10 +680,16 @@ class EditeurAjustements(EditeurOnglet):
         self.onglet = self.valeur()
         self.donnees_courbe = None
         self._noms_possedes = [g.nom for g in self.grandeurs()]
+        prevu = self.prereglage
+        # Le tableau du gabarit n'est dans les listes qu'une fois sa saisie enregistrée.
         selection = (
-            self.champ_tableau.currentText(),
-            self.champ_x.currentText(),
-            self.champ_y.currentText(),
+            (prevu.tableau, prevu.x, prevu.y)
+            if prevu is not None and self.ajustement is None
+            else (
+                self.champ_tableau.currentText(),
+                self.champ_x.currentText(),
+                self.champ_y.currentText(),
+            )
         )
         self._remplissage = True
         tables = tableaux_tracables(page)
@@ -662,6 +704,26 @@ class EditeurAjustements(EditeurOnglet):
         self._configurer_panneau()
         self._afficher_resultat()
         self.tracer_si_visible()
+        if prevu is not None and page.statut == "brouillon":
+            self._attente_ajustement.start()
+
+    def _ajuster_tout_seul(self) -> None:
+        """Dans un brouillon préparé par un gabarit, ajuste dès que les points existent.
+
+        Après un échec, rien n'est modifié : il n'y a donc pas de nouvel enregistrement, et
+        le prochain essai attend que les données changent.
+        """
+        prevu = self.prereglage
+        if (
+            prevu is None
+            or self.page is None
+            or self.page.statut != "brouillon"
+            or prevu.tableau not in tableaux_tracables(self.page)
+        ):
+            return
+        if self.ajustement is not None and not self._etats():
+            return
+        self.demander_ajustement()
 
 
-declarer_onglet("ajustements", "Ajustements", OngletDonnees, EditeurAjustements)
+declarer_onglet("ajustements", "Ajustements", OngletAjustements, EditeurAjustements)

@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 import pandas as pd
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -34,7 +35,11 @@ from pymphub.calculs import etat_derivee
 from pymphub.equations import RESOLUTION_ECRAN
 from pymphub.fichiers import ETATS_ALERTE
 from pymphub.graphes import reglages_par_defaut
-from pymphub.historique import CorrectionChamp, corrections_par_champ
+from pymphub.historique import (
+    CorrectionChamp,
+    EntreeHistorique,
+    corrections_par_champ,
+)
 from pymphub.interface.affichage_ajustements import (
     COLONNES_COEFFICIENTS,
     COLONNES_INDICATEURS,
@@ -50,6 +55,7 @@ from pymphub.interface.photos import (
     VignettePhoto,
     message_etat,
 )
+from pymphub.interface.pieces import ajouter_chemin, ajouter_chemin_fichier
 from pymphub.interface.texte_en_grand import (
     afficher_en_grand,
     afficher_en_grand_colonne,
@@ -200,6 +206,7 @@ class FichePage(QWidget):
         self.cellules_calculees: list[tuple[QTableWidget, int, ColonneCalculee]] = []
         self.etats: dict[str, str] = {}
         self.alerte_fichiers: QLabel | None = None
+        self.alerte_externe: QLabel | None = None
 
         self.entete = QLabel("Sélectionnez une page.")
         self.entete.setObjectName("titre_page")
@@ -319,10 +326,11 @@ class FichePage(QWidget):
         self.archive = archive
         try:
             self.page = archive.lire_page(id_page)
-            # Seule une page au statut « corrigée » a des corrections : on évite ainsi
-            # de parcourir l'historique pour toutes les autres.
-            if self.page.statut == "corrigée":
+            # Un brouillon n'a pas de corrections : on évite ainsi de parcourir l'historique.
+            # Une page validée peut en avoir, si un fichier a changé hors du logiciel.
+            if self.page.statut != "brouillon":
                 self.corrections = corrections_par_champ(archive.corrections(id_page))
+            externes = archive.modifications_externes(id_page)
         except (ValueError, KeyError, OSError) as erreur:
             self.page = None
             self.entete.setText(f"Page « {id_page} » illisible.\n{erreur}")
@@ -333,6 +341,9 @@ class FichePage(QWidget):
         self.bouton_supprimer.setEnabled(True)
         self.bouton_exporter.setEnabled(True)
         self.etats = archive.etats_fichiers(self.page)
+        self.alerte_externe = None
+        if externes:
+            self._signaler_modification_externe(externes[-1])
         self._construire_informations(self.page)
         self._construire_mesures(self.page)
         self._construire_tableaux(archive, self.page)
@@ -343,6 +354,17 @@ class FichePage(QWidget):
         self._construire_graphes(self.page)
         self.disposition_contenu.addStretch()
         self._actualiser_historique()
+
+    def _signaler_modification_externe(self, entree: EntreeHistorique) -> None:
+        """Montre qu'une page a changé hors du logiciel, même si elle reste « validée »."""
+        self.alerte_externe = QLabel(
+            f"Page modifiée hors du logiciel : détecté le {formater_date(entree.date)}. "
+            "Le détail est dans l'historique."
+        )
+        self.alerte_externe.setObjectName("alerte")
+        self.alerte_externe.setTextFormat(Qt.TextFormat.PlainText)
+        self.alerte_externe.setWordWrap(True)
+        self._ajouter(self.alerte_externe)
 
     def _construire_informations(self, page: Page) -> None:
         formulaire = QFormLayout()
@@ -631,7 +653,21 @@ class FichePage(QWidget):
         table = _creer_table(
             ["Nom", "État", "Stockage", "Détail", "Commentaire"], len(lignes)
         )
-        afficher_en_grand_colonne(table, 4, "Commentaire")
+        archive = self.archive
+
+        def completer_menu(menu: QMenu, position: QPoint) -> None:
+            element = table.itemAt(position)
+            if element is None:
+                return
+            rang = element.row()
+            if rang < len(fichiers):
+                ajouter_chemin_fichier(menu, archive, fichiers[rang], table)
+                return
+            piece = page.pieces_jointes[rang - len(fichiers)]
+            chemin = archive.emplacement_piece_jointe(page.id, piece.chemin)
+            ajouter_chemin(menu, chemin, table)
+
+        afficher_en_grand_colonne(table, 4, "Commentaire").complement = completer_menu
         for i, ligne in enumerate(lignes):
             for j, texte in enumerate(ligne):
                 table.setItem(i, j, QTableWidgetItem(texte))

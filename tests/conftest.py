@@ -4,9 +4,20 @@ import gc
 import os
 import tempfile
 
+import pytest
+from menus_reels import Menus
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # Les tests ne doivent jamais toucher aux préférences réelles de l'utilisateur.
 os.environ["PYMPHUB_CONFIG"] = tempfile.mkdtemp(prefix="pymphub-tests-")
+
+
+@pytest.fixture
+def menus():
+    """Relève les menus de clic droit réellement ouverts pendant un test."""
+    resultat = Menus()
+    yield resultat
+    resultat.arreter()
 
 
 def pytest_runtest_teardown() -> None:

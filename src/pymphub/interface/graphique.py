@@ -109,6 +109,7 @@ class ToileGraphe(QWidget):
         disposition = QVBoxLayout(self)
         disposition.setContentsMargins(0, 0, 0, 0)
         disposition.addWidget(self.message)
+        self.barre_outils: BarreOutils | None = None
         if interactif:
             self.barre_outils = BarreOutils(self.canevas, self)
             disposition.addWidget(self.barre_outils)
@@ -140,6 +141,8 @@ class ToileGraphe(QWidget):
         self.figure.clear()
         self.canevas.draw_idle()
         self.canevas.setVisible(False)
+        if self.barre_outils is not None:
+            self.barre_outils.setVisible(False)
         self.message.setText(message)
         self.message.setVisible(True)
 
@@ -154,6 +157,8 @@ class ToileGraphe(QWidget):
             self.axes = self._tracer_2d(donnees)
             self.lecture.setText("")
         self.canevas.setVisible(True)
+        if self.barre_outils is not None:
+            self.barre_outils.setVisible(True)
         self.message.setText(" ".join(donnees.avertissements))
         self.message.setVisible(bool(donnees.avertissements))
         self.canevas.draw_idle()

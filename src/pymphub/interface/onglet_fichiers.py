@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import ValidationError
-from PySide6.QtCore import QModelIndex, Qt
+from PySide6.QtCore import QModelIndex, QPoint, Qt
 from PySide6.QtGui import QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -35,6 +36,8 @@ from pymphub.interface.photos import message_etat
 from pymphub.interface.pieces import (
     FichierRefuse,
     PiecesDeLaPage,
+    ajouter_chemin,
+    ajouter_chemin_fichier,
     chemins_deposes,
     ouvrir_avec_le_systeme,
     refuser_dicom,
@@ -139,7 +142,9 @@ class EditeurFichiers(EditeurOnglet):
         entete.setStretchLastSection(True)
         self.table.itemChanged.connect(self._cellule_changee)
         self.table.doubleClicked.connect(self._double_clic)
-        afficher_en_grand_colonne(self.table, _COMMENTAIRE, "Commentaire")
+        afficher_en_grand_colonne(
+            self.table, _COMMENTAIRE, "Commentaire"
+        ).complement = self._completer_menu
 
         indication = QLabel("Déposez ici des fichiers pour les joindre à la page.")
         indication.setObjectName("discret")
@@ -407,6 +412,24 @@ class EditeurFichiers(EditeurOnglet):
             return self.archive.emplacement_fichier(self.liens[rang].fichier)
         piece = self._pieces_listees()[rang - len(self.liens)]
         return self.pieces.emplacement(piece.chemin)
+
+    def _completer_menu(self, menu: QMenu, position: QPoint) -> None:
+        """Le clic droit sur une ligne propose de copier le chemin de son fichier."""
+        element = self.table.itemAt(position)
+        if element is None:
+            return
+        rang = element.row()
+        nombre_liens = len(self.liens)
+        if rang < nombre_liens:
+            ajouter_chemin_fichier(
+                menu, self.archive, self.liens[rang].fichier, self.table
+            )
+        elif self._est_serie(rang):
+            serie = self.series_dicom[rang - nombre_liens - len(self._pieces_listees())]
+            ajouter_chemin_fichier(menu, self.archive, serie, self.table)
+        else:
+            piece = self._pieces_listees()[rang - nombre_liens]
+            ajouter_chemin(menu, self.pieces.emplacement(piece.chemin), self.table)
 
     def _double_clic(self, index: QModelIndex) -> None:
         # Le nom et le commentaire d'un lien s'éditent : seules les autres cases ouvrent.

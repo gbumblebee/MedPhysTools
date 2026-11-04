@@ -81,6 +81,13 @@ def dessiner(
         suite = f" Il manque encore : {manque}." if manque else ""
         toile.signaler(f"{_MESSAGE_SANS_TABLEAU}{suite}")
         return
+    if page.gabarit is not None and reglages.tableau not in tableaux_tracables(page):
+        suite = f" Il manque encore : {manque}." if manque else ""
+        toile.signaler(
+            f"Ce graphe se tracera dès que « {reglages.tableau} » aura des données "
+            f"enregistrées.{suite}"
+        )
+        return
     try:
         donnees = {}
         if reglages.tableau in tableaux_tracables(page):

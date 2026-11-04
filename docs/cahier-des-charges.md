@@ -149,7 +149,7 @@ ArchiveStage1/
 
 **Unités.** Valeur et unité saisies sont conservées, au sens de la règle ci-dessus. Les conversions (MBq ↔ mCi, mm ↔ cm) se font à l'affichage et dans les calculs, avec contrôle de cohérence dimensionnelle (bibliothèque pint). Une saisie incohérente avec le gabarit (une longueur là où on attend une activité) est bloquée. En page libre, aucune unité attendue n'est imposée.
 
-**Gabarits.** Un gabarit sert à automatiser le post-traitement des CQ : il liste les variables utiles à l'analyse (nom, nature, colonnes, unité attendue), jamais leurs données. Il se crée après coup depuis une page libre, en choisissant ces variables. Il est écrit en TOML et versionné, et une page garde la version du gabarit auquel elle est rattachée. Une page créée depuis un gabarit part vide : les variables restent à remplir, avec leur unité et leur incertitude. Le hub recherche ensuite les valeurs dans l'archive à partir de ces noms.
+**Gabarits.** Un gabarit sert à automatiser le post-traitement des CQ : il liste les variables utiles à l'analyse (nom, nature, colonnes, unité attendue), jamais leurs données. Il se crée après coup depuis une page libre, en choisissant ces variables. Il est écrit en TOML et versionné, et une page garde la version du gabarit auquel elle est rattachée. Une page créée depuis un gabarit part vide : les variables restent à remplir, avec leur unité et leur incertitude. Il peut aussi garder des onglets prêts à l'emploi : le texte de notes (méthode, équations) et un préréglage par onglet de graphes ou d'ajustement, qui se construisent quand les données arrivent, sans jamais garder de résultat. Le hub recherche ensuite les valeurs dans l'archive à partir de ces noms.
 
 **Stockage des fichiers bruts : copie ou référence.** Chaque fichier brut est enregistré selon l'un des trois modes ci-dessous, choisi explicitement à l'import. Le but est d'éviter les copies inutiles sur une carrière entière sans jamais perdre la capacité de retrouver et vérifier une donnée.
 
@@ -176,7 +176,8 @@ Chaque archive est un dépôt Git géré par le logiciel : toute création ou mo
 2. **Modification d'une page validée** : le logiciel demande un motif (champ obligatoire), puis commit « correction : \<motif> ». L'ancienne valeur reste lisible dans l'historique et affichée barrée dans l'interface, comme une correction sur un cahier papier. Git est le seul historique des corrections ; le message de commit nomme donc la page, les champs modifiés et le motif, pour retrouver facilement où chaque correction a été faite, page par page ou sur toute l'archive.
 3. **Validation** : passage brouillon → validée, commit signé du nom de l'utilisateur. Une page validée ne se modifie plus que par correction motivée.
 4. **Fichiers bruts** : trop lourds pour Git (DICOM), ils restent hors du dépôt, mais leur empreinte SHA-256 est versionnée dans `page.json`. Une commande « vérifier l'intégrité » recalcule toutes les empreintes, signale tout fichier modifié ou manquant et toute référence (fichier ou DICOM) devenue introuvable. Seuls les fichiers légers (`page.json`, tableaux CSV) sont dans Git ; `objets/` et `pieces_jointes/` restent hors du dépôt. Tout changement d'un fichier lourd laisse une trace dans un commit : nom du fichier, ancienne et nouvelle empreinte.
-5. **Analyses** : chaque exécution de module est enregistrée avec la version du module, la version du logiciel, la version des normes, les empreintes des entrées et l'assignation des entrées (automatique ou manuelle). Une analyse est donc rejouable à l'identique.
+5. **Modification hors du logiciel** : à chaque ouverture dans l'application, un fichier suivi par Git qui a changé devient une nouvelle version, enregistrée telle quelle, de nature « modification externe », avec un motif écrit par le logiciel. L'ancienne version reste dans l'historique, et une page validée modifiée ainsi est signalée sur sa fiche et dans le PDF.
+6. **Analyses** : chaque exécution de module est enregistrée avec la version du module, la version du logiciel, la version des normes, les empreintes des entrées et l'assignation des entrées (automatique ou manuelle). Une analyse est donc rejouable à l'identique.
 
 **Historique lisible.** L'interface affiche pour chaque page une chronologie : date, auteur, champ modifié, ancienne valeur, nouvelle valeur, motif.
 
@@ -538,7 +539,7 @@ Le premier rapport PDF validé (phase 2) est le jalon clé : c'est le moment où
 | Unité et incertitude | obligatoires pour toute valeur numérique | tranché |
 | Syntaxe des unités | syntaxe MetroloPy dès maintenant, calculs avec pint et GTC ; MetroloPy limité aux tests de compatibilité | tranché |
 | Adoption de MetroloPy dans le logiciel | à décider plus tard : licence GPL-3.0, incompatible avec une distribution entièrement sous MIT | ouvert |
-| Rôle des gabarits | facultatifs, créés depuis une page libre ; ils listent les variables utiles au post-traitement, jamais leurs données | tranché |
+| Rôle des gabarits | facultatifs, créés depuis une page libre ; ils listent les variables utiles au post-traitement, jamais leurs données, et peuvent préparer notes, graphes et ajustements | tranché |
 | Entrées d'une analyse | lues via le gabarit ou assignées à la main ; assignation enregistrée avec l'analyse | tranché |
 | Motif de modification | brouillon : versionné sans motif ; page validée : motif obligatoire | tranché |
 | Relecture d'une page précise | `Archive(chemin).page(id)` | tranché |
