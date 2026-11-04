@@ -44,7 +44,7 @@ from pymphub.unites import (
     verifier_unite,
 )
 
-VERSION_SCHEMA = 3
+VERSION_SCHEMA = 4
 MOTIF_ID_PAGE = r"^\d{4}-\d{2}-\d{2}_[a-z0-9]+(-[a-z0-9]+)*_\d{4,}$"
 # Format : site.service.modalite.fabricant-modele.numero-serie
 MOTIF_MACHINE = r"^[^.\s]+\.[^.\s]+\.[^.\s]+\.[^.\s]+-[^.\s]+\.[^.\s]+$"
@@ -183,6 +183,14 @@ class ColonneIdentifiant(_Modele):
     commentaire: str = ""
 
 
+class ColonneDate(_Modele):
+    """Une colonne de dates et d'heures, écrites en ISO 8601 avec leur fuseau (format 4)."""
+
+    nature: Literal["date"] = "date"
+    nom: Nom
+    commentaire: str = ""
+
+
 class ColonneIncertitude(_Modele):
     """Une colonne donnant, cellule par cellule, une composante d'une colonne numérique.
 
@@ -240,7 +248,7 @@ class ColonneIncertitude(_Modele):
 
 
 Colonne = Annotated[
-    ColonneNumerique | ColonneIdentifiant | ColonneIncertitude,
+    ColonneNumerique | ColonneIdentifiant | ColonneDate | ColonneIncertitude,
     Field(discriminator="nature"),
 ]
 

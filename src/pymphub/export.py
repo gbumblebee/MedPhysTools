@@ -15,12 +15,14 @@ from typing import Protocol
 from pymphub.ajustements import etat_resultat
 from pymphub.archive import Archive
 from pymphub.calculs import etat_derivee
+from pymphub.dates import afficher_date, lire_date_iso
 from pymphub.equations import RESOLUTION_IMPRESSION
 from pymphub.fichiers import ETATS_ALERTE
 from pymphub.graphes import empreinte_tableau, reglages_par_defaut
 from pymphub.page import (
     Ajustement,
     ColonneCalculee,
+    ColonneDate,
     ColonneIdentifiant,
     ColonneIncertitude,
     ColonneNumerique,
@@ -194,7 +196,8 @@ class _Ecrivain:
         ]
         entetes = [
             c.nom
-            if isinstance(c, ColonneIdentifiant) or c.unite in (None, "1")
+            if isinstance(c, (ColonneIdentifiant, ColonneDate))
+            or c.unite in (None, "1")
             else f"{c.nom} ({c.unite})"
             for c in tableau.colonnes
         ]
@@ -208,7 +211,9 @@ class _Ecrivain:
             for colonne in tableau.colonnes:
                 valeur = donnees[colonne.nom].iloc[rang]
                 ligne.append(
-                    valeur
+                    afficher_date(lire_date_iso(valeur))
+                    if isinstance(colonne, ColonneDate)
+                    else valeur
                     if isinstance(colonne, ColonneIdentifiant)
                     else f"{float(valeur):.6g}"
                     if getattr(colonne, "formule", None)

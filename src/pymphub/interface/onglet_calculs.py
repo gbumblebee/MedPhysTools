@@ -9,9 +9,10 @@ from collections.abc import Callable, Mapping, Sequence
 
 import pandas as pd
 from pydantic import ValidationError
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QDateTime, Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -39,7 +40,9 @@ from pymphub.calculs import (
     budget_de_ligne,
     creer_resultat,
     meme_resultat,
+    peut_decroitre_avec,
 )
+from pymphub.dates import afficher_date, ecrire_date_iso, maintenant
 from pymphub.edition import Grandeur
 from pymphub.graphes import tableaux_tracables
 from pymphub.incertitudes import Budget
@@ -49,12 +52,14 @@ from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.page import (
     Ajustement,
     ColonneCalculee,
+    ColonneDate,
     GrandeurDerivee,
     Indicateur,
     Onglet,
     OngletDonnees,
     Page,
     Scalaire,
+    Tableau,
 )
 
 _LARGEUR_NOM = 120
@@ -247,6 +252,157 @@ class DialogueCourbe(QDialog):
             self.y.currentText(),
             self.x.currentText(),
         )
+
+
+_HEURE_ACTUELLE = "actuelle"
+_DATE_CHOISIE = "choisie"
+
+
+class DialogueDecroissance(QDialog):
+    """Compose decroissance(valeur, periode, date_cible) : A0 à une autre date et heure.
+
+    L'heure actuelle s'écrit dans la formule, avec son fuseau : le résultat reste ainsi le même
+    à chaque relecture, y compris sur une page validée.
+    """
+
+    def __init__(
+        self, page: Page, parent: QWidget | None = None, valeur_initiale: str = ""
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Décroissance radioactive")
+        self.page = page
+        self.scalaires = [g for g in page.mesures if isinstance(g, Scalaire)]
+        self.tableaux_dates = {
+            g.nom: [c.nom for c in g.colonnes if isinstance(c, ColonneDate)]
+            for g in page.mesures
+            if isinstance(g, Tableau)
+        }
+        self.valeur = QComboBox()
+        for scalaire in self.scalaires:
+            self.valeur.addItem(f"{scalaire.nom} ({scalaire.unite})", scalaire.nom)
+        for tableau, colonnes in tableaux_tracables(page).items():
+            for colonne in colonnes:
+                reference = f"{tableau}.{colonne}"
+                self.valeur.addItem(f"{reference} (toute la colonne)", reference)
+        if self.valeur.findData(valeur_initiale) >= 0:
+            self.valeur.setCurrentIndex(self.valeur.findData(valeur_initiale))
+        self.constante = QComboBox()
+        self.constante.setToolTip(
+            "Scalaire en unité de temps pour une période, en 1/h par exemple pour une constante"
+        )
+        for grandeur in page.mesures:
+            if isinstance(
+                grandeur, (Scalaire, GrandeurDerivee)
+            ) and peut_decroitre_avec(grandeur.unite):
+                self.constante.addItem(
+                    f"{grandeur.nom} ({grandeur.unite})", grandeur.nom
+                )
+        self.reference = QComboBox()
+        self.cible = QComboBox()
+        self.cible.addItem("Heure actuelle", _HEURE_ACTUELLE)
+        self.cible.addItem("Date et heure choisies", _DATE_CHOISIE)
+        for tableau, colonnes in self.tableaux_dates.items():
+            for colonne in colonnes:
+                self.cible.addItem(
+                    f"Chaque ligne de {tableau}.{colonne}", f"{tableau}.{colonne}"
+                )
+        self.date_choisie = QDateTimeEdit(QDateTime.currentDateTime())
+        self.date_choisie.setDisplayFormat("dd/MM/yyyy HH:mm:ss")
+        self.date_choisie.setCalendarPopup(True)
+        indication = QLabel(
+            "Le résultat garde l'incertitude de la valeur et de la période. L'heure actuelle "
+            "est celle de l'ajout, écrite dans la formule : ajouter un autre calcul pour une "
+            "heure plus récente."
+            if self.valeur.count() and self.constante.count()
+            else "Enregistrer d'abord dans la page la valeur à corriger, et un scalaire pour "
+            "la période (en h, min…) ou la constante de décroissance (en 1/h…)."
+        )
+        indication.setObjectName("discret")
+        indication.setWordWrap(True)
+        formulaire = QFormLayout()
+        formulaire.addRow("Valeur qui décroît", self.valeur)
+        formulaire.addRow("Période ou constante", self.constante)
+        formulaire.addRow("Valeur mesurée le", self.reference)
+        formulaire.addRow("Calculer à", self.cible)
+        self.ligne_date = self.date_choisie
+        formulaire.addRow("Date et heure", self.date_choisie)
+        self.formulaire = formulaire
+        boutons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.bouton_ok = boutons.button(QDialogButtonBox.StandardButton.Ok)
+        self.bouton_ok.setText("Ajouter")
+        self.bouton_ok.setEnabled(bool(self.valeur.count() and self.constante.count()))
+        boutons.button(QDialogButtonBox.StandardButton.Cancel).setText("Annuler")
+        boutons.accepted.connect(self.accept)
+        boutons.rejected.connect(self.reject)
+        disposition = QVBoxLayout(self)
+        disposition.addLayout(formulaire)
+        disposition.addWidget(indication)
+        disposition.addWidget(boutons)
+        self.setMinimumWidth(520)
+        self.valeur.currentIndexChanged.connect(self._proposer_references)
+        self.cible.currentIndexChanged.connect(self._montrer_date)
+        self._proposer_references()
+        self._montrer_date()
+
+    def _proposer_references(self) -> None:
+        """Un scalaire porte sa date. Une colonne prend une colonne de dates ou celle de la page."""
+        self.reference.clear()
+        valeur = self.valeur.currentData()
+        if valeur is None:
+            return
+        page = afficher_date(self.page.date_mesure)
+        if "." not in valeur:
+            scalaire = next(s for s in self.scalaires if s.nom == valeur)
+            date = scalaire.horodatage or self.page.date_mesure
+            origine = "du scalaire" if scalaire.horodatage else "de la page"
+            self.reference.addItem(f"{afficher_date(date)} (date {origine})", None)
+            self.reference.setEnabled(False)
+            return
+        self.reference.setEnabled(True)
+        tableau = valeur.split(".")[0]
+        for colonne in self.tableaux_dates.get(tableau, ()):
+            self.reference.addItem(f"Chaque ligne de {colonne}", f"{tableau}.{colonne}")
+        self.reference.addItem(
+            f"{page} (date de la page)",
+            f'"{ecrire_date_iso(self.page.date_mesure)}"',
+        )
+
+    def _montrer_date(self) -> None:
+        visible = self.cible.currentData() == _DATE_CHOISIE
+        self.date_choisie.setVisible(visible)
+        self.formulaire.labelForField(self.date_choisie).setVisible(visible)
+
+    def _cible_ecrite(self) -> str:
+        cible = self.cible.currentData()
+        if cible == _HEURE_ACTUELLE:
+            return f'"{ecrire_date_iso(maintenant())}"'
+        if cible == _DATE_CHOISIE:
+            return f'"{ecrire_date_iso(self.date_choisie.dateTime().toPython().astimezone())}"'
+        return cible
+
+    def formule(self) -> str:
+        """Écrit la formule. L'heure actuelle est lue ici, au moment de l'ajout."""
+        arguments = [
+            self.valeur.currentData(),
+            self.constante.currentData(),
+            self._cible_ecrite(),
+        ]
+        if self.reference.currentData() is not None:
+            arguments.append(self.reference.currentData())
+        return f"decroissance({', '.join(arguments)})"
+
+
+def choisir_decroissance(
+    page: Page | None, parent: QWidget, valeur_initiale: str = ""
+) -> str | None:
+    """Demande une décroissance et renvoie sa formule, ou None si on annule."""
+    dialogue = DialogueDecroissance(page, parent, valeur_initiale)
+    accepte = dialogue.exec() == QDialog.DialogCode.Accepted
+    formule = dialogue.formule() if accepte else None
+    dialogue.deleteLater()
+    return formule
 
 
 class LigneCalcul:
@@ -450,6 +606,12 @@ class EditeurCalculs(EditeurOnglet):
             "ligne par ligne : elle s'affiche dans le tableau et se trace dans un graphe."
         )
         self.bouton_courbe.clicked.connect(self.demander_courbe)
+        self.bouton_decroissance = QPushButton("Décroissance…")
+        self.bouton_decroissance.setToolTip(
+            "Calcule une activité, ou toute grandeur qui décroît, à une autre date et heure, "
+            "pour un scalaire ou toute une colonne"
+        )
+        self.bouton_decroissance.clicked.connect(lambda: self.demander_decroissance())
         self.insertion = QComboBox()
         self.insertion.setToolTip("Insère ce nom dans la formule en cours")
         self.insertion.activated.connect(self._inserer_choix)
@@ -464,6 +626,7 @@ class EditeurCalculs(EditeurOnglet):
         ligne_haut = QHBoxLayout()
         ligne_haut.addWidget(self.bouton_ajouter)
         ligne_haut.addWidget(self.bouton_courbe)
+        ligne_haut.addWidget(self.bouton_decroissance)
         ligne_haut.addWidget(self.insertion)
         ligne_haut.addStretch()
         ligne_haut.addWidget(QLabel("k ="))
@@ -539,7 +702,7 @@ class EditeurCalculs(EditeurOnglet):
                 ]
             )
         self.insertion.addItems([f"{nom}()" for nom in (*sorted(FONCTIONS), "sqrt")])
-        self.insertion.addItems(["derivee()", "primitive()"])
+        self.insertion.addItems(["derivee()", "primitive()", "decroissance()"])
         self.insertion.addItems(list(CONSTANTES))
 
     def _inserer_choix(self, rang: int) -> None:
@@ -581,18 +744,36 @@ class EditeurCalculs(EditeurOnglet):
     ) -> LigneCalcul:
         """Ajoute la courbe dérivée ou primitive d'une colonne, avec un nom libre."""
         prefixe = {"derivee": "d", "primitive": "P"}[operation]
+        return self._ajouter_avec_nom_libre(
+            f"{prefixe}_{y}", f"{operation}({tableau}.{y}, {tableau}.{x})"
+        )
+
+    def _ajouter_avec_nom_libre(self, base: str, formule: str) -> LigneCalcul:
         pris = {g.nom for g in (self.page.mesures if self.page else ())}
         pris.update(ligne.nom.text().strip() for ligne in self.lignes)
-        nom = f"{prefixe}_{y}"
+        nom = base
         rang = 2
         while nom in pris:
-            nom = f"{prefixe}_{y}_{rang}"
+            nom = f"{base}_{rang}"
             rang += 1
         vide = next((ligne for ligne in self.lignes if ligne.est_vide()), None)
         ligne = vide or self.ajouter_ligne()
         ligne.nom.setText(nom)
-        ligne.formule.setText(f"{operation}({tableau}.{y}, {tableau}.{x})")
+        ligne.formule.setText(formule)
         return ligne
+
+    def ajouter_decroissance(self, formule: str) -> LigneCalcul:
+        """Ajoute un calcul de décroissance, nommé d'après la valeur corrigée."""
+        valeur = formule.removeprefix("decroissance(").split(",")[0]
+        return self._ajouter_avec_nom_libre(f"{valeur.split('.')[-1]}_decru", formule)
+
+    def demander_decroissance(self, valeur_initiale: str = "") -> bool:
+        """Demande la valeur, la période et la date, puis ajoute le calcul."""
+        formule = choisir_decroissance(self.page, self, valeur_initiale)
+        if formule is None:
+            return False
+        self.ajouter_decroissance(formule)
+        return True
 
     def _choisir_courbe(self) -> tuple[str, str, str, str] | None:
         tableaux = tableaux_tracables(self.page) if self.page else {}

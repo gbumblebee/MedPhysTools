@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from pymphub.ajustements import etat_resultat
 from pymphub.archive import Archive
 from pymphub.calculs import etat_derivee
+from pymphub.dates import afficher_date, lire_date_iso
 from pymphub.equations import RESOLUTION_ECRAN
 from pymphub.fichiers import ETATS_ALERTE
 from pymphub.graphes import reglages_par_defaut
@@ -64,6 +65,7 @@ from pymphub.interface.theme import ALERTE, FOND
 from pymphub.page import (
     Ajustement,
     ColonneCalculee,
+    ColonneDate,
     ColonneIdentifiant,
     Copie,
     Fichier,
@@ -555,7 +557,9 @@ class FichePage(QWidget):
                 for i in range(lignes):
                     valeur = valeurs.iloc[i]
                     texte = (
-                        valeur
+                        afficher_date(lire_date_iso(valeur))
+                        if isinstance(colonne, ColonneDate)
+                        else valeur
                         if isinstance(colonne, ColonneIdentifiant)
                         else f"{float(valeur):.6g}"
                         if getattr(colonne, "formule", None)

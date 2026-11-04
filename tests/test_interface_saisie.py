@@ -503,14 +503,16 @@ def test_replier_les_informations_laisse_la_place_aux_onglets(ouverte, qtbot):
     ouverte.resize(1200, 800)
     ouverte.show()
     qtbot.waitExposed(ouverte)
+    assert ouverte.bloc_informations.isHidden()
+    assert ouverte.bouton_informations.text() == "Afficher les informations"
     hauteur = ouverte.onglets.height()
     ouverte.bouton_informations.click()
     qtbot.wait(20)
-    assert ouverte.bloc_informations.isHidden()
-    assert ouverte.onglets.height() > hauteur
-    assert ouverte.bouton_informations.text() == "Afficher les informations"
-    ouverte.bouton_informations.click()
     assert not ouverte.bloc_informations.isHidden()
+    assert ouverte.onglets.height() < hauteur
+    assert ouverte.bouton_informations.text() == "Masquer les informations"
+    ouverte.bouton_informations.click()
+    assert ouverte.bloc_informations.isHidden()
 
 
 def test_replier_les_informations_ne_change_pas_la_page(ouverte):

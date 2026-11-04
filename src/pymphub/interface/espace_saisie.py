@@ -54,6 +54,7 @@ from pymphub.gabarit import (
     onglet_depuis_gabarit,
     verifier_conformite,
 )
+from pymphub.graphes import tableaux_tracables
 from pymphub.importation import ResultatImport, ValeurImportee
 from pymphub.interface import (  # noqa: F401 - déclarent leur type d'onglet
     onglet_ajustements,
@@ -65,7 +66,9 @@ from pymphub.interface import (  # noqa: F401 - déclarent leur type d'onglet
 )
 from pymphub.interface.dialogue_gabarit import DialogueGabarit
 from pymphub.interface.messages import message_erreur
+from pymphub.interface.onglet_calculs import EditeurCalculs, choisir_decroissance
 from pymphub.interface.onglet_scalaires import EditeurScalaires
+from pymphub.interface.onglet_tableau import EditeurTableau
 from pymphub.interface.onglets import (
     EditeurNotes,
     EditeurOnglet,
@@ -326,6 +329,8 @@ class EspaceSaisie(QWidget):
         self.bouton_informations = QPushButton("Masquer les informations")
         self.bouton_informations.setCheckable(True)
         self.bouton_informations.toggled.connect(self._replier_informations)
+        # Repliées d'emblée : elles se remplissent à la création, et les onglets gardent la place.
+        self.bouton_informations.setChecked(True)
 
         self.onglets = QTabWidget()
         self.onglets.setMovable(True)
@@ -553,8 +558,36 @@ class EspaceSaisie(QWidget):
         editeur.capture_proposee.connect(self.ajouter_capture)
         if isinstance(editeur, EditeurScalaires):
             editeur.import_avec_tableau.connect(self._importer_dans_un_nouveau_tableau)
+        if isinstance(editeur, EditeurTableau):
+            editeur.decroissance_demandee.connect(self.demander_decroissance_colonne)
         self.onglets.addTab(editeur, onglet.titre or onglet.type)
         return editeur
+
+    def demander_decroissance_colonne(self, colonne: str) -> bool:
+        """Corrige la décroissance de toute une colonne, depuis le clic droit du tableau.
+
+        Le calcul va dans l'onglet de calculs, créé s'il n'existe pas. On reste sur le tableau,
+        où la colonne calculée apparaît.
+        """
+        depart = self.onglets.currentWidget()
+        self.enregistrer_maintenant()
+        tableau, nom = colonne.split(".", 1)
+        if nom not in tableaux_tracables(self.page).get(tableau, ()):
+            self.afficher_erreur(
+                f"La colonne « {colonne} » n'est pas encore enregistrée : compléter d'abord "
+                "le tableau."
+            )
+            return False
+        formule = choisir_decroissance(self.page, self, colonne)
+        if formule is None:
+            return False
+        calculs = next(
+            (e for e in self.editeurs() if isinstance(e, EditeurCalculs)), None
+        ) or self.ajouter_onglet("calculs")
+        calculs.ajouter_decroissance(formule)
+        self.enregistrer_maintenant()
+        self.onglets.setCurrentWidget(depart)
+        return True
 
     def _pieces_affichees(self) -> list[str]:
         """Les pièces jointes que les onglets affichent : elles ne peuvent pas être retirées."""

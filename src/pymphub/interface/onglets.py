@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QPoint, Signal
 from PySide6.QtGui import (
     QDragEnterEvent,
     QDragMoveEvent,
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -40,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from pymphub.archive import Archive
+from pymphub.dates import afficher_date, maintenant
 from pymphub.edition import Grandeur
 from pymphub.equations import RESOLUTION_ECRAN
 from pymphub.gabarit import Gabarit
@@ -218,6 +220,9 @@ class ZoneNotes(QPlainTextEdit):
             super().dropEvent(evenement)
 
 
+ACTION_HORODATER = "Insérer la date et l'heure actuelles"
+
+
 class EditeurNotes(EditeurOnglet):
     """Édite un onglet de notes : son texte et ses photos annotées."""
 
@@ -234,7 +239,9 @@ class EditeurNotes(EditeurOnglet):
             "une équation avec $x^2$."
         )
         self.titres = TitresDeNote(self.texte.document())
-        afficher_en_grand(self.texte, lambda: self.onglet.titre or "Notes")
+        afficher_en_grand(
+            self.texte, lambda: self.onglet.titre or "Notes"
+        ).complement = self._completer_menu_texte
         self.texte.textChanged.connect(self.modifie)
         self.texte.fichiers_deposes.connect(self.ajouter_fichiers)
 
@@ -410,6 +417,23 @@ class EditeurNotes(EditeurOnglet):
             self.ajouter_fichiers(chemins)
 
     # --- Photos ---------------------------------------------------------------------------
+
+    def _completer_menu_texte(self, menu: QMenu, position: QPoint) -> None:
+        """Le clic droit propose d'horodater les notes, à l'endroit cliqué."""
+        menu.addSeparator()
+        action = menu.addAction(ACTION_HORODATER)
+        action.setEnabled(not self.texte.isReadOnly())
+        action.triggered.connect(lambda: self.inserer_horodatage(position))
+
+    def inserer_horodatage(self, position: QPoint | None = None) -> None:
+        """Écrit l'heure actuelle dans les notes, sans remplacer une sélection."""
+        curseur = self.texte.textCursor()
+        if position is not None and not curseur.hasSelection():
+            curseur = self.texte.cursorForPosition(position)
+        curseur.clearSelection()
+        curseur.insertText(f"{afficher_date(maintenant())} ")
+        self.texte.setTextCursor(curseur)
+        self.texte.setFocus()
 
     def _signaler(self, message: str) -> None:
         self.message.setText(message)

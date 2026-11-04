@@ -177,6 +177,30 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Un enregistrement automatique ne ferme pas le menu d'une photo | `tests/test_copie_chemin.py::test_un_enregistrement_menu_ouvert_ne_casse_pas_le_menu_d_une_photo` | Vérifié |
 | Afficher une photo n'ouvre aucune fenêtre parasite | `tests/test_copie_chemin.py::test_construire_une_vignette_n_ouvre_aucune_fenetre` | Vérifié |
 
+## Retours d'ergonomie avant l'essai sous Windows
+
+| Exigence | Test | État |
+|---|---|---|
+| L'application s'ouvre en grand, avec son logo | `tests/test_interface_ergonomie.py::test_l_application_s_ouvre_en_grand_avec_son_logo` | Vérifié sans écran |
+| Lanceur Windows sans fenêtre de commande | `tests/test_interface_ergonomie.py::test_le_lanceur_vise_le_bon_module_sans_fenetre_de_commande` | Essayé sous Wine, à vérifier sous Windows |
+| Informations de la page repliées par défaut | `tests/test_interface_ergonomie.py::test_les_informations_sont_repliees_par_defaut` | Vérifié |
+| Décroissance : la période divise par deux | `tests/test_decroissance.py::test_une_periode_de_decroissance_divise_par_deux` | Vérifié |
+| Décroissance : la constante donne le même résultat | `tests/test_decroissance.py::test_une_constante_de_decroissance_donne_le_meme_resultat` | Vérifié |
+| Décroissance : incertitude égale à la propagation analytique | `tests/test_decroissance.py::test_l_incertitude_est_celle_de_la_propagation_analytique` | Vérifié |
+| Décroissance : le changement d'heure ne fausse pas la durée | `tests/test_decroissance.py::test_le_changement_d_heure_ne_fausse_pas_la_duree` | Vérifié |
+| Décroissance : toute une colonne ramenée à une date | `tests/test_decroissance.py::test_toute_une_colonne_se_ramene_a_une_meme_date` | Vérifié |
+| Décroissance depuis le clic droit sur une colonne | `tests/test_interface_ergonomie.py::test_la_decroissance_d_une_colonne_depuis_le_clic_droit` | Vérifié |
+| L'heure actuelle est figée dans la formule | `tests/test_interface_ergonomie.py::test_l_heure_actuelle_s_ecrit_dans_la_formule` | Vérifié |
+| Le résultat ne change plus à la relecture | `tests/test_interface_ergonomie.py::test_le_resultat_a_l_heure_actuelle_ne_change_plus_a_la_relecture` | Vérifié |
+| Horodatage des notes par clic droit | `tests/test_interface_ergonomie.py::test_inserer_l_heure_dans_les_notes` | Vérifié |
+| Date et heure dans un tableau par clic droit | `tests/test_interface_ergonomie.py::test_inserer_l_heure_dans_une_cellule` | Vérifié |
+| Rouvrir une page ne change aucune date | `tests/test_interface_ergonomie.py::test_rouvrir_une_page_ne_change_aucune_date` | Vérifié |
+| Relire l'écran redonne la date, quel que soit le fuseau | `tests/test_dates.py::test_relire_ce_qui_est_affiche_redonne_exactement_la_date` | Vérifié |
+| Supprimer une colonne par clic droit | `tests/test_interface_ergonomie.py::test_supprimer_une_colonne_depuis_une_cellule` | Vérifié |
+| N'afficher que les données brutes | `tests/test_interface_ergonomie.py::test_n_afficher_que_les_donnees_brutes` | Vérifié |
+| N'afficher que les données calculées | `tests/test_interface_ergonomie.py::test_n_afficher_que_les_donnees_calculees` | Vérifié |
+| Changer l'affichage ne touche pas aux données | `tests/test_interface_ergonomie.py::test_changer_l_affichage_ne_touche_pas_aux_donnees` | Vérifié |
+
 ## Gabarits
 
 | Exigence | Test | État |

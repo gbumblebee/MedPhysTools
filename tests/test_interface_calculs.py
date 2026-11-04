@@ -546,14 +546,14 @@ def test_le_tableau_montre_la_colonne_marquee_et_en_lecture_seule(
     espace.onglets.setCurrentWidget(releves)
     assert releves.grille_calculee.isVisible()
     configuration = releves.configuration_calculee
-    assert [configuration.item(i, 0).text() for i in range(6)] == [
+    assert [configuration.item(i, 0).text() for i in range(5)] == [
         "double",
         "Calculée",
         "MBq",
         "U à k = 2",
         "x2",
-        "t.act * 2",
     ]
+    assert configuration.item(4, 0).toolTip() == "t.act * 2"
     # 200 ± 2·(1 % de 100)·2 = 4 MBq à k = 2.
     assert releves.grille_calculee.item(0, 0).text() == "200 ± 4"
     assert releves.grille_calculee.item(2, 0).text() == "50 ± 1"

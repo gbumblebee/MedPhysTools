@@ -12,9 +12,12 @@ s'évalue ligne par ligne, et chaque ligne donne une valeur et son incertitude.
 """
 
 import ast
+import keyword
 import math
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 import GTC
 import pandas as pd
@@ -22,6 +25,7 @@ import pint
 from GTC.lib import UncertainReal
 from GTC.reporting import budget as budget_gtc
 
+from pymphub.dates import DateInvalide, lire_date, lire_date_iso
 from pymphub.incertitudes import (
     Budget,
     Composante,
@@ -33,6 +37,7 @@ from pymphub.incertitudes import (
 from pymphub.page import (
     Ajustement,
     ColonneCalculee,
+    ColonneDate,
     ColonneIncertitude,
     ColonneNumerique,
     GrandeurDerivee,
@@ -276,6 +281,33 @@ class ContexteCalcul:
         self._valeurs[cle] = valeur
         return valeur
 
+    def date_de_cellule(self, tableau: str, colonne: str, ligne: int) -> datetime:
+        """Renvoie une date d'un tableau, numérotée à partir de 1 comme dans la grille."""
+        description = next(
+            (
+                g
+                for g in self.page.mesures
+                if isinstance(g, Tableau) and g.nom == tableau
+            ),
+            None,
+        )
+        cible = next(
+            (c for c in description.colonnes if c.nom == colonne)
+            if description is not None
+            else (),
+            None,
+        )
+        if not isinstance(cible, ColonneDate):
+            raise ErreurCalcul(
+                f"« {tableau}.{colonne} » n'est pas une colonne de dates."
+            )
+        donnees = self.donnees_tableau(tableau)
+        if not 1 <= ligne <= len(donnees):
+            raise ErreurCalcul(
+                f"« {tableau} » a {len(donnees)} ligne(s) : pas de ligne {ligne}."
+            )
+        return lire_date_iso(donnees[colonne].iloc[ligne - 1])
+
     def abscisse_indicateur(self, indicateur: Indicateur, nom: str) -> _Valeur:
         """Renvoie l'abscisse d'un indicateur : `pic.x` donne la position du maximum."""
         if nom != "x" or indicateur.position is None:
@@ -378,6 +410,16 @@ def _analyser(formule: str) -> ast.Expression:
     try:
         return ast.parse(formule.strip(), mode="eval")
     except (SyntaxError, ValueError, RecursionError, MemoryError) as erreur:
+        reserves = [
+            mot
+            for mot in re.findall(r"[^\W\d]\w*", formule)
+            if keyword.iskeyword(mot) and mot not in ("not", "and", "or", "in", "is")
+        ]
+        if reserves:
+            raise FormuleRefusee(
+                f"« {reserves[0]} » est un mot réservé dans une formule : renommer cette "
+                f"grandeur, par exemple {reserves[0]}_ ou λ."
+            ) from erreur
         raise FormuleRefusee(f"Formule mal écrite : « {formule} ».") from erreur
 
 
@@ -526,6 +568,97 @@ def _primitive(appel: ast.Call, contexte: ContexteCalcul) -> _Valeur:
     return cumul[contexte.ligne]
 
 
+def _date_en_argument(noeud: ast.AST, contexte: ContexteCalcul, usage: str) -> datetime:
+    """Lit une date écrite dans la formule, ou celle d'une colonne de dates."""
+    if isinstance(noeud, ast.Constant) and isinstance(noeud.value, str):
+        try:
+            return lire_date(noeud.value, fuseau_requis=True)
+        except DateInvalide as erreur:
+            raise FormuleRefusee(f"{usage} : {erreur}") from erreur
+    if isinstance(noeud, ast.Subscript):
+        return contexte.date_de_cellule(*_nom_de_cellule(noeud))
+    if (
+        isinstance(noeud, ast.Attribute)
+        and isinstance(noeud.value, ast.Name)
+        and contexte.ligne is not None
+    ):
+        return contexte.date_de_cellule(noeud.value.id, noeud.attr, contexte.ligne)
+    raise FormuleRefusee(
+        f'{usage} : écrire une date entre guillemets, comme "2026-11-04T14:30:00+01:00", '
+        "ou une colonne de dates, comme tableau.date."
+    )
+
+
+def _date_de_reference(appel: ast.Call, contexte: ContexteCalcul) -> datetime:
+    """La date de la valeur de départ : celle du scalaire, sinon celle qu'indique la formule."""
+    if len(appel.args) == 4:
+        return _date_en_argument(appel.args[3], contexte, "La date de référence")
+    premier = appel.args[0]
+    grandeur = (
+        next((g for g in contexte.page.mesures if g.nom == premier.id), None)
+        if isinstance(premier, ast.Name)
+        else None
+    )
+    if not isinstance(grandeur, Scalaire):
+        raise ErreurCalcul(
+            "Seul un scalaire porte sa date : pour une colonne ou un résultat de calcul, "
+            "écrire decroissance(valeur, periode, date_cible, date_de_reference)."
+        )
+    return grandeur.horodatage or contexte.page.date_mesure
+
+
+def _est_une_constante(unite: pint.Unit) -> bool:
+    """Un 1/h convient ; pour pint un Bq est aussi un 1/s, mais c'est une activité."""
+    quantite = registre.Quantity(1.0, unite)
+    return quantite.check("1/[time]") and "becquerel" not in str(unite)
+
+
+def peut_decroitre_avec(unite: str) -> bool:
+    """Dit si une unité est celle d'une période ou d'une constante de décroissance."""
+    pint_unite = registre.Unit(unite)
+    return registre.Quantity(1.0, pint_unite).check("[time]") or _est_une_constante(
+        pint_unite
+    )
+
+
+def _exposant_de_decroissance(constante: _Valeur, secondes: float) -> UncertainReal:
+    """Lambda fois la durée : l'unité distingue une période d'une constante de décroissance."""
+    quantite = registre.Quantity(1.0, constante.unite)
+    if quantite.check("[time]"):
+        periode = constante.x * quantite.to("s").magnitude
+        if periode.x <= 0:
+            raise ErreurCalcul("Une période radioactive doit être positive.")
+        return math.log(2) * secondes / periode
+    if _est_une_constante(constante.unite):
+        lambda_ = constante.x * quantite.to("1/s").magnitude
+        if lambda_.x <= 0:
+            raise ErreurCalcul("Une constante de décroissance doit être positive.")
+        return lambda_ * secondes
+    raise ErreurCalcul(
+        "decroissance attend en deuxième une période, en h ou en min par exemple, ou une "
+        f"constante de décroissance en 1/h, pas des {_ecrire_unite(_reduire(constante.unite)[1])}."
+    )
+
+
+def _decroissance(appel: ast.Call, contexte: ContexteCalcul) -> _Valeur:
+    """A(t) = A0 * exp(-ln(2) * (t - t0) / T), vers le futur comme vers le passé.
+
+    Les dates n'ont pas d'incertitude : seules celles de A0 et de T se propagent.
+    """
+    if not isinstance(contexte.page, Page):
+        raise FormuleRefusee(
+            "decroissance n'est pas disponible dans une formule d'incertitude."
+        )
+    valeur, constante, cible = appel.args[:3]
+    secondes = (
+        _date_en_argument(cible, contexte, "La date cible")
+        - _date_de_reference(appel, contexte)
+    ).total_seconds()
+    depart = _evaluer(valeur, contexte)
+    exposant = _exposant_de_decroissance(_evaluer(constante, contexte), secondes)
+    return _Valeur(depart.x * GTC.exp(-exposant), depart.unite)
+
+
 _COURBES: dict[str, Callable[[ast.Call, ContexteCalcul], _Valeur]] = {
     "derivee": _derivee,
     "primitive": _primitive,
@@ -534,6 +667,17 @@ _COURBES: dict[str, Callable[[ast.Call, ContexteCalcul], _Valeur]] = {
 
 def _appel(noeud: ast.Call, contexte: ContexteCalcul) -> _Valeur:
     nom = noeud.func.id if isinstance(noeud.func, ast.Name) else None
+    if nom == "decroissance":
+        if (
+            noeud.keywords
+            or len(noeud.args) not in (3, 4)
+            or any(isinstance(argument, ast.Starred) for argument in noeud.args)
+        ):
+            raise FormuleRefusee(
+                "decroissance s'écrit decroissance(valeur, periode, date_cible), avec en "
+                "plus la date de référence pour une colonne."
+            )
+        return _decroissance(noeud, contexte)
     if nom in _COURBES:
         if (
             noeud.keywords
@@ -550,7 +694,7 @@ def _appel(noeud: ast.Call, contexte: ContexteCalcul) -> _Valeur:
         permises = ", ".join(sorted((*FONCTIONS, "sqrt")))
         raise FormuleRefusee(
             f"Seules ces fonctions à un argument sont autorisées : {permises}. "
-            "S'y ajoutent derivee(y, x) et primitive(y, x)."
+            "S'y ajoutent derivee(y, x), primitive(y, x) et decroissance()."
         )
     if isinstance(noeud.args[0], ast.Starred):
         raise FormuleRefusee("Cette écriture n'est pas autorisée dans une formule.")

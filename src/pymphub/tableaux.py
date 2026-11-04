@@ -13,8 +13,10 @@ from numbers import Real
 import pandas as pd
 
 from pymphub.calculs import ErreurCalcul, incertitudes_de_colonne
+from pymphub.dates import DateInvalide, lire_date_iso
 from pymphub.historique import Modification
 from pymphub.page import (
+    ColonneDate,
     ColonneIdentifiant,
     ColonneIncertitude,
     ColonneNumerique,
@@ -22,6 +24,7 @@ from pymphub.page import (
 )
 
 DonneesTableau = Mapping[str, Sequence[str | float]]
+_COLONNES_TEXTE = (ColonneIdentifiant, ColonneDate)
 
 
 class TableauInvalide(ValueError):
@@ -29,11 +32,19 @@ class TableauInvalide(ValueError):
 
 
 def _verifier_cellule(
-    colonne: ColonneNumerique | ColonneIdentifiant | ColonneIncertitude,
+    colonne: ColonneNumerique | ColonneIdentifiant | ColonneDate | ColonneIncertitude,
     valeur: str | float,
     ligne: int,
 ) -> None:
     lieu = f"colonne « {colonne.nom} », ligne {ligne}"
+    if isinstance(colonne, ColonneDate):
+        if not isinstance(valeur, str):
+            raise TableauInvalide(f"{lieu} : une date est attendue, pas {valeur!r}.")
+        try:
+            lire_date_iso(valeur)
+        except DateInvalide as erreur:
+            raise TableauInvalide(f"{lieu} : {erreur}") from erreur
+        return
     if isinstance(colonne, ColonneIdentifiant):
         if not isinstance(valeur, str) or not valeur:
             raise TableauInvalide(
@@ -117,7 +128,7 @@ def ecrire_csv(tableau: Tableau, donnees: DonneesTableau) -> str:
     for i in range(nombre_lignes):
         ecrivain.writerow(
             donnees[colonne.nom][i]
-            if isinstance(colonne, ColonneIdentifiant)
+            if isinstance(colonne, _COLONNES_TEXTE)
             else repr(float(donnees[colonne.nom][i]))
             for colonne in stockees
         )
@@ -128,7 +139,8 @@ def lire_csv(tableau: Tableau, texte: str) -> pd.DataFrame:
     """Relit un fichier CSV d'après la description du tableau.
 
     Le DataFrame renvoyé donne les unités des colonnes dans `attrs["unites"]`. Une colonne
-    d'incertitude à formule y figure aussi, recalculée à partir des valeurs saisies.
+    d'incertitude à formule y figure aussi, recalculée à partir des valeurs saisies. Une
+    colonne de dates reste du texte ISO 8601 : `pd.to_datetime(colonne, utc=True)` la convertit.
     """
     lignes = _lignes_csv(texte)
     if not lignes:
@@ -148,7 +160,7 @@ def lire_csv(tableau: Tableau, texte: str) -> pd.DataFrame:
             )
         for nom, texte_cellule in zip(en_tete, ligne):
             colonne = colonnes[nom]
-            if isinstance(colonne, ColonneIdentifiant):
+            if isinstance(colonne, _COLONNES_TEXTE):
                 valeur: str | float = texte_cellule
             else:
                 try:
@@ -166,9 +178,7 @@ def lire_csv(tableau: Tableau, texte: str) -> pd.DataFrame:
         {
             colonne.nom: pd.Series(
                 donnees[colonne.nom],
-                dtype="object"
-                if isinstance(colonne, ColonneIdentifiant)
-                else "float64",
+                dtype="object" if isinstance(colonne, _COLONNES_TEXTE) else "float64",
             )
             for colonne in tableau.colonnes
         }
@@ -176,7 +186,7 @@ def lire_csv(tableau: Tableau, texte: str) -> pd.DataFrame:
     resultat.attrs["unites"] = {
         colonne.nom: colonne.unite
         for colonne in tableau.colonnes
-        if not isinstance(colonne, ColonneIdentifiant)
+        if not isinstance(colonne, _COLONNES_TEXTE)
     }
     return resultat
 

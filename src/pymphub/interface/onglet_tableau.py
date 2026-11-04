@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import ValidationError
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -31,6 +32,13 @@ from PySide6.QtWidgets import (
 )
 
 from pymphub.archive import Archive
+from pymphub.dates import (
+    afficher_date,
+    ecrire_date_iso,
+    lire_date,
+    lire_date_iso,
+    maintenant,
+)
 from pymphub.edition import Grandeur, lire_nombre
 from pymphub.gabarit import Gabarit, VariableTableau
 from pymphub.importation import (
@@ -57,6 +65,7 @@ from pymphub.interface.texte_en_grand import afficher_en_grand
 from pymphub.interface.theme import FOND
 from pymphub.page import (
     ColonneCalculee,
+    ColonneDate,
     ColonneIdentifiant,
     ColonneIncertitude,
     ColonneNumerique,
@@ -75,17 +84,27 @@ _LARGEUR_LIBELLES = 110
 _LARGEUR_COLONNE = 190
 _HAUTEUR_CONFIGURATION = 36
 _COLONNES_CALCULEES_VISIBLES = 2
+_COLONNES_CALCULEES_SEULES = 4
 _K_AFFICHE = 2.0
 _LARGEUR_SANS_LIMITE = 16777215
 _PRIORITE_GRILLE = 1000
-_LIBELLES_CONFIGURATION = ("Nom", "Nature", "Unité", "Incertitude", "Commentaire", "")
+_LIBELLES_CONFIGURATION = ("Nom", "Nature", "Unité", "Incertitude", "Commentaire")
 _NATURES = (
     ("Nombre", "numerique"),
     ("Identifiant", "identifiant"),
     ("Incertitude de…", "incertitude"),
     ("Incertitude calculée", "incertitude_calculee"),
+    ("Date et heure", "date"),
 )
 _RANG_INCERTITUDE_CALCULEE = 3
+_NATURES_SANS_UNITE = ("identifiant", "date")
+_TOUT = "tout"
+_BRUTES = "brutes"
+_CALCULEES = "calculees"
+ACTION_INSERER_DATE = "Insérer la date et l'heure actuelles"
+ACTION_DECROISSANCE = "Appliquer la décroissance radioactive…"
+ACTION_COLONNE_DATE = "Ajouter une colonne date et heure"
+ACTION_SUPPRIMER = "Supprimer la colonne"
 
 
 class ConfigurationColonne:
@@ -111,6 +130,8 @@ class ConfigurationColonne:
         self.commentaire.textChanged.connect(self._afficher_commentaire_complet)
         afficher_en_grand(
             self.commentaire, lambda: f"Commentaire de {self.nom.text().strip()}"
+        ).complement = lambda menu, _position: editeur.completer_menu_colonne(
+            menu, self
         )
         self.bouton_incertitude = QPushButton("Incertitude…")
         self.bouton_incertitude.clicked.connect(self.demander_incertitude)
@@ -126,9 +147,6 @@ class ConfigurationColonne:
             "Formule sur les colonnes numériques de ce tableau, par exemple sqrt(N). "
             "Le résultat est une incertitude-type, sans incertitude propre."
         )
-        self.bouton_retirer = QPushButton("Retirer")
-        self.bouton_retirer.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.bouton_retirer.clicked.connect(lambda: editeur.retirer_colonne(self))
         self.cellule_incertitude = QWidget()
         disposition = QHBoxLayout(self.cellule_incertitude)
         disposition.setContentsMargins(0, 0, 0, 0)
@@ -143,6 +161,8 @@ class ConfigurationColonne:
         self.cible.currentIndexChanged.connect(self._modifiee)
         self.formule.textChanged.connect(self._modifiee)
         self.commentaire.textChanged.connect(self._modifiee)
+        for champ in (self.nom, self.unite, self.formule, self.nature, self.cible):
+            editeur.brancher_menu_champ(champ, self)
         self.actualiser()
 
     def _afficher_commentaire_complet(self, texte: str) -> None:
@@ -159,8 +179,8 @@ class ConfigurationColonne:
     def actualiser(self) -> None:
         """Adapte les champs à la nature de la colonne, et vérifie l'unité à la frappe."""
         nature = self.nature_choisie()
-        self.unite.setEnabled(nature != "identifiant")
-        self.bouton_incertitude.setEnabled(nature != "identifiant")
+        self.unite.setEnabled(nature not in _NATURES_SANS_UNITE)
+        self.bouton_incertitude.setEnabled(nature not in _NATURES_SANS_UNITE)
         self.bouton_incertitude.setVisible(nature != "incertitude_calculee")
         self.cible.setVisible(nature in ("incertitude", "incertitude_calculee"))
         self.formule.setVisible(nature == "incertitude_calculee")
@@ -169,7 +189,7 @@ class ConfigurationColonne:
         )
         verification = verifier_unite(self.unite.text())
         fausse = (
-            nature != "identifiant"
+            nature not in _NATURES_SANS_UNITE
             and bool(self.unite.text().strip())
             and not verification.valide
         )
@@ -239,7 +259,9 @@ class ConfigurationColonne:
             self.composantes = composantes
         self._modifiee()
 
-    def colonne(self) -> ColonneNumerique | ColonneIdentifiant | ColonneIncertitude:
+    def colonne(
+        self,
+    ) -> ColonneNumerique | ColonneIdentifiant | ColonneDate | ColonneIncertitude:
         """Construit la description de la colonne. Lève `ValueError` si elle est invalide."""
         nom = self.nom.text().strip()
         if not nom:
@@ -247,6 +269,8 @@ class ConfigurationColonne:
         nature = self.nature_choisie()
         if nature == "identifiant":
             return ColonneIdentifiant(nom=nom, commentaire=self.commentaire.text())
+        if nature == "date":
+            return ColonneDate(nom=nom, commentaire=self.commentaire.text())
         if not self.unite.text().strip() and nature != "incertitude_calculee":
             raise ValueError(
                 f"colonne « {nom} » : l'unité est obligatoire (1 si sans dimension)"
@@ -315,6 +339,9 @@ class ConfigurationColonne:
 class EditeurTableau(ImportPersonnalise, EditeurOnglet):
     """Édite un tableau : sa description et ses cellules."""
 
+    # Le tableau et la colonne à corriger, écrits `tableau.colonne`.
+    decroissance_demandee = Signal(str)
+
     def __init__(
         self, onglet: Onglet, page: Page | None = None, parent: QWidget | None = None
     ) -> None:
@@ -356,6 +383,15 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         ligne_haut.addWidget(self.bouton_importer)
         ligne_haut.addWidget(self.bouton_personnalise)
         ligne_haut.addWidget(self.bouton_repetitions)
+        self.choix_affichage = QComboBox()
+        self.choix_affichage.addItem("Toutes les colonnes", _TOUT)
+        self.choix_affichage.addItem("Données brutes", _BRUTES)
+        self.choix_affichage.addItem("Données calculées", _CALCULEES)
+        self.choix_affichage.setToolTip(
+            "Choisit les colonnes à l'écran : aucune donnée n'est modifiée"
+        )
+        self.choix_affichage.currentIndexChanged.connect(self._appliquer_affichage)
+        ligne_haut.addWidget(self.choix_affichage)
 
         self.message = QLabel("")
         self.message.setObjectName("alerte")
@@ -376,12 +412,18 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         self.configuration.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Fixed
         )
+        self.configuration.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.configuration.customContextMenuRequested.connect(
+            self._ouvrir_menu_configuration
+        )
 
         self.grille = QTableWidget(_LIGNES_INITIALES, 0)
         self.grille.horizontalHeader().setVisible(False)
         self.grille.verticalHeader().setFixedWidth(_LARGEUR_LIBELLES)
         self.grille.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.grille.setAlternatingRowColors(True)
+        self.grille.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.grille.customContextMenuRequested.connect(self._ouvrir_menu_grille)
         self.grille.itemChanged.connect(self._cellule_changee)
         self.grille.horizontalScrollBar().valueChanged.connect(
             self.configuration.horizontalScrollBar().setValue
@@ -485,6 +527,10 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
                 configuration.composantes = colonne.composantes
             elif isinstance(colonne, ColonneIdentifiant):
                 configuration.nature.setCurrentIndex(1)
+            elif isinstance(colonne, ColonneDate):
+                configuration.nature.setCurrentIndex(
+                    configuration.nature.findData("date")
+                )
             elif colonne.formule is not None:
                 configuration.nature.setCurrentIndex(_RANG_INCERTITUDE_CALCULEE)
                 configuration.unite.setText(colonne.unite or "")
@@ -509,7 +555,9 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         for j, colonne in enumerate(tableau.colonnes):
             for i, valeur in enumerate(donnees[colonne.nom]):
                 texte = (
-                    valeur
+                    afficher_date(lire_date_iso(valeur))
+                    if isinstance(colonne, ColonneDate)
+                    else valeur
                     if isinstance(colonne, ColonneIdentifiant)
                     else _nombre_ecrit(valeur)
                 )
@@ -531,7 +579,6 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
             configuration.unite,
             configuration.cellule_incertitude,
             configuration.commentaire,
-            configuration.bouton_retirer,
         ):
             champ.setParent(None)
             champ.deleteLater()
@@ -552,7 +599,6 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
                 configuration.unite,
                 configuration.cellule_incertitude,
                 configuration.commentaire,
-                configuration.bouton_retirer,
             )
         ):
             self.configuration.setCellWidget(rang, position, champ)
@@ -560,6 +606,8 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         self.grille.setColumnWidth(position, _LARGEUR_COLONNE)
         self._ajuster_hauteur_configuration()
         self._actualiser_cibles()
+        # Une colonne ajoutée doit se voir, quel que soit l'affichage choisi.
+        self.choix_affichage.setCurrentIndex(0)
         self.colonne_modifiee()
         return configuration
 
@@ -578,6 +626,125 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         self.grille.removeColumn(position)
         self._actualiser_cibles()
         self.colonne_modifiee()
+
+    # --- Clic droit -------------------------------------------------------------------
+
+    def _ajouter_action(self, menu: QMenu, libelle: str, action: object) -> None:
+        """L'action s'exécute une fois le menu fermé : elle peut détruire le champ cliqué."""
+        menu.addAction(libelle).triggered.connect(lambda: QTimer.singleShot(0, action))
+
+    def completer_menu_colonne(
+        self, menu: QMenu, configuration: ConfigurationColonne | None
+    ) -> None:
+        """Ajoute au menu ce qu'on peut faire d'une colonne."""
+        if menu.actions():
+            menu.addSeparator()
+        if (
+            configuration is not None
+            and configuration.nature_choisie() == "numerique"
+            and configuration.nom.text().strip()
+        ):
+            self._ajouter_action(
+                menu,
+                ACTION_DECROISSANCE,
+                lambda: self.demander_decroissance(configuration),
+            )
+        self._ajouter_action(menu, ACTION_COLONNE_DATE, self.ajouter_colonne_date)
+        if configuration is not None:
+            self._ajouter_action(
+                menu,
+                ACTION_SUPPRIMER,
+                lambda: self.demander_suppression(configuration),
+            )
+
+    def brancher_menu_champ(
+        self, champ: QLineEdit | QComboBox, configuration: ConfigurationColonne
+    ) -> None:
+        """Complète le menu d'un champ (copier, coller…) par ce qui concerne sa colonne.
+
+        Une liste déroulante garde l'événement du clic droit : il faut lui donner ce menu.
+        """
+
+        def ouvrir(position: QPoint) -> None:
+            menu = (
+                champ.createStandardContextMenu()
+                if isinstance(champ, QLineEdit)
+                else QMenu(self.window())
+            )
+            self.completer_menu_colonne(menu, configuration)
+            menu.exec(champ.mapToGlobal(position))
+            menu.deleteLater()
+
+        champ.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        champ.customContextMenuRequested.connect(ouvrir)
+
+    def _colonne_a(self, j: int) -> ConfigurationColonne | None:
+        return self.colonnes[j] if 0 <= j < len(self.colonnes) else None
+
+    def _ouvrir_menu_configuration(self, position: QPoint) -> None:
+        menu = QMenu(self.window())
+        self.completer_menu_colonne(
+            menu, self._colonne_a(self.configuration.columnAt(position.x()))
+        )
+        menu.exec(self.configuration.viewport().mapToGlobal(position))
+        menu.deleteLater()
+
+    def _ouvrir_menu_grille(self, position: QPoint) -> None:
+        j = self.grille.columnAt(position.x())
+        i = self.grille.rowAt(position.y())
+        configuration = self._colonne_a(j)
+        menu = QMenu(self.window())
+        if configuration is not None and i >= 0:
+            if configuration.nature_choisie() == "date":
+                self._ajouter_action(
+                    menu, ACTION_INSERER_DATE, lambda: self.inserer_date(i, j)
+                )
+        self.completer_menu_colonne(menu, configuration)
+        menu.exec(self.grille.viewport().mapToGlobal(position))
+        menu.deleteLater()
+
+    def inserer_date(self, ligne: int, colonne: int) -> None:
+        """Écrit l'heure actuelle dans une cellule."""
+        self.ecrire_cellules([[afficher_date(maintenant())]], ligne, colonne)
+
+    def ajouter_colonne_date(self) -> ConfigurationColonne:
+        """Ajoute une colonne de dates, avec un nom déjà libre."""
+        pris = {c.nom.text().strip() for c in self.colonnes}
+        nom = "date"
+        rang = 2
+        while nom in pris:
+            nom = f"date_{rang}"
+            rang += 1
+        configuration = self.ajouter_colonne(nom)
+        configuration.nature.setCurrentIndex(configuration.nature.findData("date"))
+        return configuration
+
+    def demander_decroissance(self, configuration: ConfigurationColonne) -> None:
+        """Demande un calcul de décroissance sur toute une colonne."""
+        self.decroissance_demandee.emit(
+            f"{self.champ_nom.text().strip()}.{configuration.nom.text().strip()}"
+        )
+
+    def _confirmer_suppression(self, nom: str) -> bool:
+        reponse = QMessageBox.question(
+            self,
+            "Supprimer la colonne",
+            f"Supprimer la colonne « {nom} » et ses valeurs ?",
+        )
+        return reponse == QMessageBox.StandardButton.Yes
+
+    def demander_suppression(self, configuration: ConfigurationColonne) -> bool:
+        """Retire une colonne, après confirmation si elle contient des valeurs."""
+        if configuration not in self.colonnes:
+            return False
+        j = self.colonnes.index(configuration)
+        remplie = any(self._texte(i, j) for i in range(self.grille.rowCount()))
+        if remplie and not self._confirmer_suppression(
+            configuration.nom.text().strip()
+        ):
+            return False
+        self.retirer_colonne(configuration)
+        return True
 
     def _actualiser_cibles(self) -> None:
         """Propose, pour une colonne d'incertitude, les colonnes numériques du tableau."""
@@ -601,6 +768,7 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         self._coller_les_colonnes_calculees(bool(self.colonnes_calculees()))
         self._actualiser_cibles()
         self._actualiser_message()
+        self._appliquer_affichage()
         self.modifie.emit()
 
     # --- Cellules ---------------------------------------------------------------------
@@ -769,6 +937,13 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
                     raise ValueError(f"colonne « {nom} », ligne {i + 1} : cellule vide")
                 if configuration.nature_choisie() == "identifiant":
                     valeurs.append(texte)
+                elif configuration.nature_choisie() == "date":
+                    try:
+                        valeurs.append(ecrire_date_iso(lire_date(texte)))
+                    except ValueError as erreur:
+                        raise ValueError(
+                            f"colonne « {nom} », ligne {i + 1} : {message_erreur(erreur)}"
+                        ) from erreur
                 else:
                     try:
                         valeurs.append(lire_nombre(texte))
@@ -900,9 +1075,12 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
 
     def _coller_les_colonnes_calculees(self, presentes: bool) -> None:
         """Place les colonnes calculées juste après les colonnes saisies, et non au bord."""
+        visibles = sum(
+            not self.grille.isColumnHidden(j) for j in range(len(self.colonnes))
+        )
         largeur = (
             _LARGEUR_LIBELLES
-            + len(self.colonnes) * _LARGEUR_COLONNE
+            + visibles * _LARGEUR_COLONNE
             + 2 * self.grille.frameWidth()
             + self.grille.verticalScrollBar().sizeHint().width()
         )
@@ -913,10 +1091,42 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         self.zone.setColumnStretch(0, _PRIORITE_GRILLE)
         self.zone.setColumnStretch(2, 1 if presentes else 0)
 
+    def _a_des_colonnes_calculees(self) -> bool:
+        return bool(self.colonnes_calculees()) or any(
+            c.nature_choisie() == "incertitude_calculee" for c in self.colonnes
+        )
+
+    def _appliquer_affichage(self) -> None:
+        """Montre les colonnes choisies. Seul l'écran change : les données restent entières."""
+        disponible = self._a_des_colonnes_calculees()
+        self.choix_affichage.setEnabled(disponible)
+        self.choix_affichage.setToolTip(
+            "Choisit les colonnes à l'écran : aucune donnée n'est modifiée"
+            if disponible
+            else "Ce tableau n'a pas encore de colonne calculée"
+        )
+        if not disponible and self.choix_affichage.currentData() != _TOUT:
+            self.choix_affichage.setCurrentIndex(0)
+            return
+        mode = self.choix_affichage.currentData()
+        for j, configuration in enumerate(self.colonnes):
+            calculee = configuration.nature_choisie() == "incertitude_calculee"
+            cachee = (mode == _BRUTES and calculee) or (
+                mode == _CALCULEES and not calculee
+            )
+            self.grille.setColumnHidden(j, cachee)
+            self.configuration.setColumnHidden(j, cachee)
+        calculees_montrees = bool(self.colonnes_calculees()) and mode != _BRUTES
+        if self.configuration_calculee.isHidden() == calculees_montrees:
+            self.configuration_calculee.setVisible(calculees_montrees)
+            self.grille_calculee.setVisible(calculees_montrees)
+        self._coller_les_colonnes_calculees(calculees_montrees)
+
     def _afficher_calculees(self) -> None:
         """Montre à droite les colonnes calculées, en lecture seule et sur leur propre fond."""
         colonnes = self.colonnes_calculees()
-        presentes = bool(colonnes)
+        self._appliquer_affichage()
+        presentes = bool(colonnes) and self.choix_affichage.currentData() != _BRUTES
         self.configuration_calculee.setVisible(presentes)
         self.grille_calculee.setVisible(presentes)
         self.configuration_calculee.setColumnCount(len(colonnes))
@@ -927,7 +1137,12 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
             self.configuration_calculee.setRowHeight(rang, _HAUTEUR_CONFIGURATION)
             hauteur += _HAUTEUR_CONFIGURATION
         self.configuration_calculee.setFixedHeight(hauteur)
-        largeur = min(len(colonnes), _COLONNES_CALCULEES_VISIBLES) * _LARGEUR_COLONNE
+        place = (
+            _COLONNES_CALCULEES_SEULES
+            if self.choix_affichage.currentData() == _CALCULEES
+            else _COLONNES_CALCULEES_VISIBLES
+        )
+        largeur = min(len(colonnes), place) * _LARGEUR_COLONNE
         for table in (self.configuration_calculee, self.grille_calculee):
             table.setFixedWidth(largeur + 2 * table.frameWidth() if presentes else 0)
         self._coller_les_colonnes_calculees(presentes)
@@ -942,8 +1157,8 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
                 "Calculée",
                 colonne.unite,
                 f"U à k = {_K_AFFICHE:g}",
-                colonne.commentaire,
-                colonne.formule,
+                # La formule reste lisible au survol de toutes ces cases.
+                colonne.commentaire or colonne.formule,
             )
             for i, texte in enumerate(textes):
                 element = QTableWidgetItem(texte)
@@ -1039,8 +1254,9 @@ class EditeurTableau(ImportPersonnalise, EditeurOnglet):
         for j, (nom, (_base, unite)) in enumerate(zip(noms, decoupes)):
             configuration = self.ajouter_colonne(nom, unite)
             valeurs = [ligne[j] if j < len(ligne) else "" for ligne in grille.lignes]
-            if deviner_nature(valeurs) == "identifiant":
-                configuration.nature.setCurrentIndex(1)
+            configuration.nature.setCurrentIndex(
+                configuration.nature.findData(deviner_nature(valeurs))
+            )
             configuration.actualiser()
         self.grille.clearContents()
         self.grille.setRowCount(len(grille.lignes) + 1)

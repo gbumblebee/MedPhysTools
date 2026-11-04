@@ -65,7 +65,7 @@ Le champ `nature` donne le type de chaque élément de `mesures` :
 
 - `scalaire` : `valeur` numérique, `unite` et `composantes` d'incertitude, toutes obligatoires. À partir du format 2 de la page, `repetitions` garde les valeurs brutes de mesures répétées, dont `valeur` est la moyenne.
 - `identifiant` : `valeur` texte, à conserver à l'identique.
-- `tableau` : `fichier` CSV dans `brut/` et description de ses `colonnes`. Une colonne se désigne par `tableau.colonne`. À partir du format 2 de la page, chaque colonne peut porter un `commentaire`. À partir du format 3, une colonne d'incertitude peut porter une `formule`, comme `sqrt(N)` : elle se recalcule à la lecture à partir des valeurs des colonnes numériques, et n'est pas dans le CSV. Son résultat est une incertitude-type exacte, dans l'`unite` de la colonne.
+- `tableau` : `fichier` CSV dans `brut/` et description de ses `colonnes`. Une colonne se désigne par `tableau.colonne`. À partir du format 2 de la page, chaque colonne peut porter un `commentaire`. À partir du format 3, une colonne d'incertitude peut porter une `formule`, comme `sqrt(N)` : elle se recalcule à la lecture à partir des valeurs des colonnes numériques, et n'est pas dans le CSV. Son résultat est une incertitude-type exacte, dans l'`unite` de la colonne. À partir du format 4, une colonne de nature `date` donne une date et une heure : la cellule du CSV s'écrit en ISO 8601 avec son fuseau, comme `2026-11-04T14:30:05+01:00`, et reste du texte dans le DataFrame (`pd.to_datetime(colonne, utc=True)` la convertit).
 - `derivee` et `colonne_calculee` : résultat d'un calcul, décrit plus bas (à partir du format 2 de la page).
 - `ajustement` et `indicateur` : décrits plus bas (à partir du format 2 de la page).
 - `fichier` : fichier brut, avec son mode de stockage :
@@ -94,6 +94,8 @@ Un onglet de type `graphes` nomme ses `indicateurs` et garde ses `reglages` : `t
 La nature `derivee` garde le résultat d'une formule sur d'autres grandeurs de la page : `formule`, `valeur`, `unite`, `incertitude_type`, `ddl` (`null` signifie infinis) et `budget_calcul`, la part de chaque source dans l'incertitude. Le résultat est figé à l'enregistrement. Les valeurs brutes restent à part : une dérivée ne les remplace jamais.
 
 La nature `colonne_calculee` garde une formule calculée ligne par ligne : `formule`, `unite`, `tableaux` où elle s'affiche, `valeurs` et `incertitudes_types`, avec `null` pour une ligne sans résultat. Ces valeurs sont dans `page.json` : les fichiers CSV restent les valeurs brutes, et ne contiennent jamais de colonne calculée.
+
+Une `formule` peut appeler `decroissance(valeur, periode, date_cible)` : `valeur * exp(-ln(2) * (date_cible - date) / periode)`. L'unité du deuxième argument distingue une période (`h`, `min`…) d'une constante de décroissance (`1/h`…). La date cible est écrite entre guillemets, avec son fuseau, ou vient d'une colonne de dates : ainsi, l'heure actuelle choisie à l'écran est figée dans la formule, et le résultat se refait à l'identique. La date de départ est l'`horodatage` du scalaire, sinon `date_mesure`. Pour une colonne ou un résultat de calcul, elle est donnée en quatrième argument. Les dates n'ont pas d'incertitude.
 
 Dans une formule, `tableau.colonne` désigne la valeur de la ligne en cours, et `tableau.colonne[3]` une cellule précise, en comptant les lignes à partir de 1. Les composantes de même `erreur_commune` y comptent comme une seule erreur.
 

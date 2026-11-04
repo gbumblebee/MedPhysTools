@@ -18,6 +18,7 @@ from typing import Any
 import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
+from pymphub.dates import DateInvalide, lire_date
 from pymphub.edition import lire_nombre, suggerer_nom
 from pymphub.incertitudes import Composante
 from pymphub.unites import verifier_unite
@@ -198,14 +199,24 @@ def noms_uniques(noms: Sequence[str]) -> list[str]:
     return resultat
 
 
+def _est_date(valeur: str) -> bool:
+    try:
+        lire_date(valeur)
+    except DateInvalide:
+        return False
+    return True
+
+
 def deviner_nature(valeurs: Sequence[str]) -> str:
-    """Propose « numerique » ou « identifiant » pour une colonne.
+    """Propose « numerique », « date » ou « identifiant » pour une colonne.
 
     Un zéro de tête (`007`) désigne un identifiant : le convertir en nombre le détruirait.
     """
     remplies = [valeur for valeur in valeurs if valeur]
     if not remplies:
         return "numerique"
+    if all(_est_date(valeur) for valeur in remplies):
+        return "date"
     for valeur in remplies:
         if _ZERO_DE_TETE.match(valeur) and not re.match(r"^[+-]?0[.,]", valeur):
             return "identifiant"

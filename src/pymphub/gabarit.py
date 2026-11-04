@@ -24,6 +24,7 @@ from pymphub.page import (
     Ajustement,
     CoefficientPrevu,
     ColonneCalculee,
+    ColonneDate,
     ColonneIdentifiant,
     ColonneIncertitude,
     ColonneNumerique,
@@ -79,10 +80,10 @@ class VariableFichier(_Modele):
 
 
 class ColonneAttendue(_Modele):
-    """Une colonne attendue. `unite` est absente pour une colonne d'identifiants."""
+    """Une colonne attendue. `unite` n'existe que pour une colonne numérique."""
 
     nom: Nom
-    nature: Literal["numerique", "identifiant"]
+    nature: Literal["numerique", "identifiant", "date"]
     unite: Unite | None = None
 
     @model_validator(mode="after")
@@ -212,14 +213,16 @@ class Gabarit(_Modele):
 
 
 def _colonne_attendue(
-    colonne: ColonneNumerique | ColonneIdentifiant,
+    colonne: ColonneNumerique | ColonneIdentifiant | ColonneDate,
 ) -> ColonneAttendue:
     if isinstance(colonne, ColonneNumerique):
         return ColonneAttendue(nom=colonne.nom, nature="numerique", unite=colonne.unite)
-    return ColonneAttendue(nom=colonne.nom, nature="identifiant")
+    return ColonneAttendue(nom=colonne.nom, nature=colonne.nature)
 
 
-def _colonnes_utiles(tableau: Tableau) -> list[ColonneNumerique | ColonneIdentifiant]:
+def _colonnes_utiles(
+    tableau: Tableau,
+) -> list[ColonneNumerique | ColonneIdentifiant | ColonneDate]:
     """Les colonnes de données : les incertitudes restent propres à chaque page."""
     return [c for c in tableau.colonnes if not isinstance(c, ColonneIncertitude)]
 
