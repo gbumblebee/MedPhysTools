@@ -1,6 +1,6 @@
 # Calcul des incertitudes : méthode et hypothèses
 
-Cette note décrit ce que fait réellement `src/pymphub/incertitudes.py`. Le calcul suit la loi de propagation du GUM au premier ordre, avec GTC.
+Cette note décrit ce que fait réellement `src/medphystools/incertitudes.py`. Le calcul suit la loi de propagation du GUM au premier ordre, avec GTC.
 
 **À retenir :** à l'intérieur d'un budget, les composantes sont supposées indépendantes, sans covariance. Entre les mesures d'une page, les composantes qui portent le même repère `erreur_commune` comptent comme une seule erreur. Sans repère, elles restent indépendantes, même si leur source a le même nom.
 

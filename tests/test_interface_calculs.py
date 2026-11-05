@@ -6,21 +6,21 @@ import pytest
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from pymphub import Archive
-from pymphub.depot import Depot
-from pymphub.incertitudes import Composante
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.onglet_calculs import (
+from medphystools import Archive
+from medphystools.depot import Depot
+from medphystools.incertitudes import Composante
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.onglet_calculs import (
     DialogueBudget,
     DialogueCourbe,
     EditeurCalculs,
     ecrire_resultat,
 )
-from pymphub.interface.onglet_scalaires import EditeurScalaires
-from pymphub.interface.onglet_tableau import EditeurTableau
-from pymphub.interface.texte_en_grand import AffichageEnGrand
-from pymphub.page import ColonneCalculee, GrandeurDerivee, Scalaire
+from medphystools.interface.onglet_scalaires import EditeurScalaires
+from medphystools.interface.onglet_tableau import EditeurTableau
+from medphystools.interface.texte_en_grand import AffichageEnGrand
+from medphystools.page import ColonneCalculee, GrandeurDerivee, Scalaire
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 CERTIFICAT = Composante(

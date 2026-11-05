@@ -7,10 +7,10 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from pymphub.archive import Archive
-from pymphub.gabarit import creer_gabarit
-from pymphub.index import CritereInvalide, _texte_de_page
-from pymphub.page import Page, vers_json
+from medphystools.archive import Archive
+from medphystools.gabarit import creer_gabarit
+from medphystools.index import CritereInvalide, _texte_de_page
+from medphystools.page import Page, vers_json
 
 PARIS = timezone(timedelta(hours=1))
 MACHINE_A = "chu.mn.activimetre.capintec-crc55.1"
@@ -405,7 +405,7 @@ def test_un_index_d_une_autre_version_est_reconstruit(arc):
 def test_l_index_reste_hors_de_git(arc):
     arc.chercher_identifiants()
     assert arc.modifications_non_tracees() == []
-    from pymphub.depot import Depot
+    from medphystools.depot import Depot
 
     assert "index.sqlite" not in Depot(arc.racine).fichiers_suivis()
 

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from pymphub import Archive
-from pymphub.calculs import calculer
+from medphystools import Archive
+from medphystools.calculs import calculer
 
 ZIP = Path(__file__).parent / "donnees" / "archive_format_1.zip"
 ID_PAGE = "2026-11-14_activimetre-linearite_0001"

@@ -7,16 +7,16 @@ import numpy as np
 import pytest
 from PySide6.QtCore import Qt
 
-from pymphub import Archive
-from pymphub.ajustements import evaluer_ajustement
-from pymphub.depot import Depot
-from pymphub.incertitudes import Composante
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.onglet_ajustements import EditeurAjustements
-from pymphub.interface.onglet_graphes import EditeurGraphes
-from pymphub.interface.onglet_tableau import EditeurTableau
-from pymphub.page import Ajustement, Indicateur, Tableau
+from medphystools import Archive
+from medphystools.ajustements import evaluer_ajustement
+from medphystools.depot import Depot
+from medphystools.incertitudes import Composante
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.onglet_ajustements import EditeurAjustements
+from medphystools.interface.onglet_graphes import EditeurGraphes
+from medphystools.interface.onglet_tableau import EditeurTableau
+from medphystools.page import Ajustement, Indicateur, Tableau
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 HORLOGE = Composante(type="B", valeur=0.01, unite="h", source="horloge")

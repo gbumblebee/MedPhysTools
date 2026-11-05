@@ -6,20 +6,20 @@ import pytest
 from PySide6.QtCore import QPoint, QTimer
 from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPlainTextEdit
 
-from pymphub import Archive
-from pymphub.incertitudes import Composante
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.onglet_scalaires import EditeurScalaires
-from pymphub.interface.onglet_tableau import EditeurTableau
-from pymphub.interface.onglets import EditeurNotes
-from pymphub.interface.texte_en_grand import (
+from medphystools import Archive
+from medphystools.incertitudes import Composante
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.onglet_scalaires import EditeurScalaires
+from medphystools.interface.onglet_tableau import EditeurTableau
+from medphystools.interface.onglets import EditeurNotes
+from medphystools.interface.texte_en_grand import (
     LIBELLE_ACTION,
     AffichageEnGrand,
     DialogueTexte,
     afficher_en_grand,
 )
-from pymphub.page import Identifiant, OngletNotes, Page, Scalaire
+from medphystools.page import Identifiant, OngletNotes, Page, Scalaire
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 LONG = "Un très long commentaire. " * 40

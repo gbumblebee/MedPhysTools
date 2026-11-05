@@ -7,23 +7,23 @@ import pytest
 from PySide6.QtCore import QDateTime, Qt
 from PySide6.QtWidgets import QApplication
 
-from pymphub import Archive
-from pymphub.depot import Depot
-from pymphub.edition import (
+from medphystools import Archive
+from medphystools.depot import Depot
+from medphystools.edition import (
     conflits_de_noms,
     fusionner_grandeurs,
     lire_nombre,
     lire_serie,
     suggerer_nom,
 )
-from pymphub.incertitudes import Composante, composante_exacte
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.onglet_scalaires import (
+from medphystools.incertitudes import Composante, composante_exacte
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.onglet_scalaires import (
     DialogueIncertitudes,
     DialogueRepetitions,
     EditeurScalaires,
 )
-from pymphub.page import (
+from medphystools.page import (
     VERSION_SCHEMA,
     Identifiant,
     Page,
@@ -304,7 +304,6 @@ def test_la_suggestion_n_est_jamais_appliquee_seule(editeur):
     ("champs", "attendu"),
     [
         ({"unite": ""}, "unité"),
-        ({"composantes": ()}, "incertitude"),
         ({"valeur": ""}, "valeur"),
         ({"nom": ""}, "nom"),
         ({"unite": "Mbq"}, "Mbq"),
@@ -345,7 +344,7 @@ def test_une_composante_incompatible_est_refusee(espace, editeur):
 def test_une_ligne_incomplete_ne_retient_pas_les_autres(espace, editeur):
     remplir(editeur.lignes[0])
     autre = editeur.ajouter_ligne()
-    remplir(autre, nom="temperature", unite="degC", composantes=())
+    remplir(autre, nom="temperature", unite="")
     espace.enregistrer_maintenant()
     page = relue(espace)
     assert [g.nom for g in page.mesures] == ["activite"]
@@ -354,7 +353,7 @@ def test_une_ligne_incomplete_ne_retient_pas_les_autres(espace, editeur):
 
 
 def test_une_ligne_incomplete_empeche_de_valider(espace, editeur):
-    remplir(editeur.lignes[0], composantes=())
+    remplir(editeur.lignes[0], unite="")
     espace._actualiser_etat()
     assert not espace.bouton_valider.isEnabled()
     remplir(editeur.lignes[0])
@@ -379,7 +378,7 @@ def test_une_ligne_enregistree_garde_sa_derniere_version_pendant_sa_correction(
 def test_quitter_avec_une_ligne_incomplete_demande_confirmation(
     espace, editeur, monkeypatch
 ):
-    remplir(editeur.lignes[0], composantes=())
+    remplir(editeur.lignes[0], unite="")
     reponses = []
     monkeypatch.setattr(espace, "_confirmer", lambda *_: reponses.append(1) or False)
     assert not espace.peut_quitter_la_page()
@@ -621,14 +620,14 @@ def test_une_valeur_nulle_n_affiche_pas_de_relatif(editeur):
     assert ligne.resultat.text() == "± 1 MBq"
 
 
-def test_sans_incertitude_aucun_resultat(editeur):
+def test_sans_incertitude_le_resultat_dit_qu_elle_est_nulle(editeur):
     remplir(editeur.lignes[0], composantes=())
-    assert editeur.lignes[0].resultat.text() == ""
+    assert editeur.lignes[0].resultat.text().startswith("± 0 ")
 
 
 def test_le_bouton_indique_le_nombre_de_composantes(editeur):
     ligne = editeur.lignes[0]
-    assert ligne.bouton_incertitude.text() == "Incertitude…"
+    assert ligne.bouton_incertitude.text() == "U = 0 (défaut)…"
     remplir(ligne)
     assert ligne.bouton_incertitude.text() == "1 composante…"
 

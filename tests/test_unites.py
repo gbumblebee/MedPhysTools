@@ -3,7 +3,7 @@
 import metrolopy as uc
 import pytest
 
-from pymphub.unites import (
+from medphystools.unites import (
     CATALOGUE,
     UniteInvalide,
     UnitesIncompatibles,

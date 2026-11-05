@@ -11,7 +11,7 @@ import GTC
 import pandas as pd
 import pytest
 
-from pymphub.calculs import (
+from medphystools.calculs import (
     ErreurCalcul,
     FormuleRefusee,
     budget_de_ligne,
@@ -21,8 +21,8 @@ from pymphub.calculs import (
     creer_resultat,
     etat_derivee,
 )
-from pymphub.incertitudes import Composante
-from pymphub.page import (
+from medphystools.incertitudes import Composante
+from medphystools.page import (
     ColonneCalculee,
     ColonneIncertitude,
     ColonneNumerique,
@@ -34,7 +34,7 @@ from pymphub.page import (
     depuis_json,
     vers_json,
 )
-from pymphub.tableaux import lire_csv
+from medphystools.tableaux import lire_csv
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 
@@ -187,7 +187,7 @@ def test_un_repere_contradictoire_s_explique():
 def test_l_api_de_lecture_compense_aussi_le_certificat(tmp_path):
     from datetime import date
 
-    from pymphub import Archive
+    from medphystools import Archive
 
     arc = Archive.creer(tmp_path / "A", "S", "R", date(2026, 11, 1))
     page = page_de(
@@ -615,7 +615,7 @@ def test_un_resultat_dont_une_grandeur_a_disparu_est_signale(page_avec_derivee):
 
 
 def test_une_derivee_ne_s_exporte_pas_dans_un_gabarit(page_avec_derivee):
-    from pymphub.gabarit import creer_gabarit
+    from medphystools.gabarit import creer_gabarit
 
     with pytest.raises(ValueError, match="résultat de calcul"):
         creer_gabarit(page_avec_derivee, "g", ["A"])
@@ -882,7 +882,7 @@ def test_une_colonne_a_jour_n_est_pas_signalee_et_une_perimee_l_est():
 
 
 def test_une_colonne_calculee_ne_s_exporte_pas_dans_un_gabarit():
-    from pymphub.gabarit import creer_gabarit
+    from medphystools.gabarit import creer_gabarit
 
     page = avec_colonne(page_colonnes(), "double", "t.a * 2")
     with pytest.raises(ValueError, match="résultat de calcul"):

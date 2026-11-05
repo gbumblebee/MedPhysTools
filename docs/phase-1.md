@@ -28,11 +28,11 @@ Référence : [cahier des charges](cahier-des-charges.md), sections 6, 11 et 14.
 
 ### 0. Socle de l'application
 
-**Contenu :** ajout de PySide6 et `pytest-qt`, sous-paquet `pymphub.interface`, fenêtre principale à deux espaces, création et ouverture d'une archive, thème sobre, commande de lancement.
+**Contenu :** ajout de PySide6 et `pytest-qt`, sous-paquet `medphystools.interface`, fenêtre principale à deux espaces, création et ouverture d'une archive, thème sobre, commande de lancement.
 
 **Validée quand :**
 - l'application démarre sans écran dans les tests, et crée puis rouvre une archive ;
-- `import pymphub` ne charge toujours pas Qt, et seul `pymphub.interface` l'importe ;
+- `import medphystools` ne charge toujours pas Qt, et seul `medphystools.interface` l'importe ;
 - une archive invalide ou trop récente affiche un message clair, sans plantage.
 
 ### W. Compatibilité Windows et version portable
@@ -72,7 +72,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 
 **Validée quand :**
 - une unité fausse est signalée pendant la frappe, et sa suggestion s'accepte en un geste ;
-- une valeur sans unité ou sans incertitude ne s'enregistre pas ;
+- une valeur sans unité ne s'enregistre pas ; sans incertitude déclarée, elle reçoit 0 par défaut (décision du 2026-11-04) ;
 - n valeurs répétées donnent la moyenne et le type A ;
 - changer k ne crée aucun commit ;
 - une saisie complète au clavier suit l'ordre de la page.
@@ -84,7 +84,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 **Validée quand :**
 - un collage depuis Excel avec virgule décimale donne les bonnes valeurs ;
 - une colonne d'identifiants garde `007` ;
-- une colonne numérique sans unité ni incertitude est refusée ;
+- une colonne numérique sans unité est refusée ; sans incertitude déclarée, elle reçoit 0 par défaut (décision du 2026-11-04) ;
 - une erreur dans une fonction d'import personnalisée s'affiche sans faire planter l'application.
 
 ### 5. Pièces jointes et photos annotées
@@ -184,7 +184,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 
 | Sujet | Décision |
 | --- | --- |
-| Emplacement de l'interface | Sous-paquet `pymphub.interface`, seul autorisé à importer Qt |
+| Emplacement de l'interface | Sous-paquet `medphystools.interface`, seul autorisé à importer Qt |
 | Pseudonymisation | Par défaut à chaque import, UID conservés ; un fichier désigné comme fantôme est conservé tel quel |
 | Ajustements | Dans le cahier de labo ; courbe suréchantillonnée sans extrapolation en tableau, pour le tracé seulement ; coefficients et corrélations dans `page.json` et dans un onglet dédié |
 | Indicateurs | Minimum, maximum, intégrale, dérivée, etc. enregistrés dans `page.json` |
@@ -195,7 +195,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Ajustements | Un onglet par ajustement. Fait à la demande, puis figé : si les points changent, il est signalé à refaire. Modèles usuels ou formule personnalisée, dont les coefficients demandent alors leur unité |
 | Pondération | Par l'incertitude propre des points, sans remise à l'échelle du χ² ; variance effective pour x ; erreurs communes propagées à part, voir `docs/incertitudes.md` |
 | Indicateurs | Sur les points ou sur l'ajustement, depuis l'onglet de graphes ou d'ajustement. Enregistrés avec méthode, données d'origine, intervalle et abscisse. Utilisables dans un calcul, comme les coefficients (`fit.T12`, `pic.x`). Repère facultatif sur le graphe |
-| Export du cahier en PDF | Menu Fichier pour tout le cahier, bouton de la fiche pour une page. Écrit par Qt, sans LaTeX : rien à installer sur un PC d'hôpital. Une page par CQ, puis ses onglets dans l'ordre. L'archive reste la référence |
+| Export du cahier en PDF | Menu Fichier pour toute l'archive, après un avertissement sur sa taille et sa durée ; bouton de la fiche pour une page, sans avertissement. Écrit par Qt, sans LaTeX : rien à installer sur un PC d'hôpital. Une page par CQ, puis ses onglets dans l'ordre. Chaque page de l'archive est un document Qt écrit puis libéré : la barre d'avancement est réelle, sauf à l'intérieur d'une page. Les images DICOM et les pièces jointes autres que les photos n'y sont pas, seulement listées. L'archive reste la référence |
 | Capture d'un graphe | Image PNG en pièce jointe, insérée dans le premier onglet de notes. Elle reste figée : sa légende donne la date et le k, et un message signale que le tableau a changé depuis |
 | Tags dans les notes | `{{nom}}` donne la valeur, U et k. La note garde le tag, jamais la valeur : le texte affiché d'une page validée suit donc les corrections, qui restent tracées avec leur motif. Un tag cassé s'affiche en rouge |
 | Colonne calculée | Une formule avec `tableau.colonne` se calcule ligne par ligne. Elle s'affiche dans tous les tableaux concernés, en lecture seule et marquée « calculée », mais reste dans `page.json` : les CSV bruts ne changent jamais. Mêmes nombres de lignes exigés |
@@ -203,7 +203,7 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Résultat d'un calcul | Figé à l'enregistrement. Un brouillon le met à jour au tour d'enregistrement suivant ; une page validée le propose, à enregistrer avec son propre motif. La fiche signale un résultat périmé |
 | Format de la page | La grandeur dérivée entre dans le format 2, déjà courant : pas de format 3 |
 | Graphes | matplotlib en 2D et en 3D : même code, aucun appel à OpenGL, et les mêmes figures pour les rapports. Un seul axe y par graphe, des unités incompatibles sont refusées. Un graphe par onglet, 8 séries au plus. Le graphe montre la dernière version enregistrée du tableau |
-| Import personnalisé | Peut renvoyer un tableau, des scalaires et des informations. Une valeur sans incertitude reste à compléter ; un nom déjà pris devient `nom_2`, rien n'est écrasé |
+| Import personnalisé | Peut renvoyer un tableau, des scalaires et des informations. Une valeur sans unité reste à compléter ; sans incertitude, elle reçoit 0 par défaut ; un nom déjà pris devient `nom_2`, rien n'est écrasé |
 | Commentaire d'une pièce jointe | Modifiable dans l'onglet Fichiers ; la légende reste propre à la photo affichée dans une note |
 | Fichier importé dans un tableau | Copié automatiquement en pièce jointe ; le commentaire du tableau dit où |
 | DICOM avant l'étape 9 | Refusés par l'interface, en pièce jointe comme en lien, d'après l'extension ou la marque `DICM` |
@@ -241,7 +241,12 @@ Cette étape se fait à l'arrivée du poste, quelle que soit l'avancée des autr
 | Colonne de dates | Nature « Date et heure », en dernier dans la liste, format 4 de la page. Fichier en ISO 8601 avec fuseau ; écran en `04/11/2026 14:30:05`, avec le fuseau seulement s'il diffère de celui de l'ordinateur. Une date sans heure est refusée. Non tracée dans les graphes pour l'instant |
 | Suppression d'une colonne | Le bouton « Retirer » est remplacé par le clic droit, sur une cellule ou la description. Confirmation seulement si la colonne contient des valeurs |
 | Affichage d'un tableau | Toutes les colonnes, données brutes, ou données calculées. Une incertitude calculée compte comme calculée. N'agit que sur l'écran, n'est pas enregistré, et revient à « toutes » quand on ajoute une colonne |
-| Démarrage | Fenêtre maximisée et non plein écran : la barre de titre reste. Informations de la page repliées par défaut. Logo dans `src/pymphub/interface/ressources/`, refait par `outils/generer_logo.py` |
-| Lanceurs | `lanceurs/windows/pymphub.vbs` lance `python.exe` dans une fenêtre cachée et écrit ses messages dans `%TEMP%\pymphub_journal.txt`, montré si le programme s'arrête sur une erreur. `creer_raccourci_bureau.vbs` donne le raccourci avec le logo. `lancer.bat` sert de secours si le service bloque les .vbs. Essayés sous Wine, à vérifier sous Windows à l'étape W |
+| Démarrage | Fenêtre maximisée et non plein écran : la barre de titre reste. Informations de la page repliées par défaut. Logo dans `src/medphystools/interface/ressources/`, refait par `outils/generer_logo.py` |
+| Lanceurs | `lanceurs/windows/medphysnotebook.vbs` lance `python.exe` dans une fenêtre cachée et écrit ses messages dans `%TEMP%\medphysnotebook_journal.txt`, montré si le programme s'arrête sur une erreur. `creer_raccourci_bureau.vbs` donne le raccourci avec le logo. `lancer.bat` sert de secours si le service bloque les .vbs. Essayés sous Wine, à vérifier sous Windows à l'étape W |
 | Menus de clic droit | Un menu est enfant de la fenêtre, pas du widget cliqué : un enregistrement automatique reconstruit les vignettes, et emporterait un menu ouvert |
 | Mémoire du visualiseur | Un seul volume en mémoire dans tout le logiciel : seule la série affichée est lue, fichier par fichier. Changer de série libère l'ancienne avant la lecture et arrête une lecture en cours. Un onglet caché rend sa mémoire après 30 s, et sa série se relit au retour. Au-delà de 2 Go, le volume passe dans un fichier temporaire chargé à la demande ; limite d'affichage à 16 Go |
+| Noms | Le projet s'appelle MedPhysTools (paquet Python `medphystools`), et l'application MedPhysNotebook (commande `medphysnotebook`). Les préférences de l'ancien nom sont recopiées une fois dans le nouveau dossier, et l'ancien reste en place. Les archives existantes ne changent pas |
+| Incertitude par défaut | Dans les onglets de scalaires et de tableau, une valeur sans incertitude déclarée reçoit à l'enregistrement une composante de type B, de valeur 0 et de source `incertitude nulle par défaut`. Le bouton affiche « U = 0 (défaut)… », et le cahier cite cette source. Une colonne d'incertitude l'évite. Le cœur et l'API continuent d'exiger une composante : le 0 est écrit dans la page, jamais supposé à la lecture |
+| Colonnes de longueurs différentes | Une cellule peut être vide, format 5 de la page. Elle s'écrit vide dans le CSV et se relit `nan` ou `None`, jamais remplacée par une valeur. Un calcul sur une cellule vide reste sans résultat, un ajustement écarte la ligne, un graphe y laisse un trou. Une cellule d'incertitude vide ne déclare rien. Une colonne attendue par un gabarit et entièrement vide reste à remplir. Les colonnes calculées exigent toujours des tableaux de même nombre de lignes entre eux |
+| Tableaux longs ou larges dans le PDF | Un tableau long continue sur la feuille suivante, avec son en-tête répété. Un tableau trop large se coupe en parties numérotées, qui rappellent chacune le numéro de ligne. Un nombre n'est jamais coupé en deux |
+| Identifiants PACS | Study et Series Instance UID, déjà dans la page : donc disponibles aussi pour les séries déjà importées. Colonne dans les onglets DICOM et Fichiers et dans la fiche, avec le clic droit « Copier les identifiants PACS ». Le PDF les liste dans « Pièces jointes », avec le chemin du zip dans `objets/`. Le chemin d'origine et le numéro d'examen restent absents, car ils peuvent identifier le patient |

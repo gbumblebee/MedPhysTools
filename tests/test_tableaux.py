@@ -2,8 +2,8 @@
 
 import pytest
 
-from pymphub.page import ColonneIncertitude, ColonneNumerique, Tableau
-from pymphub.tableaux import TableauInvalide, ecrire_csv, lire_csv
+from medphystools.page import ColonneIncertitude, ColonneNumerique, Tableau
+from medphystools.tableaux import TableauInvalide, ecrire_csv, lire_csv
 
 # --- Incertitude calculée -------------------------------------------------------------
 

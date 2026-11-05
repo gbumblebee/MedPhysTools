@@ -6,9 +6,9 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from pymphub import page as page_module
-from pymphub.edition import nom_libre, point_normalise
-from pymphub.page import (
+from medphystools import page as page_module
+from medphystools.edition import nom_libre, point_normalise
+from medphystools.page import (
     VERSION_SCHEMA,
     Annotation,
     Identifiant,

@@ -27,21 +27,25 @@ from PySide6.QtWidgets import (
     QTableWidget,
 )
 
-from pymphub import Archive
-from pymphub.depot import Depot
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.onglet_dicom import DialogueSeries, EditeurDicom, PanneauSerie
-from pymphub.interface.onglets import types_disponibles
-from pymphub.interface.theme import FEUILLE_DE_STYLE
-from pymphub.interface.visualiseur import (
+from medphystools import Archive
+from medphystools.depot import Depot
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.onglet_dicom import (
+    DialogueSeries,
+    EditeurDicom,
+    PanneauSerie,
+)
+from medphystools.interface.onglets import types_disponibles
+from medphystools.interface.theme import FEUILLE_DE_STYLE
+from medphystools.interface.visualiseur import (
     VisualiseurVolume,
     VueCoupe,
     image_dose,
     image_grise,
 )
-from pymphub.page import Fichier, ReferenceDicom, vers_json
-from pymphub.volumes import (
+from medphystools.page import Fichier, ReferenceDicom, vers_json
+from medphystools.volumes import (
     construire_volume,
     coupe,
     lire_structures,
@@ -522,11 +526,11 @@ def test_le_visualiseur_ne_connait_ni_les_pages_ni_les_archives():
     """C'est ce qui le rend réutilisable pour le programme de CQ."""
     import inspect
 
-    from pymphub.interface import visualiseur
+    from medphystools.interface import visualiseur
 
     source = inspect.getsource(visualiseur)
-    assert "pymphub.archive" not in source
-    assert "pymphub.page" not in source
+    assert "medphystools.archive" not in source
+    assert "medphystools.page" not in source
 
 
 def test_la_vue_seule_s_affiche_sans_visualiseur(qtbot, scanner):
@@ -832,7 +836,7 @@ def test_les_series_se_retrouvent_a_la_reouverture(qtbot, espace, editeur, tmp_p
 def test_un_nom_et_un_commentaire_se_modifient(qtbot, espace, editeur, tmp_path):
     importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
     editeur.table.item(0, 0).setText("scanner_cq")
-    editeur.table.item(0, 5).setText("Catphan")
+    editeur.table.item(0, 6).setText("Catphan")
     fichier = relue(espace).grandeur("scanner_cq")
     assert fichier.commentaire == "Catphan"
     assert fichier.dicom.modalite == "CT"
@@ -863,9 +867,9 @@ def test_la_verification_n_interrompt_pas_une_saisie_de_commentaire(
     qtbot, espace, editeur, tmp_path
 ):
     importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
-    commentaire = editeur.table.item(0, 5)
+    commentaire = editeur.table.item(0, 6)
     editeur._empreinte_calculee("dicom_CT", "altéré")
-    assert editeur.table.item(0, 5) is commentaire
+    assert editeur.table.item(0, 6) is commentaire
     assert editeur.table.item(0, 4).text() == "altéré"
     assert editeur.liens[0].etat == "altéré"
 
@@ -927,7 +931,7 @@ def test_une_grosse_serie_ne_bloque_pas_l_interface(
     """La lecture dure 1,5 s : l'horloge de l'interface doit continuer à battre pendant."""
     importer(qtbot, editeur, ecrire(serie_ct() + serie_ct(), tmp_path / "src"))
     qtbot.waitUntil(lambda: not editeur.panneau.en_cours, timeout=20000)
-    import pymphub.volumes as volumes
+    import medphystools.volumes as volumes
 
     vraie = volumes.assembler_contenu
 
@@ -954,7 +958,7 @@ def test_une_grosse_serie_ne_bloque_pas_l_interface(
 def test_un_gros_import_ne_bloque_pas_l_interface(
     qtbot, espace, editeur, tmp_path, monkeypatch
 ):
-    import pymphub.dicom as module
+    import medphystools.dicom as module
 
     vraie = module.importer_examen
 
@@ -993,7 +997,7 @@ def test_changer_vite_de_serie_n_affiche_que_la_derniere(
 
 
 def test_fermer_pendant_une_lecture_ne_plante_pas(qtbot, arc, tmp_path, monkeypatch):
-    import pymphub.volumes as volumes
+    import medphystools.volumes as volumes
 
     vraie = volumes.assembler_contenu
 
@@ -1012,7 +1016,7 @@ def test_fermer_pendant_une_lecture_ne_plante_pas(qtbot, arc, tmp_path, monkeypa
 
 
 def _importer_une_serie_de_test(arc, tmp_path):
-    from pymphub.dicom import importer_series
+    from medphystools.dicom import importer_series
 
     return importer_series(arc, ecrire(serie_ct(), tmp_path / "s")).fichiers[0]
 
@@ -1024,7 +1028,7 @@ def test_ouvrir_un_onglet_de_notes_ne_charge_pas_pydicom():
 
     code = (
         "import sys; "
-        "from pymphub.interface import espace_saisie; "
+        "from medphystools.interface import espace_saisie; "
         "assert not [m for m in sys.modules if m.startswith('pydicom')]; "
         "assert not [m for m in sys.modules if m.startswith('scipy.ndimage')]"
     )
@@ -1077,7 +1081,7 @@ def test_un_onglet_cache_ne_lit_pas_sa_serie(qtbot, espace, deux_series, monkeyp
 def test_un_onglet_cache_rend_sa_memoire_apres_le_delai(
     qtbot, espace, deux_series, monkeypatch
 ):
-    monkeypatch.setattr("pymphub.interface.onglet_dicom.DELAI_LIBERATION_MS", 50)
+    monkeypatch.setattr("medphystools.interface.onglet_dicom.DELAI_LIBERATION_MS", 50)
     panneau = deux_series.panneau
     espace.onglets.setCurrentIndex(0)
     assert panneau.visualiseur.volume is not None
@@ -1133,8 +1137,8 @@ def test_la_grande_fenetre_prend_la_place_et_la_rend_a_sa_fermeture(
 
 def test_changer_de_serie_arrete_la_lecture_en_cours(qtbot, deux_series, monkeypatch):
     """Une seule lecture à la fois : la précédente s'arrête au fichier suivant."""
-    import pymphub.dicom as module
-    import pymphub.volumes as volumes
+    import medphystools.dicom as module
+    import medphystools.volumes as volumes
 
     lues = []
     vraie = module.lire_serie
@@ -1159,8 +1163,8 @@ def test_changer_de_serie_arrete_la_lecture_en_cours(qtbot, deux_series, monkeyp
 
 def test_seule_la_serie_affichee_est_lue(qtbot, editeur, tmp_path, monkeypatch):
     """Une capture sans repère et un scanner : afficher l'un ne lit pas les pixels de l'autre."""
-    import pymphub.dicom as module
-    import pymphub.volumes as volumes
+    import medphystools.dicom as module
+    import medphystools.volumes as volumes
 
     importer(qtbot, editeur, ecrire(serie_ct() + [capture_ecran()], tmp_path / "src"))
     attendre_la_lecture(qtbot, editeur.panneau)
@@ -1251,7 +1255,7 @@ def test_l_onglet_de_fichiers_ne_retire_pas_une_serie_et_l_explique(
     fichiers.ouvrir_selection()
     assert "onglet DICOM" in fichiers.message.text()
     assert relue(espace).grandeur("dicom_CT") == page.grandeur("dicom_CT")
-    flags = fichiers.table.item(0, 4).flags()
+    flags = fichiers.table.item(0, 5).flags()
     assert not flags & Qt.ItemFlag.ItemIsEditable
 
 
@@ -1265,7 +1269,7 @@ def test_une_autre_ligne_de_l_onglet_de_fichiers_reste_utilisable(
     importer(qtbot, editeur, ecrire(serie_ct(), tmp_path / "src"))
     relue(espace)
     assert lignes_de(fichiers.table) == ["pieces_jointes/note.txt", "dicom_CT"]
-    fichiers.table.item(0, 4).setText("Commentaire")
+    fichiers.table.item(0, 5).setText("Commentaire")
     assert relue(espace).pieces_jointes[0].commentaire == "Commentaire"
 
 
@@ -1297,6 +1301,9 @@ def test_la_fiche_resume_la_serie_et_propose_de_la_voir(qtbot, espace, page_dico
     assert table.item(0, 2).text() == "Copie DICOM"
     assert table.item(0, 3).text() == "CT, 4 fichier(s), pseudonymisé"
     assert "Voir les séries" in fiche.bouton_dicom.text()
+    serie = page_dicom.mesures[0].dicom
+    assert table.item(0, 4).text() == serie.series_instance_uid
+    assert serie.study_instance_uid in table.item(0, 4).toolTip()
 
 
 def test_la_fiche_ouvre_le_visualiseur(qtbot, espace, page_dicom):
@@ -1312,7 +1319,7 @@ def test_la_fiche_ouvre_le_visualiseur(qtbot, espace, page_dicom):
 
 
 def test_l_export_pdf_mentionne_le_traitement(espace, page_dicom, tmp_path):
-    from pymphub.export import SansImages, page_en_html
+    from medphystools.export import SansImages, page_en_html
 
     html = page_en_html(espace.archive, page_dicom.id, SansImages())
     assert "CT, 4 fichier(s), pseudonymisé" in html

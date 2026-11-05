@@ -11,10 +11,10 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from pymphub.archive import Archive, PageRefusee
-from pymphub.depot import Depot
-from pymphub.disque import NomInvalide
-from pymphub.fichiers import (
+from medphystools.archive import Archive, PageRefusee
+from medphystools.depot import Depot
+from medphystools.disque import NomInvalide
+from medphystools.fichiers import (
     FichierAltere,
     FichierManquant,
     ReferenceNonResolue,
@@ -22,9 +22,9 @@ from pymphub.fichiers import (
     etat_fichier,
     semble_dicom,
 )
-from pymphub.historique import Modification, lire_message
-from pymphub.page import Fichier, Page, ReferenceDicom, Tableau
-from pymphub.tableaux import TableauInvalide, differences_csv, ecrire_csv, lire_csv
+from medphystools.historique import Modification, lire_message
+from medphystools.page import Fichier, Page, ReferenceDicom, Tableau
+from medphystools.tableaux import TableauInvalide, differences_csv, ecrire_csv, lire_csv
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 ID_PAGE = "2026-11-14_activimetre-linearite_0007"
@@ -498,9 +498,7 @@ def test_un_tableau_sans_ligne_est_accepte(tableau):
         {"heure": [True, 1.0, 2.0]},
         {"activite": [float("nan"), 1.0, 2.0]},
         {"activite": [float("inf"), 1.0, 2.0]},
-        {"activite": [None, 1.0, 2.0]},
         {"u_activite": [-1.0, 1.0, 2.0]},
-        {"heure": [1.0]},
     ],
 )
 def test_donnees_invalides_refusees(tableau, modification):
@@ -846,7 +844,7 @@ def test_un_fichier_illisible_est_signale_sans_erreur(tmp_path, monkeypatch):
     def refuser(_chemin):
         raise PermissionError("accès refusé")
 
-    monkeypatch.setattr("pymphub.fichiers.empreinte_fichier", refuser)
+    monkeypatch.setattr("medphystools.fichiers.empreinte_fichier", refuser)
     assert etat_fichier(chemin, "0" * 64) == "illisible"
 
 

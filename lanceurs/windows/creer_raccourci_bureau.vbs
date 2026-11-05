@@ -1,4 +1,4 @@
-' Cree sur le Bureau un raccourci vers pymphub, avec son logo.
+' Cree sur le Bureau un raccourci vers MedPhysNotebook, avec son logo.
 Option Explicit
 
 Dim fichiers, coquille, dossier, racine, raccourci
@@ -10,12 +10,12 @@ dossier = fichiers.GetParentFolderName(WScript.ScriptFullName)
 racine = fichiers.GetParentFolderName(fichiers.GetParentFolderName(dossier))
 
 Set raccourci = coquille.CreateShortcut( _
-    coquille.SpecialFolders("Desktop") & "\pymphub.lnk")
+    coquille.SpecialFolders("Desktop") & "\medphysnotebook.lnk")
 raccourci.TargetPath = fichiers.GetSpecialFolder(1).Path & "\wscript.exe"
-raccourci.Arguments = """" & dossier & "\pymphub.vbs"""
+raccourci.Arguments = """" & dossier & "\medphysnotebook.vbs"""
 raccourci.WorkingDirectory = racine
-raccourci.IconLocation = racine & "\src\pymphub\interface\ressources\logo.ico,0"
-raccourci.Description = "pymphub : cahier de laboratoire du physicien medical"
+raccourci.IconLocation = racine & "\src\medphystools\interface\ressources\logo.ico,0"
+raccourci.Description = "MedPhysNotebook : cahier de laboratoire du physicien medical"
 raccourci.Save
 
-MsgBox "Le raccourci pymphub est sur le Bureau.", vbInformation, "pymphub"
+MsgBox "Le raccourci MedPhysNotebook est sur le Bureau.", vbInformation, "MedPhysNotebook"

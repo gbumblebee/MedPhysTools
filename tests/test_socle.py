@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-import pymphub
+import medphystools
 
 BIBLIOTHEQUES_QT = {
     "PySide2",
@@ -52,8 +52,8 @@ def test_un_import_ordinaire_n_est_pas_detecte():
 
 
 def test_les_sources_du_coeur_n_importent_pas_qt():
-    racine = Path(pymphub.__file__).parent
-    # pymphub.interface est le seul sous-paquet autorisé à importer Qt.
+    racine = Path(medphystools.__file__).parent
+    # medphystools.interface est le seul sous-paquet autorisé à importer Qt.
     fichiers = sorted(
         f
         for f in racine.rglob("*.py")
@@ -70,16 +70,16 @@ def test_les_sources_du_coeur_n_importent_pas_qt():
 
 
 def test_le_sous_paquet_interface_ne_charge_qt_que_dans_ses_modules():
-    code = "import sys, pymphub.interface; print(' '.join(sys.modules))"
+    code = "import sys, medphystools.interface; print(' '.join(sys.modules))"
     resultat = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert "PySide6" not in resultat.stdout.split()
 
 
-def test_importer_pymphub_ne_charge_pas_qt():
+def test_importer_medphystools_ne_charge_pas_qt():
     # Dans un processus neuf, pour ne pas dépendre de ce que pytest a déjà importé.
-    code = "import sys, pymphub; print(' '.join(sys.modules))"
+    code = "import sys, medphystools; print(' '.join(sys.modules))"
     resultat = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )

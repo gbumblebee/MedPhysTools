@@ -20,7 +20,7 @@ Référence : [cahier des charges](cahier-des-charges.md), section 14.
 
 **Validée quand :**
 - les tests passent sous Fedora ;
-- `import pymphub` ne charge pas Qt.
+- `import medphystools` ne charge pas Qt.
 
 ### 1. Unités
 

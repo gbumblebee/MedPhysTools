@@ -7,18 +7,18 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from pymphub import archive as module_archive
-from pymphub.archive import Archive, PageIntrouvable, PageRefusee
-from pymphub.depot import CONTENU_GITIGNORE, Depot
-from pymphub.gabarit import creer_gabarit
-from pymphub.historique import (
+from medphystools import archive as module_archive
+from medphystools.archive import Archive, PageIntrouvable, PageRefusee
+from medphystools.depot import CONTENU_GITIGNORE, Depot
+from medphystools.gabarit import creer_gabarit
+from medphystools.historique import (
     Modification,
     differences,
     lire_message,
     message_commit,
     normaliser_motif,
 )
-from pymphub.page import Page
+from medphystools.page import Page
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 ID_PAGE = "2026-11-14_activimetre-linearite_0007"

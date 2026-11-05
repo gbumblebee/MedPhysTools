@@ -14,24 +14,24 @@ from PySide6.QtCore import QDateTime
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QMainWindow
 
-from pymphub import Archive
-from pymphub.dates import lire_date, lire_date_iso, maintenant
-from pymphub.gabarit import _colonne_attendue
-from pymphub.importation import Grille
-from pymphub.interface import application, espace_saisie
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.onglet_calculs import DialogueDecroissance, EditeurCalculs
-from pymphub.interface.onglet_tableau import (
+from medphystools import Archive
+from medphystools.dates import lire_date, lire_date_iso, maintenant
+from medphystools.gabarit import _colonne_attendue
+from medphystools.importation import Grille
+from medphystools.interface import application, espace_saisie
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.onglet_calculs import DialogueDecroissance, EditeurCalculs
+from medphystools.interface.onglet_tableau import (
     ACTION_COLONNE_DATE,
     ACTION_DECROISSANCE,
     ACTION_INSERER_DATE,
     ACTION_SUPPRIMER,
     EditeurTableau,
 )
-from pymphub.interface.onglets import ACTION_HORODATER, EditeurNotes
-from pymphub.interface.texte_en_grand import LIBELLE_ACTION
-from pymphub.page import ColonneDate, ColonneNumerique, Composante, Page, Scalaire
+from medphystools.interface.onglets import ACTION_HORODATER, EditeurNotes
+from medphystools.interface.texte_en_grand import LIBELLE_ACTION
+from medphystools.page import ColonneDate, ColonneNumerique, Composante, Page, Scalaire
 
 HEURE = datetime(2026, 11, 4, 9, 0, tzinfo=timezone(timedelta(hours=1)))
 RACINE = Path(__file__).parent.parent
@@ -608,9 +608,9 @@ def test_l_application_s_ouvre_en_grand_avec_son_logo(tmp_path):
         "import sys\n"
         "from PySide6.QtCore import QTimer\n"
         "from PySide6.QtWidgets import QApplication\n"
-        "from pymphub.interface import application\n"
-        "from pymphub.interface.fenetre import FenetrePrincipale\n"
-        "sys.argv = ['pymphub', sys.argv[1]]\n"
+        "from medphystools.interface import application\n"
+        "from medphystools.interface.fenetre import FenetrePrincipale\n"
+        "sys.argv = ['medphysnotebook', sys.argv[1]]\n"
         "origine = QApplication.exec\n"
         "def relever():\n"
         "    f = next(w for w in QApplication.topLevelWidgets()\n"
@@ -635,7 +635,7 @@ def test_l_application_s_ouvre_en_grand_avec_son_logo(tmp_path):
     assert resultat.returncode == 0, resultat.stderr
     assert "grand True plein False" in resultat.stdout
     assert "logo True" in resultat.stdout
-    assert "bureau pymphub" in resultat.stdout
+    assert "bureau medphysnotebook" in resultat.stdout
 
 
 def test_les_fichiers_du_logo_sont_complets(qapp):
@@ -647,7 +647,7 @@ def test_les_fichiers_du_logo_sont_complets(qapp):
 
 
 @pytest.mark.parametrize(
-    "nom", ["pymphub.vbs", "creer_raccourci_bureau.vbs", "lancer.bat"]
+    "nom", ["medphysnotebook.vbs", "creer_raccourci_bureau.vbs", "lancer.bat"]
 )
 def test_un_lanceur_windows_est_en_ascii_avec_des_fins_crlf(nom):
     """Windows Script Host et cmd lisent mal le reste. `.gitattributes` protège ces fins."""
@@ -658,13 +658,13 @@ def test_un_lanceur_windows_est_en_ascii_avec_des_fins_crlf(nom):
 
 
 def test_le_lanceur_vise_le_bon_module_sans_fenetre_de_commande():
-    texte = (RACINE / "lanceurs" / "windows" / "pymphub.vbs").read_text("ascii")
+    texte = (RACINE / "lanceurs" / "windows" / "medphysnotebook.vbs").read_text("ascii")
     assert f"-m {application.__spec__.name}" in texte
     assert "coquille.Run(commande, 0, True)" in texte
     assert r"\.venv\Scripts\python.exe" in texte
     assert r"\python\python.exe" in texte
     raccourci = RACINE / "lanceurs" / "windows" / "creer_raccourci_bureau.vbs"
-    assert r"\src\pymphub\interface\ressources\logo.ico,0" in raccourci.read_text(
+    assert r"\src\medphystools\interface\ressources\logo.ico,0" in raccourci.read_text(
         "ascii"
     )
     # Sous Wine au moins, ce chemin perdait sa fin : le journal n'était pas créé.

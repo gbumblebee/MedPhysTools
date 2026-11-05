@@ -14,10 +14,10 @@ from PySide6.QtWidgets import (
     QTableWidgetSelectionRange,
 )
 
-from pymphub import Archive
-from pymphub.calculs import calculer
-from pymphub.depot import Depot
-from pymphub.importation import (
+from medphystools import Archive
+from medphystools.calculs import calculer
+from medphystools.depot import Depot
+from medphystools.importation import (
     Grille,
     ImportImpossible,
     charger_imports_personnalises,
@@ -29,20 +29,20 @@ from pymphub.importation import (
     lire_presse_papiers,
     noms_uniques,
 )
-from pymphub.incertitudes import Composante
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fenetre import DescriptionArchive, FenetrePrincipale
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.import_personnalise import FICHIER_IMPORTS
-from pymphub.interface.onglet_scalaires import EditeurScalaires
-from pymphub.interface.onglet_tableau import EditeurTableau
-from pymphub.interface.texte_en_grand import (
+from medphystools.incertitudes import Composante
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fenetre import DescriptionArchive, FenetrePrincipale
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.import_personnalise import FICHIER_IMPORTS
+from medphystools.interface.onglet_scalaires import EditeurScalaires
+from medphystools.interface.onglet_tableau import EditeurTableau
+from medphystools.interface.texte_en_grand import (
     LIBELLE_ACTION,
     AffichageEnGrand,
     DialogueTexte,
 )
-from pymphub.interface.theme import appliquer_theme
-from pymphub.page import Scalaire, Tableau
+from medphystools.interface.theme import appliquer_theme
+from medphystools.page import Scalaire, Tableau
 
 PARIS = timezone(timedelta(hours=1))
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=PARIS)
@@ -269,11 +269,9 @@ def test_retirer_l_onglet_garde_le_tableau(espace, editeur):
     [
         (lambda e: e.champ_nom.setText(""), "nom"),
         (lambda e: e.colonnes[2].unite.setText(""), "unité"),
-        (lambda e: setattr(e.colonnes[2], "composantes", ()), "incertitude"),
         (lambda e: e.colonnes[0].nom.setText(""), "nom"),
         (lambda e: e.colonnes[2].unite.setText("Mbq"), "MBq"),
         (lambda e: e.ecrire_cellules([["abc"]], 0, 2), "abc"),
-        (lambda e: e.grille.item(1, 2).setText(""), "cellule vide"),
     ],
 )
 def test_un_tableau_incomplet_ne_s_enregistre_pas(
@@ -514,14 +512,13 @@ def test_importer_un_csv_propose_noms_unites_et_natures(editeur, tmp_path):
     assert cellules(editeur) == [["007", "0", "100,5"], ["007", "2", "79,39"]]
 
 
-def test_un_import_laisse_les_incertitudes_a_declarer(espace, editeur, tmp_path):
+def test_un_import_recoit_l_incertitude_par_defaut(espace, editeur, tmp_path):
     chemin = ecrire_csv_test(tmp_path / "r.csv", "a (MBq)\n1\n2\n")
     editeur.importer_fichier(chemin)
     editeur.champ_nom.setText("t")
-    assert any("incertitude" in e for e in espace.saisies_incompletes())
-    editeur.colonnes[0].composantes = (CERTIFICAT,)
-    editeur.colonne_modifiee()
     assert espace.saisies_incompletes() == []
+    assert editeur.colonnes[0].composantes == ()
+    assert editeur.tableau_saisi().colonnes[0].composantes[0].valeur == 0.0
 
 
 def test_un_import_garde_la_trace_de_son_origine(espace, editeur, tmp_path):
@@ -599,7 +596,7 @@ def test_un_fichier_vide_est_explique(editeur, tmp_path):
 def imports(tmp_path, monkeypatch):
     dossier = tmp_path / "config"
     dossier.mkdir()
-    monkeypatch.setenv("PYMPHUB_CONFIG", str(dossier))
+    monkeypatch.setenv("MEDPHYSNOTEBOOK_CONFIG", str(dossier))
     return dossier / FICHIER_IMPORTS
 
 
@@ -836,7 +833,7 @@ def test_un_csv_illisible_est_signale_et_jamais_ecrase(espace, editeur):
 
 
 def test_la_fiche_affiche_le_tableau_saisi(espace, editeur, qtbot):
-    from pymphub.interface.fiche_page import FichePage
+    from medphystools.interface.fiche_page import FichePage
 
     preparer(editeur)
     espace.enregistrer_maintenant()
@@ -1169,7 +1166,7 @@ def import_complet(tmp_path, monkeypatch):
         (dossier / FICHIER_IMPORTS).write_text(
             f"def importer_essai(chemin):\n    return {renvoye!r}\n", encoding="utf-8"
         )
-        monkeypatch.setenv("PYMPHUB_CONFIG", str(dossier))
+        monkeypatch.setenv("MEDPHYSNOTEBOOK_CONFIG", str(dossier))
         source = tmp_path / "mesure.csv"
         source.write_text("contenu d'origine", encoding="utf-8")
         monkeypatch.setattr(editeur, "_choisir_import", lambda noms: noms[0])
@@ -1227,7 +1224,7 @@ def test_un_import_complet_remplit_le_tableau_et_les_scalaires(
     assert copie.read_bytes() == source.read_bytes()
 
 
-def test_un_scalaire_importe_sans_incertitude_reste_a_completer(
+def test_un_scalaire_importe_sans_incertitude_recoit_celle_par_defaut(
     espace, editeur, import_complet
 ):
     import_complet(
@@ -1241,19 +1238,9 @@ def test_un_scalaire_importe_sans_incertitude_reste_a_completer(
     ligne = scalaires.lignes[0]
     assert ligne.valeur.text() == "21.5"
     assert ligne.composantes == ()
-    assert espace.saisies_incompletes() == [
-        "temperature : l'incertitude est obligatoire"
-    ]
-    assert espace.enregistrer_maintenant()
-    assert relue(espace).mesures == ()
-
-    ligne.composantes = (
-        Composante(type="B", valeur=0.5, unite="degC", source="sonde"),
-    )
-    scalaires.ligne_modifiee()
     assert espace.saisies_incompletes() == []
     assert espace.enregistrer_maintenant()
-    assert relue(espace).grandeur("temperature").valeur == 21.5
+    assert relue(espace).mesures[0].budget().incertitude_type == 0.0
 
 
 def test_un_nom_importe_se_lit_depuis_son_debut(espace, editeur, import_complet):

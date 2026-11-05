@@ -7,7 +7,7 @@ import GTC
 import pandas as pd
 import pytest
 
-from pymphub.calculs import (
+from medphystools.calculs import (
     ErreurCalcul,
     FormuleRefusee,
     calculer,
@@ -16,7 +16,7 @@ from pymphub.calculs import (
     est_calcul_de_colonne,
     incertitudes_de_colonne,
 )
-from pymphub.page import (
+from medphystools.page import (
     ColonneDate,
     ColonneIncertitude,
     ColonneNumerique,

@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from pymphub.equations import (
+from medphystools.equations import (
     RESOLUTION_IMPRESSION,
     EquationIllisible,
     dessiner_equation,
@@ -36,7 +36,7 @@ def test_une_formule_impossible_est_refusee(formule):
 
 def test_les_equations_ne_chargent_pas_qt():
     code = (
-        "import sys; from pymphub.equations import dessiner_equation;"
+        "import sys; from medphystools.equations import dessiner_equation;"
         "dessiner_equation('x');"
         "assert not any(m.startswith('PySide6') for m in sys.modules)"
     )

@@ -1,4 +1,4 @@
-# Cahier des charges — Hub du physicien médical
+# MedPhysTools — Hub du physicien médical
 
 Nov 1, 2026 · @gbumblebee
 
@@ -68,7 +68,7 @@ Interface Qt (PySide6), sans logique métier
   Archive (recherche, historique) | Saisie (onglets, tableaux, DICOM) | Hub (formulaires générés)
       │ appelle                                                            │ exécute
       ▼                                                                    ▼
-Cœur pymphub (Python pur, testable sans Qt)    ◄── importe ──   Modules (dossiers)
+Cœur MedPhysTools (Python pur, testable sans Qt)    ◄── importe ──   Modules (dossiers)
   Pages et archive : page.json, empreintes                        Radiologie
   Mesures : GTC (GUM) + pint (unités)                             Médecine nucléaire
   Normes : TOML + BibTeX datés                                    Radiothérapie
@@ -143,7 +143,7 @@ ArchiveStage1/
 
 **Nombres et identifiants.** Une grandeur numérique est stockée comme un nombre : `10.50` peut devenir `10.5`. Un identifiant (numéro de série, de lot, de certificat…) est toujours stocké comme du texte, sans aucune conversion : `10.50` et `007` restent `10.50` et `007`, y compris dans les colonnes de tableaux CSV.
 
-**Déclaration obligatoire.** Toute valeur numérique, scalaire ou dans un tableau, déclare son unité et son incertitude. Dans un tableau, l'unité se déclare par colonne, et l'incertitude par colonne ou par cellule. Une grandeur sans dimension déclare l'unité `1`, et une valeur exacte déclare explicitement une incertitude nulle.
+**Déclaration obligatoire.** Toute valeur numérique, scalaire ou dans un tableau, déclare son unité et son incertitude. Dans un tableau, l'unité se déclare par colonne, et l'incertitude par colonne ou par cellule. Une grandeur sans dimension déclare l'unité `1`, et une valeur exacte déclare explicitement une incertitude nulle. À la saisie, une incertitude non déclarée vaut 0 par défaut : ce 0 est écrit dans la page, avec une source qui le dit, et le cahier le montre. Une cellule de tableau peut rester vide : les colonnes n'ont pas forcément la même longueur.
 
 **Syntaxe des unités.** Les unités s'écrivent dans la syntaxe de MetroloPy (`MBq`, `kBq/mL`, `kg/m**3`, `mA*s`, `um`), pour permettre son adoption plus tard sans convertir les archives. La syntaxe est vérifiée pendant la frappe et une correction est suggérée quand elle est fausse (`Bq/ml` → `Bq/mL`). Les unités absentes de MetroloPy (`Ci`, `HU`, `cps`, `lp`) sont définies dans un catalogue unique.
 
@@ -206,7 +206,7 @@ La saisie se fait directement sur ordinateur, en page libre par défaut ou à pa
 - Visualiseur DICOM polyvalent (CT, dose, TEP, TEMP, RTSTRUCT, séries 4D, etc.) : coupes axiale, sagittale et coronale liées, vue 3D en transparence, défilement, fenêtrage, valeurs mises à l'échelle, dose et structures superposées, lecture des principales balises. Il ne dépend ni des pages ni de l'archive, pour resservir au programme de CQ.
 - Suppression d'une page depuis sa fiche : simple confirmation pour un brouillon ; motif obligatoire et identifiant à retaper pour une page validée ou corrigée. La suppression est tracée dans Git, le dossier de la page part dans `corbeille/`, `objets/` n'est pas touché et le numéro de la page n'est jamais réutilisé.
 - Clic droit « Afficher en grand » sur tout ce qui contient une description, un commentaire ou une note.
-- Contrôles à la saisie : unité et incertitude obligatoires, syntaxe de l'unité vérifiée en direct avec suggestion, unité incompatible avec le gabarit quand la page en a un.
+- Contrôles à la saisie : unité obligatoire, incertitude à 0 par défaut si elle n'est pas déclarée et citée comme telle dans le cahier, syntaxe de l'unité vérifiée en direct avec suggestion, unité incompatible avec le gabarit quand la page en a un.
 
 - Export du cahier de labo en PDF, page par page et onglet par onglet, pour le relire sans le logiciel. L'archive reste la référence.
 
@@ -236,7 +236,7 @@ La recherche se fait par tag, date, gabarit, machine et texte libre ; un script 
 **API Python (usage visé)**
 
 ```python
-from pymphub import Archive
+from medphystools import Archive
 
 Archive("D:/ArchiveStage1").page("2026-11-14_activimetre-linearite_0007")   # relire une page en une ligne
 
@@ -290,7 +290,7 @@ dependances = ["pydicom>=2.4"]
 **analyse.py (forme imposée)**
 
 ```python
-from pymphub.types import SerieDICOM, Grandeur, Resultats
+from medphystools.types import SerieDICOM, Grandeur, Resultats
 
 def analyser(serie: SerieDICOM,
              diametre_roi_mm: float = 20.0,
@@ -384,7 +384,7 @@ Chaque analyse produit un fichier `.tex` lisible et modifiable, compilé en PDF 
 **Chaîne de production**
 
 1. Le module fournit les résultats ; le hub remplit son gabarit `rapport.tex.j2` (moteur Jinja2, délimiteurs adaptés pour ne pas entrer en conflit avec les accolades LaTeX).
-2. Le gabarit hérite d'une classe commune `pymphub-rapport.cls` : en-tête (site, machine, date, auteur), tableau de résultats, figures, budget d'incertitude, bibliographie.
+2. Le gabarit hérite d'une classe commune `medphystools-rapport.cls` : en-tête (site, machine, date, auteur), tableau de résultats, figures, budget d'incertitude, bibliographie.
 3. Compilation avec LuaLaTeX de TeX Live portable + biblatex.
 4. Le `.tex` et le PDF sont enregistrés dans le dossier d'analyse de la page.
 
@@ -465,7 +465,7 @@ Python 3.12, distribué en version portable, avec un petit nombre de dépendance
 
 **Distribution**
 
-- Un dossier `pymphub/` contenant Python embarqué, l'environnement figé, le code, `modules/` et un `lancer.bat`.
+- Un dossier `medphystools/` contenant Python embarqué, l'environnement figé, le code, `modules/` et un `lancer.bat`.
 - Copiable sur clé USB ou partage réseau, sans installation ni droits admin.
 - Les archives sont séparées du logiciel : on ouvre `ArchiveStage1` depuis n'importe quelle version compatible.
 
@@ -516,7 +516,7 @@ Le premier rapport PDF validé (phase 2) est le jalon clé : c'est le moment où
 
 | Point | Décision | Statut |
 | --- | --- | --- |
-| Nom du logiciel | pymphub | tranché |
+| Nom du logiciel | MedPhysTools pour le projet, MedPhysNotebook pour le cahier de labo | tranché |
 | Licence du projet | MIT : permissive, facile à adopter par un service | tranché |
 | Python embarqué sur les PC des services | à tester dès le premier stage (antivirus, exécution de .bat, chemins réseau) | action |
 | Versionnage Git | dulwich, Git en Python pur, rien à faire autoriser | tranché |
@@ -530,14 +530,14 @@ Le premier rapport PDF validé (phase 2) est le jalon clé : c'est le moment où
 | Contenu du dépôt Git d'une archive | fichiers légers seulement ; tout changement d'un fichier lourd est tracé dans un commit | tranché |
 | Nombres et identifiants | un nombre peut perdre ses zéros finaux ; un identifiant reste un texte exact | tranché |
 | Écriture du TOML | tomli-w | tranché |
-| Emplacement de l'interface | sous-paquet `pymphub.interface`, seul autorisé à importer Qt | tranché |
+| Emplacement de l'interface | sous-paquet `medphystools.interface`, seul autorisé à importer Qt | tranché |
 | Pseudonymisation DICOM | par défaut à l'import, UID conservés ; un fichier désigné comme fantôme est conservé tel quel | tranché |
 | Ajustements | faits dans le cahier de labo ; courbe suréchantillonnée sans extrapolation en tableau, pour le tracé seulement ; coefficients et corrélations dans `page.json` et dans un onglet dédié | tranché |
 | Indicateurs | minimum, maximum, intégrale, dérivée, etc. enregistrés dans `page.json` | tranché |
 | Premier CQ réel | vers début février 2027 | tranché |
 | Noms de colonnes | uniques dans leur tableau seulement ; désignés par `tableau.colonne` | tranché |
 | Erreurs communes entre mesures | repère facultatif stocké dès maintenant ; exploitation dans les calculs plus tard | tranché |
-| Unité et incertitude | obligatoires pour toute valeur numérique | tranché |
+| Unité et incertitude | obligatoires pour toute valeur numérique enregistrée ; à la saisie, une incertitude non déclarée vaut 0 par défaut, écrit dans la page avec sa source | tranché |
 | Syntaxe des unités | syntaxe MetroloPy dès maintenant, calculs avec pint et GTC ; MetroloPy limité aux tests de compatibilité | tranché |
 | Adoption de MetroloPy dans le logiciel | à décider plus tard : licence GPL-3.0, incompatible avec une distribution entièrement sous MIT | ouvert |
 | Rôle des gabarits | facultatifs, créés depuis une page libre ; ils listent les variables utiles au post-traitement, jamais leurs données, et peuvent préparer notes, graphes et ajustements | tranché |
@@ -553,7 +553,7 @@ Sur une carrière, les risques principaux ne sont pas techniques mais de pérenn
 | Point | Risque si on l'ignore | Ce qu'on prévoit |
 | --- | --- | --- |
 | Évolution du format d'archive | les anciennes archives deviennent illisibles après une mise à jour | numéro de version du schéma dans chaque `page.json`, scripts de migration, lecture des anciennes versions testée |
-| Lisibilité sans le logiciel | archive inexploitable si pymphub disparaît | fichier `FORMAT.md` décrivant le format, copié dans chaque archive ; rapports en PDF/A |
+| Lisibilité sans le logiciel | archive inexploitable si MedPhysTools disparaît | fichier `FORMAT.md` décrivant le format, copié dans chaque archive ; rapports en PDF/A |
 | Registre des équipements de mesure | incertitude type B ressaisie à la main, mesure faite avec un appareil hors étalonnage | registre (chambres, électromètres, activimètres de référence, sources étalons, thermomètre, baromètre) avec certificats, dates de validité et incertitudes ; alerte si étalonnage expiré à la date de mesure |
 | Valeurs de référence par machine | impossible d'évaluer un critère relatif (« écart à la valeur de référence ») | état de référence daté par machine, pointant vers la page de recette ou de référence ; type de critère `relatif_reference` |
 | Journal des événements machine | une dérive ou une rupture de tendance reste inexpliquée | événements datés (maintenance, changement de tube ou de détecteur, mise à jour logicielle) ; un événement peut ouvrir une nouvelle référence |

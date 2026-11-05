@@ -1,9 +1,9 @@
 # Imports personnalisés
 
-Pour lire un export d'appareil particulier, écris une fonction dans le fichier `imports_personnalises.py`, dans le dossier des préférences de pymphub :
+Pour lire un export d'appareil particulier, écris une fonction dans le fichier `imports_personnalises.py`, dans le dossier des préférences de MedPhysNotebook :
 
-- **Linux :** `~/.config/pymphub/`
-- **Windows :** `%LOCALAPPDATA%\pymphub\`
+- **Linux :** `~/.config/medphysnotebook/`
+- **Windows :** `%LOCALAPPDATA%\medphysnotebook\`
 
 Dans l'application, le bouton « Import personnalisé… » d'un onglet de tableau ou de scalaires propose alors chaque fonction dont le nom commence par `importer_`.
 
@@ -27,7 +27,7 @@ def importer_activimetre(chemin: Path) -> dict[str, list]:
 **Règles de lecture :**
 - Une unité entre parenthèses dans un en-tête est reprise, si elle est reconnue.
 - Une colonne contenant `007` reste un identifiant.
-- Les incertitudes restent à déclarer dans l'application.
+- Une colonne sans incertitude déclarée reçoit l'incertitude nulle par défaut, à remplacer dans l'application si besoin.
 
 ## Importer aussi des scalaires et des informations
 
@@ -59,8 +59,8 @@ def importer_activimetre(chemin: Path) -> dict:
 
 Scalaires et informations arrivent dans l'onglet de scalaires de la page, créé s'il n'existe pas. Le fichier d'origine est gardé en pièce jointe.
 
-**Une valeur sans unité ou sans incertitude** s'affiche, signalée « à compléter », mais ne s'enregistre pas tant qu'elle n'est pas complétée : aucune incertitude n'est inventée.
+**Une valeur sans unité** s'affiche, signalée « à compléter », mais ne s'enregistre pas tant qu'elle n'est pas complétée. **Une valeur sans incertitude** reçoit l'incertitude nulle par défaut, que le bouton de sa ligne et le cahier affichent comme telle.
 
 **Un nom déjà pris dans la page** n'écrase rien : la nouvelle ligne s'appelle `temperature_2`, et c'est à toi de garder la bonne.
 
-**Sécurité :** ce fichier exécute du code Python avec tes droits. C'est pourquoi pymphub ne le cherche que dans ton profil, jamais dans une archive : ouvrir une archive reçue de quelqu'un d'autre n'exécute rien. N'y copie que du code que tu comprends.
+**Sécurité :** ce fichier exécute du code Python avec tes droits. C'est pourquoi MedPhysNotebook ne le cherche que dans ton profil, jamais dans une archive : ouvrir une archive reçue de quelqu'un d'autre n'exécute rien. N'y copie que du code que tu comprends.

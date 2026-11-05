@@ -5,24 +5,24 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from PySide6.QtCore import Qt
 
-from pymphub import Archive
-from pymphub.gabarit import (
+from medphystools import Archive
+from medphystools.gabarit import (
     colonnes_choisissables,
     nom_de_gabarit,
     verifier_conformite,
     version_suivante,
 )
-from pymphub.incertitudes import Composante
-from pymphub.interface.dialogue_gabarit import DialogueGabarit
-from pymphub.interface.espace_saisie import (
+from medphystools.incertitudes import Composante
+from medphystools.interface.dialogue_gabarit import DialogueGabarit
+from medphystools.interface.espace_saisie import (
     DescriptionPage,
     DialogueNouvellePage,
     EspaceSaisie,
 )
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.onglet_scalaires import EditeurScalaires
-from pymphub.interface.onglet_tableau import EditeurTableau
-from pymphub.page import Page
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.onglet_scalaires import EditeurScalaires
+from medphystools.interface.onglet_tableau import EditeurTableau
+from medphystools.page import Page
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 MBQ = Composante(type="B", valeur=1.0, unite="MBq", source="certificat")
@@ -345,6 +345,22 @@ def test_une_unite_compatible_est_acceptee(espace):
     ligne.actualiser()
     assert ligne.erreur() is None
     assert ligne.unite.property("invalide") is False
+
+
+def test_une_colonne_du_gabarit_entierement_vide_reste_a_remplir(espace):
+    """Une cellule peut être vide, mais une colonne demandée doit recevoir des valeurs."""
+    page_source(espace)
+    page_depuis(espace, gabarit_cree(espace).reference)
+    tableau = editeur_de(espace, EditeurTableau)
+    tableau.ecrire_cellules([["0", ""], ["1", ""]], 0, 0)
+    assert tableau.erreur() is None
+    assert espace.enregistrer_maintenant()
+    nom = tableau.champ_nom.text()
+    colonne = tableau.colonnes[1].nom.text()
+    assert f"{nom}.{colonne} (colonne du tableau)" in espace.reste_a_remplir()
+    tableau.ecrire_cellules([["90"]], 0, 1)
+    assert espace.enregistrer_maintenant()
+    assert not any("colonne du tableau" in r for r in espace.reste_a_remplir())
 
 
 def test_une_colonne_d_unite_incoherente_est_bloquee(espace):

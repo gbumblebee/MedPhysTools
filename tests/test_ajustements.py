@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pymphub.ajustements import (
+from medphystools.ajustements import (
     MODELES,
     ErreurAjustement,
     ajuster,
@@ -25,9 +25,9 @@ from pymphub.ajustements import (
     evaluer_ajustement,
     lire_points,
 )
-from pymphub.calculs import ErreurCalcul, FormuleRefusee, calculer
-from pymphub.incertitudes import Composante, composante_exacte
-from pymphub.page import (
+from medphystools.calculs import ErreurCalcul, FormuleRefusee, calculer
+from medphystools.incertitudes import Composante, composante_exacte
+from medphystools.page import (
     Ajustement,
     ColonneIdentifiant,
     ColonneIncertitude,
@@ -177,7 +177,7 @@ def test_chaque_modele_usuel_retrouve_ses_parametres_sans_valeur_de_depart(
     modele, vrais
 ):
     usuel = MODELES[modele]
-    from pymphub.ajustements import creer_fonction
+    from medphystools.ajustements import creer_fonction
 
     noms = coefficients_de(usuel.formule)
     y = creer_fonction(usuel.formule, noms)(X, [vrais[n] for n in noms])
@@ -499,7 +499,7 @@ def test_les_points_changes_se_voient(ajuste):
 
 def test_lmfit_ne_se_charge_qu_au_moment_d_ajuster():
     code = (
-        "import sys, pymphub, pymphub.archive, pymphub.ajustements;"
+        "import sys, medphystools, medphystools.archive, medphystools.ajustements;"
         "assert not [m for m in sys.modules if m.startswith('lmfit')]"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
@@ -831,7 +831,7 @@ def test_une_colonne_d_identifiants_ne_se_lit_pas_comme_des_points():
 
 def test_une_colonne_calculee_peut_s_ajuster_et_garde_son_scalaire_commun():
     """y = a / R, où R est un scalaire : une erreur de R déplace tous les points ensemble."""
-    from pymphub.calculs import creer_colonne
+    from medphystools.calculs import creer_colonne
 
     donnees = pd.DataFrame({"x": X, "a": 2.0 * X + 1.0})
     colonnes = (

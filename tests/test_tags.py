@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
-from pymphub.incertitudes import Composante
-from pymphub.page import ColonneNumerique, Identifiant, Page, Scalaire, Tableau
-from pymphub.tags import decouper_note, note_en_html, note_en_texte, valeur_du_tag
+from medphystools.incertitudes import Composante
+from medphystools.page import ColonneNumerique, Identifiant, Page, Scalaire, Tableau
+from medphystools.tags import decouper_note, note_en_html, note_en_texte, valeur_du_tag
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 

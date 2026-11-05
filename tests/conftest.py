@@ -9,7 +9,7 @@ from menus_reels import Menus
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # Les tests ne doivent jamais toucher aux préférences réelles de l'utilisateur.
-os.environ["PYMPHUB_CONFIG"] = tempfile.mkdtemp(prefix="pymphub-tests-")
+os.environ["MEDPHYSNOTEBOOK_CONFIG"] = tempfile.mkdtemp(prefix="medphysnotebook-tests-")
 
 
 @pytest.fixture

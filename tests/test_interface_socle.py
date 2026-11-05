@@ -9,18 +9,22 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QStandardPaths, Qt
 
-from pymphub import Archive
-from pymphub.archive import VERSION_FORMAT
-from pymphub.interface.application import main
-from pymphub.interface.fenetre import (
+from medphystools import Archive
+from medphystools.archive import VERSION_FORMAT
+from medphystools.interface.application import main
+from medphystools.interface.fenetre import (
     DescriptionArchive,
     DialogueNouvelleArchive,
     FenetrePrincipale,
 )
-from pymphub.interface.preferences import derniere_archive, memoriser_derniere_archive
-from pymphub.interface.theme import appliquer_theme
+from medphystools.interface.preferences import (
+    derniere_archive,
+    dossier_preferences,
+    memoriser_derniere_archive,
+)
+from medphystools.interface.theme import appliquer_theme
 
 
 @pytest.fixture
@@ -212,9 +216,9 @@ def test_le_theme_s_applique(qapp):
     assert qapp.styleSheet()
 
 
-def test_la_commande_pymphub_pointe_vers_l_application():
+def test_la_commande_medphysnotebook_pointe_vers_l_application():
     points = importlib.metadata.entry_points(group="console_scripts")
-    point = next(p for p in points if p.name == "pymphub")
+    point = next(p for p in points if p.name == "medphysnotebook")
     assert point.load() is main
 
 
@@ -232,8 +236,8 @@ def test_l_application_demarre_dans_un_processus_neuf(tmp_path):
         "import sys\n"
         "from PySide6.QtCore import QTimer\n"
         "from PySide6.QtWidgets import QApplication\n"
-        "from pymphub.interface import application\n"
-        "sys.argv = ['pymphub', sys.argv[1]]\n"
+        "from medphystools.interface import application\n"
+        "sys.argv = ['medphysnotebook', sys.argv[1]]\n"
         "origine = QApplication.exec\n"
         "def lancer(*_):\n"
         "    QTimer.singleShot(50, QApplication.quit)\n"
@@ -289,13 +293,41 @@ def test_un_echec_d_ouverture_ne_remplace_pas_la_derniere_archive(fenetre, tmp_p
 
 
 def test_aucune_derniere_archive_connue(monkeypatch, tmp_path, fenetre):
-    monkeypatch.setenv("PYMPHUB_CONFIG", str(tmp_path / "vide"))
+    monkeypatch.setenv("MEDPHYSNOTEBOOK_CONFIG", str(tmp_path / "vide"))
     assert derniere_archive() is None
     assert not fenetre.ouvrir_derniere_archive()
 
 
+def test_le_dossier_de_l_ancien_nom_est_repris_une_seule_fois(monkeypatch, tmp_path):
+    monkeypatch.delenv("MEDPHYSNOTEBOOK_CONFIG")
+    monkeypatch.setattr(QStandardPaths, "writableLocation", lambda _lieu: str(tmp_path))
+    ancien = tmp_path / "pymphub"
+    ancien.mkdir()
+    (ancien / "preferences.toml").write_text(
+        'derniere_archive = "/mon/archive"\n', encoding="utf-8"
+    )
+    (ancien / "imports_personnalises.py").write_text("# mes imports", encoding="utf-8")
+
+    assert dossier_preferences() == tmp_path / "medphysnotebook"
+    assert derniere_archive() == Path("/mon/archive")
+    assert (dossier_preferences() / "imports_personnalises.py").is_file()
+    assert (ancien / "preferences.toml").is_file()
+
+    memoriser_derniere_archive("/autre")
+    (ancien / "preferences.toml").write_text(
+        'derniere_archive = "/ancienne"\n', encoding="utf-8"
+    )
+    assert derniere_archive() == Path("/autre")
+
+
+def test_le_titre_de_la_fenetre_porte_le_nom_de_l_application(fenetre, tmp_path):
+    assert fenetre.windowTitle() == "MedPhysNotebook"
+    fenetre.creer_archive(description(tmp_path))
+    assert fenetre.windowTitle().endswith(" — MedPhysNotebook")
+
+
 def test_des_preferences_abimees_sont_ignorees(monkeypatch, tmp_path):
-    monkeypatch.setenv("PYMPHUB_CONFIG", str(tmp_path))
+    monkeypatch.setenv("MEDPHYSNOTEBOOK_CONFIG", str(tmp_path))
     (tmp_path / "preferences.toml").write_text("pas du TOML [", encoding="utf-8")
     assert derniere_archive() is None
     memoriser_derniere_archive("/une/archive")
@@ -305,13 +337,13 @@ def test_des_preferences_abimees_sont_ignorees(monkeypatch, tmp_path):
 def test_des_preferences_impossibles_a_ecrire_ne_bloquent_rien(monkeypatch, tmp_path):
     fichier = tmp_path / "un_fichier"
     fichier.write_text("x", encoding="utf-8")
-    monkeypatch.setenv("PYMPHUB_CONFIG", str(fichier))
+    monkeypatch.setenv("MEDPHYSNOTEBOOK_CONFIG", str(fichier))
     memoriser_derniere_archive("/une/archive")
     assert derniere_archive() is None
 
 
 def test_les_tests_n_utilisent_pas_les_vraies_preferences():
-    assert "pymphub-tests-" in os.environ["PYMPHUB_CONFIG"]
+    assert "medphysnotebook-tests-" in os.environ["MEDPHYSNOTEBOOK_CONFIG"]
 
 
 def test_le_lancement_sans_argument_rouvre_la_derniere_archive(tmp_path):
@@ -324,9 +356,9 @@ def test_le_lancement_sans_argument_rouvre_la_derniere_archive(tmp_path):
     code = (
         "import sys\n"
         "from PySide6.QtWidgets import QApplication\n"
-        "from pymphub.interface import application\n"
-        "from pymphub.interface.fenetre import FenetrePrincipale\n"
-        "sys.argv = ['pymphub']\n"
+        "from medphystools.interface import application\n"
+        "from medphystools.interface.fenetre import FenetrePrincipale\n"
+        "sys.argv = ['medphysnotebook']\n"
         "def lancer(*_):\n"
         "    fenetre = next(w for w in QApplication.topLevelWidgets()"
         " if isinstance(w, FenetrePrincipale))\n"
@@ -341,7 +373,10 @@ def test_le_lancement_sans_argument_rouvre_la_derniere_archive(tmp_path):
         capture_output=True,
         text=True,
         env=os.environ
-        | {"QT_QPA_PLATFORM": "offscreen", "PYMPHUB_CONFIG": str(configuration)},
+        | {
+            "QT_QPA_PLATFORM": "offscreen",
+            "MEDPHYSNOTEBOOK_CONFIG": str(configuration),
+        },
         timeout=60,
     )
     assert resultat.returncode == 0, resultat.stderr
@@ -349,5 +384,5 @@ def test_le_lancement_sans_argument_rouvre_la_derniere_archive(tmp_path):
 
 
 def test_l_application_n_est_pas_necessaire_au_coeur():
-    code = "import sys, pymphub; sys.exit('PySide6' in sys.modules)"
+    code = "import sys, medphystools; sys.exit('PySide6' in sys.modules)"
     assert subprocess.run([sys.executable, "-c", code]).returncode == 0

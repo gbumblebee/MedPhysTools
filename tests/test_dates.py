@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
-from pymphub.dates import (
+from medphystools.dates import (
     DateInvalide,
     afficher_date,
     ecrire_date_iso,
@@ -15,9 +15,9 @@ from pymphub.dates import (
     lire_date_iso,
     maintenant,
 )
-from pymphub.importation import deviner_nature
-from pymphub.page import ColonneDate, ColonneNumerique, Composante, Tableau
-from pymphub.tableaux import TableauInvalide, ecrire_csv, lire_csv
+from medphystools.importation import deviner_nature
+from medphystools.page import ColonneDate, ColonneNumerique, Composante, Tableau
+from medphystools.tableaux import TableauInvalide, ecrire_csv, lire_csv
 
 PARIS = "Europe/Paris"
 TOKYO = "Asia/Tokyo"

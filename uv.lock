@@ -582,6 +582,69 @@ wheels = [
 ]
 
 [[package]]
+name = "medphystools"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "dulwich" },
+    { name = "gtc" },
+    { name = "lmfit" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "openpyxl" },
+    { name = "pandas" },
+    { name = "pint" },
+    { name = "pydantic" },
+    { name = "pydicom" },
+    { name = "pyside6-essentials" },
+    { name = "python-gdcm" },
+    { name = "scipy" },
+    { name = "tomli-w" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "metrolopy" },
+    { name = "pyjpegls" },
+    { name = "pylibjpeg" },
+    { name = "pylibjpeg-openjpeg" },
+    { name = "pypdf" },
+    { name = "pytest" },
+    { name = "pytest-qt" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dulwich", specifier = ">=1.2.20" },
+    { name = "gtc", specifier = ">=1.5.1" },
+    { name = "lmfit", specifier = ">=1.3.4" },
+    { name = "matplotlib", specifier = ">=3.11.2" },
+    { name = "numpy", specifier = ">=2.5.4" },
+    { name = "openpyxl", specifier = ">=3.1.5" },
+    { name = "pandas", specifier = ">=3.1.0" },
+    { name = "pint", specifier = ">=0.26.2" },
+    { name = "pydantic", specifier = ">=2.14.2" },
+    { name = "pydicom", specifier = ">=3.0.2" },
+    { name = "pyside6-essentials", specifier = ">=6.12.0" },
+    { name = "python-gdcm", specifier = ">=3.2.6" },
+    { name = "scipy", specifier = ">=1.18.1" },
+    { name = "tomli-w", specifier = ">=1.2.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "metrolopy", specifier = ">=1.1.1" },
+    { name = "pyjpegls", specifier = ">=1.5.1" },
+    { name = "pylibjpeg", specifier = ">=2.1.0" },
+    { name = "pylibjpeg-openjpeg", specifier = ">=2.6.0" },
+    { name = "pypdf", specifier = ">=6.21.4" },
+    { name = "pytest", specifier = ">=9.2.0" },
+    { name = "pytest-qt", specifier = ">=4.5.0" },
+    { name = "ruff", specifier = ">=0.17.3" },
+]
+
+[[package]]
 name = "metrolopy"
 version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1183,69 +1246,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/3b/de5a5a3f9b298ce299d99eeb92e6f1c78f9babcf4f6b486f6ccfa5489d52/pylibjpeg_openjpeg-2.6.0-cp315-cp315-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:80662c9de26570845380ca3c64b47c2124510b1e28dd9f3ffcdf8e1fb1a5ab1e", size = 2002377, upload-time = "2026-09-23T18:41:55.907Z" },
     { url = "https://files.pythonhosted.org/packages/1d/60/e3c28ec80dd47db48a6bf01687830d7ed1366e526dd8ce88578210b410a0/pylibjpeg_openjpeg-2.6.0-cp315-cp315-win32.whl", hash = "sha256:32ff796c63bec2f7ced61583b4e8f9e6d9e912e85d8c99914b1d256059eb2be7", size = 311944, upload-time = "2026-09-23T18:41:57.746Z" },
     { url = "https://files.pythonhosted.org/packages/4e/d4/e23536aa111fc4e28cd289170d819f9cf163df1a24a16e1937ef12c398c7/pylibjpeg_openjpeg-2.6.0-cp315-cp315-win_amd64.whl", hash = "sha256:dacb4ec2007ec2584cdaa3c080e83d4cbb83981fbb42b30892a2106887060af5", size = 366987, upload-time = "2026-09-23T18:41:59.188Z" },
-]
-
-[[package]]
-name = "pymphub"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "dulwich" },
-    { name = "gtc" },
-    { name = "lmfit" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "openpyxl" },
-    { name = "pandas" },
-    { name = "pint" },
-    { name = "pydantic" },
-    { name = "pydicom" },
-    { name = "pyside6-essentials" },
-    { name = "python-gdcm" },
-    { name = "scipy" },
-    { name = "tomli-w" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "metrolopy" },
-    { name = "pyjpegls" },
-    { name = "pylibjpeg" },
-    { name = "pylibjpeg-openjpeg" },
-    { name = "pypdf" },
-    { name = "pytest" },
-    { name = "pytest-qt" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dulwich", specifier = ">=1.2.20" },
-    { name = "gtc", specifier = ">=1.5.1" },
-    { name = "lmfit", specifier = ">=1.3.4" },
-    { name = "matplotlib", specifier = ">=3.11.2" },
-    { name = "numpy", specifier = ">=2.5.4" },
-    { name = "openpyxl", specifier = ">=3.1.5" },
-    { name = "pandas", specifier = ">=3.1.0" },
-    { name = "pint", specifier = ">=0.26.2" },
-    { name = "pydantic", specifier = ">=2.14.2" },
-    { name = "pydicom", specifier = ">=3.0.2" },
-    { name = "pyside6-essentials", specifier = ">=6.12.0" },
-    { name = "python-gdcm", specifier = ">=3.2.6" },
-    { name = "scipy", specifier = ">=1.18.1" },
-    { name = "tomli-w", specifier = ">=1.2.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "metrolopy", specifier = ">=1.1.1" },
-    { name = "pyjpegls", specifier = ">=1.5.1" },
-    { name = "pylibjpeg", specifier = ">=2.1.0" },
-    { name = "pylibjpeg-openjpeg", specifier = ">=2.6.0" },
-    { name = "pypdf", specifier = ">=6.21.4" },
-    { name = "pytest", specifier = ">=9.2.0" },
-    { name = "pytest-qt", specifier = ">=4.5.0" },
-    { name = "ruff", specifier = ">=0.17.3" },
 ]
 
 [[package]]

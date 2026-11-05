@@ -11,10 +11,10 @@ import pytest
 from GTC import uncertainty
 from GTC.lib import UncertainReal
 
-import pymphub
-from pymphub import Archive
-from pymphub.fichiers import FichierAltere
-from pymphub.page import Identifiant, Page, Tableau
+import medphystools
+from medphystools import Archive
+from medphystools.fichiers import FichierAltere
+from medphystools.page import Identifiant, Page, Tableau
 
 CAHIER = Path(__file__).parent.parent / "docs" / "cahier-des-charges.md"
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
@@ -121,7 +121,7 @@ def exemple_du_cahier():
 
 def test_l_exemple_de_la_section_7_s_execute_tel_quel(arc):
     code = exemple_du_cahier().replace("D:/ArchiveStage1", arc.racine.as_posix())
-    assert "from pymphub import Archive" in code
+    assert "from medphystools import Archive" in code
     assert 'p.fichiers["serie_ct"]' in code
 
     espace: dict = {}
@@ -135,7 +135,7 @@ def test_l_exemple_de_la_section_7_s_execute_tel_quel(arc):
 
 def test_le_critere_de_la_phase_0_dans_un_processus_neuf(arc):
     code = (
-        "from pymphub import Archive\n"
+        "from medphystools import Archive\n"
         f"print(Archive({str(arc.racine)!r}).page({ID_PAGE!r}).mesures['activite'].valeur)"
     )
     resultat = subprocess.run(
@@ -145,8 +145,8 @@ def test_le_critere_de_la_phase_0_dans_un_processus_neuf(arc):
 
 
 def test_archive_est_exportee_par_le_paquet():
-    assert pymphub.Archive is Archive
-    assert "Archive" in pymphub.__all__
+    assert medphystools.Archive is Archive
+    assert "Archive" in medphystools.__all__
 
 
 # --- Page ---------------------------------------------------------------------------

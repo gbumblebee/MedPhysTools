@@ -20,9 +20,9 @@ from fabrique_dicom import (
 )
 from pydicom.uid import JPEG2000Lossless, JPEGLSLossless, RLELossless
 
-from pymphub import Archive
-from pymphub.depot import Depot
-from pymphub.dicom import (
+from medphystools import Archive
+from medphystools.depot import Depot
+from medphystools.dicom import (
     BALISES_RETIREES,
     LIMITE_TEXTE_INCRUSTE,
     ErreurDicom,
@@ -34,8 +34,8 @@ from pymphub.dicom import (
     lire_jeux,
     pseudonymiser,
 )
-from pymphub.fichiers import empreinte_fichier
-from pymphub.page import Copie, Page, ReferenceDicom, depuis_json, vers_json
+from medphystools.fichiers import empreinte_fichier
+from medphystools.page import Copie, Page, ReferenceDicom, depuis_json, vers_json
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 MOTS_IDENTIFIANTS = (
@@ -84,7 +84,7 @@ def test_un_import_sans_option_particuliere_est_pseudonymise(arc, tmp_path):
         assert str(jeu.PatientName) == "ANONYME"
         assert jeu.PatientID == "ANONYME"
         assert jeu.PatientIdentityRemoved == "YES"
-        assert "pymphub" in jeu.DeidentificationMethod
+        assert "MedPhysNotebook" in jeu.DeidentificationMethod
 
 
 def test_aucune_balise_de_la_liste_ne_reste_dans_la_copie(arc, tmp_path):
@@ -458,7 +458,7 @@ def test_le_cache_evite_de_relire_une_grosse_serie(arc, tmp_path, monkeypatch):
     def interdit(_chemin):
         pytest.fail("L'empreinte aurait dû venir du cache.")
 
-    monkeypatch.setattr("pymphub.fichiers.empreinte_fichier", interdit)
+    monkeypatch.setattr("medphystools.fichiers.empreinte_fichier", interdit)
     assert arc.cache_empreintes.calculer(chemin) == fichier.stockage.empreinte
     # Trop gros pour être calculé à l'affichage, mais déjà vérifié une fois.
     assert arc.etat_fichier_brut(fichier, taille_max=1) == "intact"
@@ -494,9 +494,9 @@ def test_le_cache_ne_passe_pas_par_git(arc, tmp_path):
     assert arc.modifications_non_tracees() == []
 
 
-def test_importer_pymphub_ne_charge_pas_pydicom():
+def test_importer_medphystools_ne_charge_pas_pydicom():
     code = (
-        "import sys, pymphub, pymphub.archive;"
+        "import sys, medphystools, medphystools.archive;"
         "assert not [m for m in sys.modules if m.startswith('pydicom')]"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=60)

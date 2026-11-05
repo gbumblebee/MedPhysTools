@@ -7,9 +7,9 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from pymphub import archive as module_archive
-from pymphub import disque
-from pymphub.archive import (
+from medphystools import archive as module_archive
+from medphystools import disque
+from medphystools.archive import (
     VERSION_FORMAT,
     Archive,
     ArchiveIntrouvable,
@@ -19,8 +19,8 @@ from pymphub.archive import (
     PageIntrouvable,
     PageRefusee,
 )
-from pymphub.depot import Depot
-from pymphub.disque import (
+from medphystools.depot import Depot
+from medphystools.disque import (
     NomInvalide,
     chemin_affichable,
     chemin_long,
@@ -28,8 +28,8 @@ from pymphub.disque import (
     prefixer_chemin_windows,
     verifier_nom_windows,
 )
-from pymphub.gabarit import creer_gabarit
-from pymphub.page import Page, depuis_json
+from medphystools.gabarit import creer_gabarit
+from medphystools.page import Page, depuis_json
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 MACHINE = "chu-x.medecine-nucleaire.activimetre.capintec-crc55.12345"

@@ -18,10 +18,10 @@ from scenario_activimetre import (
     construire,
 )
 
-from pymphub import Archive
-from pymphub.archive import VERSION_FORMAT
-from pymphub.fichiers import ReferenceNonResolue
-from pymphub.gabarit import verifier_conformite
+from medphystools import Archive
+from medphystools.archive import VERSION_FORMAT
+from medphystools.fichiers import ReferenceNonResolue
+from medphystools.gabarit import verifier_conformite
 
 ICI = Path(__file__).parent
 MATRICE = ICI.parent / "docs" / "matrice-exigences.md"
@@ -155,7 +155,7 @@ def test_critere_de_passage_sur_une_archive_copiee_ailleurs(arc, tmp_path):
     shutil.copytree(arc.racine, copie)
     script = tmp_path / "script_neuf.py"
     script.write_text(
-        "from pymphub import Archive\n"
+        "from medphystools import Archive\n"
         f"print(Archive({str(copie)!r}).page({ID_PAGE!r}).mesures['activite_ref'].valeur)\n",
         encoding="utf-8",
     )

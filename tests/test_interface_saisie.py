@@ -7,23 +7,23 @@ import pytest
 from PySide6.QtCore import QDateTime
 from PySide6.QtWidgets import QComboBox
 
-from pymphub import Archive
-from pymphub.depot import Depot
-from pymphub.edition import (
+from medphystools import Archive
+from medphystools.depot import Depot
+from medphystools.edition import (
     date_saisie_vers_mesure,
     decouper_tags,
     modifier_champs,
     nouvel_id_onglet,
     nouvelle_page,
 )
-from pymphub.interface.espace_saisie import (
+from medphystools.interface.espace_saisie import (
     DescriptionPage,
     DialogueNouvellePage,
     EspaceSaisie,
     message_erreur,
 )
-from pymphub.interface.fenetre import FenetrePrincipale
-from pymphub.interface.onglets import (
+from medphystools.interface.fenetre import FenetrePrincipale
+from medphystools.interface.onglets import (
     EditeurLectureSeule,
     EditeurNotes,
     EditeurOnglet,
@@ -32,7 +32,7 @@ from pymphub.interface.onglets import (
     retirer_onglet_declare,
     types_disponibles,
 )
-from pymphub.page import (
+from medphystools.page import (
     Onglet,
     OngletDonnees,
     OngletNotes,

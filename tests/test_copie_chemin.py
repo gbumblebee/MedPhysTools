@@ -12,24 +12,25 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QGuiApplication, QImage
 from PySide6.QtWidgets import QMainWindow, QTableWidget, QWidget
 
-from pymphub import Archive
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.onglet_dicom import EditeurDicom
-from pymphub.interface.onglet_fichiers import EditeurFichiers
-from pymphub.interface.photos import DialogueAnnotation, VignettePhoto
-from pymphub.interface.pieces import (
+from medphystools import Archive
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.onglet_dicom import EditeurDicom
+from medphystools.interface.onglet_fichiers import EditeurFichiers
+from medphystools.interface.photos import DialogueAnnotation, VignettePhoto
+from medphystools.interface.pieces import (
     LIBELLE_CHEMIN,
     LIBELLE_CHEMIN_SERIE,
+    LIBELLE_IDENTIFIANTS_PACS,
     LIBELLE_SANS_CHEMIN,
 )
-from pymphub.interface.texte_en_grand import LIBELLE_ACTION
-from pymphub.page import PhotoAnnotee
+from medphystools.interface.texte_en_grand import LIBELLE_ACTION
+from medphystools.page import PhotoAnnotee
 
 HEURE = datetime(2026, 11, 1, 9, 0, tzinfo=timezone(timedelta(hours=1)))
 TEMOIN = "presse-papiers intact"
 _COLONNE_NOM = 0
-_COLONNE_COMMENTAIRE = 4
+_COLONNE_COMMENTAIRE = 5
 
 
 def clic_droit_ligne(table: QTableWidget, ligne: int, colonne: int = _COLONNE_NOM):
@@ -323,6 +324,56 @@ def test_une_serie_de_l_onglet_dicom_donne_son_zip(
     assert Path(copie).is_relative_to(objets)
     assert zipfile.is_zipfile(copie)
     assert fenetre.statusBar().currentMessage() == f"Chemin copié : {copie}"
+
+
+def _copier_identifiants(menus, table, rang):
+    QGuiApplication.clipboard().setText(TEMOIN)
+    menus.action_a_lancer = LIBELLE_IDENTIFIANTS_PACS
+    clic_droit_ligne(table, rang)
+    assert (LIBELLE_IDENTIFIANTS_PACS, True) in menus.ouverts[-1]
+    return QGuiApplication.clipboard().text()
+
+
+def test_une_serie_de_l_onglet_dicom_montre_et_copie_ses_identifiants_pacs(
+    qtbot, dicom, menus, tmp_path, fenetre
+):
+    importer_dicom(qtbot, dicom, tmp_path)
+    serie = dicom.liens[0].fichier.dicom
+    colonne = [
+        dicom.table.horizontalHeaderItem(j).text()
+        for j in range(dicom.table.columnCount())
+    ].index("Identifiant PACS")
+    assert dicom.table.item(0, colonne).text() == serie.series_instance_uid
+    assert serie.study_instance_uid in dicom.table.item(0, colonne).toolTip()
+    assert _copier_identifiants(menus, dicom.table, 0) == (
+        f"Study Instance UID : {serie.study_instance_uid}\n"
+        f"Series Instance UID : {serie.series_instance_uid}"
+    )
+    assert fenetre.statusBar().currentMessage() == "Identifiants PACS copiés."
+
+
+def test_l_onglet_de_fichiers_montre_les_identifiants_pacs_sans_perdre_le_chemin(
+    qtbot, espace, fichiers, dicom, document, menus, tmp_path
+):
+    fichiers.joindre([document])
+    importer_dicom(qtbot, dicom, tmp_path)
+    assert espace.enregistrer_maintenant()
+    espace.onglets.setCurrentWidget(fichiers)
+    serie = dicom.liens[0].fichier.dicom
+    assert fichiers.table.item(0, 4).text() == ""
+    assert fichiers.table.item(1, 4).text() == serie.series_instance_uid
+    assert serie.series_instance_uid in _copier_identifiants(menus, fichiers.table, 1)
+    assert (LIBELLE_CHEMIN_SERIE, True) in menus.ouverts[-1]
+
+
+def test_un_fichier_ordinaire_ne_propose_pas_d_identifiants_pacs(
+    fichiers, document, menus
+):
+    fichiers.joindre([document])
+    clic_droit_ligne(fichiers.table, 0)
+    assert all(
+        libelle != LIBELLE_IDENTIFIANTS_PACS for libelle, _actif in menus.ouverts[-1]
+    )
 
 
 def test_le_chemin_d_une_serie_ne_contient_que_son_empreinte(

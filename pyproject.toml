@@ -1,7 +1,7 @@
 [project]
-name = "pymphub"
+name = "medphystools"
 version = "0.1.0"
-description = "Hub du physicien médical : cahier de labo, archive versionnée et analyses de CQ"
+description = "MedPhysTools, outils du physicien médical. MedPhysNotebook : cahier de labo, archive versionnée et analyses de CQ"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pymphub = "pymphub.interface.application:main"
+medphysnotebook = "medphystools.interface.application:main"
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]

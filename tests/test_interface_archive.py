@@ -15,23 +15,23 @@ from PySide6.QtCore import QDate, QTimer
 from PySide6.QtWidgets import QApplication, QLabel
 from scenario_activimetre import ID_PAGE, ID_SUIVANTE, MACHINE, construire
 
-from pymphub import Archive
-from pymphub.historique import corrections_par_champ
-from pymphub.index import Criteres
-from pymphub.interface.espace_archive import DialogueSuppression, EspaceArchive
-from pymphub.interface.fenetre import FenetrePrincipale
-from pymphub.interface.fiche_page import (
+from medphystools import Archive
+from medphystools.historique import corrections_par_champ
+from medphystools.index import Criteres
+from medphystools.interface.espace_archive import DialogueSuppression, EspaceArchive
+from medphystools.interface.fenetre import FenetrePrincipale
+from medphystools.interface.fiche_page import (
     LIGNES_MAX_AFFICHEES,
     etiquette_tracee,
     formater_date,
     formater_valeur,
 )
-from pymphub.interface.ramasse_miettes import (
+from medphystools.interface.ramasse_miettes import (
     _RamasseMiettes,
     assurer_ramasse_miettes_principal,
 )
-from pymphub.interface.theme import appliquer_theme
-from pymphub.page import Page, vers_json
+from medphystools.interface.theme import appliquer_theme
+from medphystools.page import Page, vers_json
 
 PARIS = timezone(timedelta(hours=1))
 
@@ -314,7 +314,7 @@ def test_les_fichiers_sont_listes_sans_chemin_du_magasin(ouvert):
         [table.item(i, j).text() for j in range(table.columnCount())]
         for i in range(table.rowCount())
     ]
-    assert ["export", "intact", "Copie", "export_constructeur.txt", ""] in lignes
+    assert ["export", "intact", "Copie", "export_constructeur.txt", "", ""] in lignes
     assert any(ligne[2] == "Référence DICOM" for ligne in lignes)
     assert any(ligne[2] == "Pièce jointe" for ligne in lignes)
     assert not any("objets" in cellule for ligne in lignes for cellule in ligne)
@@ -459,7 +459,7 @@ def test_une_incertitude_corrigee_est_signalee(arc, espace, qtbot):
 
 
 def test_un_texte_saisi_n_est_jamais_interprete_comme_une_mise_en_forme(qtbot):
-    from pymphub.historique import CorrectionChamp
+    from medphystools.historique import CorrectionChamp
 
     simple = etiquette_tracee("<b>gras</b>")
     qtbot.addWidget(simple)
@@ -781,8 +781,8 @@ def test_l_application_coupe_le_ramasse_miettes_automatique(tmp_path):
         "import gc, sys\n"
         "from PySide6.QtCore import QTimer\n"
         "from PySide6.QtWidgets import QApplication\n"
-        "from pymphub.interface import application\n"
-        "sys.argv = ['pymphub']\n"
+        "from medphystools.interface import application\n"
+        "sys.argv = ['medphysnotebook']\n"
         "def lancer(*_):\n"
         "    print(gc.isenabled())\n"
         "    return 0\n"

@@ -12,9 +12,9 @@ import pytest
 from matplotlib.backend_bases import MouseEvent
 from PySide6.QtCore import Qt
 
-from pymphub import Archive
-from pymphub.depot import Depot
-from pymphub.graphes import (
+from medphystools import Archive
+from medphystools.depot import Depot
+from medphystools.graphes import (
     Axe,
     GrapheImpossible,
     incertitudes_types,
@@ -22,13 +22,13 @@ from pymphub.graphes import (
     reglages_par_defaut,
     tableaux_tracables,
 )
-from pymphub.incertitudes import Composante
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.graphique import ToileGraphe, bornes_log
-from pymphub.interface.onglet_graphes import EditeurGraphes
-from pymphub.interface.theme import SERIES
-from pymphub.page import (
+from medphystools.incertitudes import Composante
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.graphique import ToileGraphe, bornes_log
+from medphystools.interface.onglet_graphes import EditeurGraphes
+from medphystools.interface.theme import SERIES
+from medphystools.page import (
     ColonneCalculee,
     ColonneIdentifiant,
     ColonneIncertitude,
@@ -38,7 +38,7 @@ from pymphub.page import (
     ReglagesGraphe,
     Tableau,
 )
-from pymphub.tableaux import lire_csv
+from medphystools.tableaux import lire_csv
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 CERTIFICAT = Composante(type="B", valeur=1.0, unite="MBq", k=2.0, source="certificat")
@@ -492,9 +492,9 @@ def test_un_graphe_s_affiche_sans_opengl(tmp_path):
         import sys
         import pandas as pd
         from PySide6.QtWidgets import QApplication
-        from pymphub.graphes import Axe, DonneesGraphe
-        from pymphub.interface.graphique import ToileGraphe
-        from pymphub.page import ReglagesGraphe
+        from medphystools.graphes import Axe, DonneesGraphe
+        from medphystools.interface.graphique import ToileGraphe
+        from medphystools.page import ReglagesGraphe
 
         app = QApplication([])
         axe = Axe("a", "MBq", (1.0, 2.0, 3.0), (0.1, 0.1, 0.1))
@@ -532,9 +532,9 @@ def test_un_graphe_s_affiche_sans_opengl(tmp_path):
     assert resultat.stdout.strip() == "ok"
 
 
-def test_importer_pymphub_ne_charge_pas_matplotlib():
+def test_importer_medphystools_ne_charge_pas_matplotlib():
     code = (
-        "import sys, pymphub, pymphub.graphes, pymphub.archive; "
+        "import sys, medphystools, medphystools.graphes, medphystools.archive; "
         "assert not [m for m in sys.modules if m.startswith(('matplotlib', 'PySide6'))]"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
@@ -546,8 +546,8 @@ def test_ouvrir_une_page_sans_afficher_de_graphe_ne_charge_pas_matplotlib(tmp_pa
         import os, sys
         from datetime import date, datetime, timezone
         from PySide6.QtWidgets import QApplication
-        from pymphub import Archive
-        from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
+        from medphystools import Archive
+        from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
         app = QApplication([])
         arc = Archive.creer(r"{tmp_path / "B"}", "S", "R", date(2026, 11, 1))
         e = EspaceSaisie(); e.installer(arc)
@@ -815,10 +815,6 @@ def test_le_message_dit_ce_qu_il_manque_au_tableau(qtbot, arc, monkeypatch):
     tableau.colonnes[1].nom.setText("activite")
     tableau.colonnes[0].unite.setText("h")
     tableau.colonnes[1].unite.setText("MBq")
-    assert "« heure » n'a pas d'incertitude" in graphe.toile.message.text()
-
-    tableau.colonnes[0].composantes = (HORLOGE,)
-    tableau.colonnes[1].composantes = (CERTIFICAT,)
     tableau.coller("0\t100\n2\t79")
     assert espace.enregistrer_maintenant()
     assert graphe.toile.donnees is not None

@@ -6,13 +6,13 @@ import pytest
 from GTC import uncertainty
 from pydantic import ValidationError
 
-from pymphub.incertitudes import (
+from medphystools.incertitudes import (
     Composante,
     composante_exacte,
     etablir_budget,
     repetitions,
 )
-from pymphub.unites import UniteInvalide, UnitesIncompatibles, convertir_ecart
+from medphystools.unites import UniteInvalide, UnitesIncompatibles, convertir_ecart
 
 
 @pytest.fixture

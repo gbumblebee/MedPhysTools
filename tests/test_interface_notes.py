@@ -5,13 +5,13 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from PySide6.QtGui import QColor, QImage
 
-from pymphub import Archive
-from pymphub.equations import dessiner_equation
-from pymphub.incertitudes import Composante
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.onglet_tableau import EditeurTableau
-from pymphub.interface.onglets import EditeurNotes
+from medphystools import Archive
+from medphystools.equations import dessiner_equation
+from medphystools.incertitudes import Composante
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.onglet_tableau import EditeurTableau
+from medphystools.interface.onglets import EditeurNotes
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 MBQ = Composante(type="B", valeur=1.0, unite="MBq", source="certificat")

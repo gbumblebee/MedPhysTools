@@ -16,7 +16,9 @@ from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt  # noqa: E402
 from PySide6.QtGui import QGuiApplication, QImage, QPainter  # noqa: E402
 from PySide6.QtSvg import QSvgRenderer  # noqa: E402
 
-DOSSIER = Path(__file__).parent.parent / "src" / "pymphub" / "interface" / "ressources"
+DOSSIER = (
+    Path(__file__).parent.parent / "src" / "medphystools" / "interface" / "ressources"
+)
 TAILLES_ICO = (16, 24, 32, 48, 64, 128, 256)
 
 

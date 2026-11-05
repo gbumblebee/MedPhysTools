@@ -9,11 +9,11 @@ import pytest
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QMainWindow
 
-from pymphub import Archive
-from pymphub.export import SansImages, page_en_html
-from pymphub.interface.espace_archive import EspaceArchive
-from pymphub.interface.fenetre import FenetrePrincipale
-from pymphub.page import ColonneNumerique, Page, Scalaire, Tableau
+from medphystools import Archive
+from medphystools.export import SansImages, page_en_html
+from medphystools.interface.espace_archive import EspaceArchive
+from medphystools.interface.fenetre import FenetrePrincipale
+from medphystools.page import ColonneNumerique, Page, Scalaire, Tableau
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 ID_PAGE = "2026-11-14_decroissance_0001"

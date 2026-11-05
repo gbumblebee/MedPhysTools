@@ -7,10 +7,10 @@ ni aucune mesure réels. Les UID DICOM et les noms de machines sont également i
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from pymphub import Archive
-from pymphub.gabarit import creer_gabarit
-from pymphub.incertitudes import Composante, repetitions
-from pymphub.page import Page
+from medphystools import Archive
+from medphystools.gabarit import creer_gabarit
+from medphystools.incertitudes import Composante, repetitions
+from medphystools.page import Page
 
 FUSEAU = timezone(timedelta(hours=1))
 MACHINE = "chu-fictif.medecine-nucleaire.activimetre.fabricant-modele.0001"

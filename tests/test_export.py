@@ -8,14 +8,14 @@ import pytest
 from pypdf import PdfReader
 from PySide6.QtGui import QColor, QImage
 
-from pymphub import Archive
-from pymphub.equations import RESOLUTION_IMPRESSION, dessiner_equation
-from pymphub.export import LARGEUR_IMAGE, SansImages, cahier_en_html, page_en_html
-from pymphub.incertitudes import Composante
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.export_pdf import exporter_pdf, largeur_du_texte
-from pymphub.interface.fenetre import DescriptionArchive, FenetrePrincipale
-from pymphub.page import Identifiant, Onglet, Page, Scalaire
+from medphystools import Archive
+from medphystools.equations import RESOLUTION_IMPRESSION, dessiner_equation
+from medphystools.export import LARGEUR_IMAGE, SansImages, cahier_en_html, page_en_html
+from medphystools.incertitudes import Composante
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.export_pdf import exporter_pdf, largeur_du_texte
+from medphystools.interface.fenetre import DescriptionArchive, FenetrePrincipale
+from medphystools.page import Identifiant, Onglet, Page, Scalaire
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 MBQ = Composante(type="B", valeur=1.0, unite="MBq", source="certificat")
@@ -156,7 +156,7 @@ def test_le_tableau_est_entier_avec_sa_colonne_calculee(complete):
     assert "rapport = t.act / activite_ref" in texte
     assert "0.5 ± " in texte
     # Aucune limite de lignes : c'est la copie papier.
-    assert texte.count("<td>89</td>") == 1
+    assert texte.count(">89</td>") == 1
 
 
 def test_un_grand_tableau_n_est_pas_tronque(espace):
@@ -171,8 +171,8 @@ def test_un_grand_tableau_n_est_pas_tronque(espace):
     tableau.coller("\n".join(f"{i}\t{i + 1000}" for i in range(600)))
     assert espace.enregistrer_maintenant()
     texte = html_de(espace)
-    assert "<td>1000</td>" in texte
-    assert "<td>1599</td>" in texte
+    assert ">1000</td>" in texte
+    assert ">1599</td>" in texte
 
 
 def test_les_calculs_donnent_formule_et_resultat(complete):
@@ -426,9 +426,10 @@ def test_l_archive_figee_du_format_1_s_exporte(tmp_path):
 
 
 @pytest.fixture
-def fenetre(qtbot, tmp_path):
+def fenetre(qtbot, tmp_path, monkeypatch):
     resultat = FenetrePrincipale()
     qtbot.addWidget(resultat)
+    monkeypatch.setattr(resultat, "_confirmer_export_archive", lambda _ids: True)
     resultat.creer_archive(
         DescriptionArchive(tmp_path / "F", "S", "R", date(2026, 11, 1))
     )
@@ -554,7 +555,7 @@ def test_les_titres_et_l_incertitude_calculee_passent_dans_le_pdf(espace):
     assert "font-size:14pt;font-weight:700" in texte
     assert ">Montage</div>" in texte
     assert "# Montage" not in texte
-    assert "<td>31.6228</td>" in texte
+    assert ">31.6228</td>" in texte
     assert "incertitude de N, Calculée : sqrt(N)" in texte
 
 

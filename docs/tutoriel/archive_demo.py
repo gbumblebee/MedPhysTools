@@ -11,13 +11,13 @@ import numpy as np
 from pydicom.dataset import FileDataset, FileMetaDataset
 from pydicom.uid import CTImageStorage, ExplicitVRLittleEndian, generate_uid
 
-from pymphub import Archive
-from pymphub.ajustements import MODELES, creer_ajustement, creer_indicateur, lire_points
-from pymphub.calculs import creer_resultat
-from pymphub.dicom import importer_series
-from pymphub.gabarit import creer_gabarit
-from pymphub.incertitudes import Composante, repetitions
-from pymphub.page import (
+from medphystools import Archive
+from medphystools.ajustements import MODELES, creer_ajustement, creer_indicateur, lire_points
+from medphystools.calculs import creer_resultat
+from medphystools.dicom import importer_series
+from medphystools.gabarit import creer_gabarit
+from medphystools.incertitudes import Composante, repetitions
+from medphystools.page import (
     ColonneIdentifiant,
     ColonneIncertitude,
     ColonneNumerique,
@@ -250,7 +250,7 @@ def _deuxieme_page(archive: Archive) -> str:
 
 def creer_archive_demo() -> tuple[Path, str]:
     """Crée l'archive dans un dossier temporaire ; renvoie son chemin et la page principale."""
-    dossier = Path(tempfile.mkdtemp(prefix="pymphub_tutoriel_"))
+    dossier = Path(tempfile.mkdtemp(prefix="medphysnotebook_tutoriel_"))
     archive = Archive.creer(
         dossier / "archive", "CHU fictif", "Resp.", date(2026, 11, 1)
     )

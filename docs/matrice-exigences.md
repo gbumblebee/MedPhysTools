@@ -16,7 +16,7 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 
 | Exigence | Test | État |
 |---|---|---|
-| Le cœur ne charge pas Qt | `tests/test_socle.py::test_importer_pymphub_ne_charge_pas_qt` | Vérifié |
+| Le cœur ne charge pas Qt | `tests/test_socle.py::test_importer_medphystools_ne_charge_pas_qt` | Vérifié |
 | Les sources du cœur n'importent pas Qt | `tests/test_socle.py::test_les_sources_du_coeur_n_importent_pas_qt` | Vérifié |
 
 ## Unités
@@ -94,7 +94,7 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Très gros volume sur le disque | `tests/test_volumes.py::test_au_dela_du_seuil_le_volume_est_sur_le_disque` | Vérifié avec un seuil abaissé, pas encore sur un vrai volume de plus de 2 Go |
 | Commentaire d'une pièce jointe | `tests/test_interface_photos.py::test_commenter_une_piece_jointe` | Vérifié |
 | Import personnalisé de scalaires et d'informations | `tests/test_interface_tableau.py::test_un_import_complet_remplit_le_tableau_et_les_scalaires` | Vérifié |
-| Une valeur importée sans incertitude ne s'enregistre pas | `tests/test_interface_tableau.py::test_un_scalaire_importe_sans_incertitude_reste_a_completer` | Vérifié |
+| Une valeur importée sans incertitude reçoit celle par défaut | `tests/test_interface_tableau.py::test_un_scalaire_importe_sans_incertitude_recoit_celle_par_defaut` | Vérifié |
 | Un import n'écrase aucune mesure | `tests/test_interface_tableau.py::test_un_nom_deja_pris_n_ecrase_rien` | Vérifié |
 | Fichier importé conservé en pièce jointe | `tests/test_interface_photos.py::test_le_fichier_importe_devient_une_piece_jointe` | Vérifié |
 | Suppression d'une page tracée, numéro jamais réutilisé | `tests/test_archive.py::test_le_numero_d_une_page_supprimee_ne_resert_pas` | Vérifié |
@@ -138,6 +138,12 @@ Un test vérifie que chaque test cité ici existe (`tests/test_scenario.py`). Le
 | Capture d'un graphe gardée dans la page et signalée si les données changent | `tests/test_interface_notes.py::test_une_capture_signale_que_le_tableau_a_change` | Vérifié |
 | Export du cahier en PDF, sans logiciel pour le relire | `tests/test_export.py::test_le_pdf_contient_le_cahier` | Vérifié sous Fedora |
 | L'export n'omet aucune grandeur | `tests/test_export.py::test_une_grandeur_hors_de_tout_onglet_reste_dans_le_cahier` | Vérifié |
+| Export de toute l'archive : avertissement, avancement, annulation sans fichier laissé | `tests/test_export_archive.py` | Vérifié sous Fedora, sans écran |
+| Tableau long : en-tête répété à chaque feuille | `tests/test_export_archive.py::test_le_pdf_d_un_tableau_long_repete_son_en_tete` | Vérifié |
+| Tableau large : découpé sans perdre de colonne ni couper un nombre | `tests/test_export_archive.py::test_le_pdf_d_un_tableau_large_montre_les_nombres_entiers` | Vérifié |
+| Colonnes de longueurs différentes : rien de perdu ni de tronqué, du CSV au PDF et à l'API | `tests/test_colonnes_inegales.py` | Vérifié |
+| Incertitude nulle par défaut, écrite et citée | `tests/test_incertitude_par_defaut.py` | Vérifié |
+| Identifiants PACS dans les onglets, la fiche et le PDF | `tests/test_copie_chemin.py`, `tests/test_export_archive.py` | Vérifié sur des fichiers synthétiques |
 | L'archive figée du format 1 se relit | `tests/test_format_1.py::test_toutes_les_pages_se_relisent` | Vérifié |
 
 ## Tutoriel de lecture

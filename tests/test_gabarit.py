@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from pymphub.gabarit import (
+from medphystools.gabarit import (
     Gabarit,
     PageNonConforme,
     colonnes_choisissables,
@@ -17,7 +17,7 @@ from pymphub.gabarit import (
     verifier_conformite,
     vers_toml,
 )
-from pymphub.page import Page, Scalaire, depuis_json, vers_json
+from medphystools.page import Page, Scalaire, depuis_json, vers_json
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 

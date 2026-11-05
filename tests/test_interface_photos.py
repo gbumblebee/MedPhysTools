@@ -10,14 +10,14 @@ from PySide6.QtGui import QColor, QDropEvent, QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog
 
-from pymphub import Archive
-from pymphub.depot import Depot
-from pymphub.interface import photos
-from pymphub.interface.espace_saisie import DescriptionPage, EspaceSaisie
-from pymphub.interface.fiche_page import FichePage
-from pymphub.interface.onglet_fichiers import EditeurFichiers
-from pymphub.interface.onglets import EditeurNotes
-from pymphub.interface.photos import (
+from medphystools import Archive
+from medphystools.depot import Depot
+from medphystools.interface import photos
+from medphystools.interface.espace_saisie import DescriptionPage, EspaceSaisie
+from medphystools.interface.fiche_page import FichePage
+from medphystools.interface.onglet_fichiers import EditeurFichiers
+from medphystools.interface.onglets import EditeurNotes
+from medphystools.interface.photos import (
     DialogueAnnotation,
     ToileAnnotation,
     VignettePhoto,
@@ -26,9 +26,9 @@ from pymphub.interface.photos import (
     est_image,
     zone_image,
 )
-from pymphub.interface.texte_en_grand import AffichageEnGrand
-from pymphub.interface.theme import ANNOTATION
-from pymphub.page import Annotation, PhotoAnnotee
+from medphystools.interface.texte_en_grand import AffichageEnGrand
+from medphystools.interface.theme import ANNOTATION
+from medphystools.page import Annotation, PhotoAnnotee
 
 HEURE = datetime(2026, 11, 14, 9, 30, tzinfo=timezone(timedelta(hours=1)))
 
@@ -700,7 +700,7 @@ def test_renommer_et_commenter_un_lien(espace, fichiers, export, monkeypatch):
     assert espace.enregistrer_maintenant()
 
     fichiers.table.item(0, 0).setText("export")
-    fichiers.table.item(0, 4).setText("Version du 14")
+    fichiers.table.item(0, 5).setText("Version du 14")
     assert espace.enregistrer_maintenant()
 
     page = relue(espace)
@@ -836,12 +836,12 @@ def test_les_cases_non_modifiables_ne_s_editent_pas(
     fichiers.demander_copie()
     modifiable = Qt.ItemFlag.ItemIsEditable
     assert fichiers.table.item(0, 0).flags() & modifiable
-    assert fichiers.table.item(0, 4).flags() & modifiable
+    assert fichiers.table.item(0, 5).flags() & modifiable
     assert not fichiers.table.item(0, 1).flags() & modifiable
     assert not fichiers.table.item(0, 3).flags() & modifiable
     assert not fichiers.table.item(1, 0).flags() & modifiable
     # Le commentaire d'une pièce jointe se modifie, mais pas son nom.
-    assert fichiers.table.item(1, 4).flags() & modifiable
+    assert fichiers.table.item(1, 5).flags() & modifiable
 
 
 def test_une_reference_conservee_qui_n_est_pas_un_fichier_reste_dans_l_onglet(
@@ -929,7 +929,7 @@ def test_l_import_personnalise_joint_aussi_le_fichier(
     (imports / "imports_personnalises.py").write_text(
         "def importer_essai(chemin):\n    return {'lot': ['007']}\n", encoding="utf-8"
     )
-    monkeypatch.setenv("PYMPHUB_CONFIG", str(imports))
+    monkeypatch.setenv("MEDPHYSNOTEBOOK_CONFIG", str(imports))
     source = ecrire_csv(tmp_path / "brut.dat")
     monkeypatch.setattr(tableau, "_choisir_import", lambda noms: noms[0])
     monkeypatch.setattr(tableau, "_choisir_fichier", lambda: str(source))
@@ -1083,7 +1083,7 @@ def test_commenter_une_piece_jointe(espace, fichiers, export, monkeypatch, fiche
     copie = fichier_de_la_page(espace, "pieces_jointes/Export constructeur.txt")
     avant = empreinte(copie)
 
-    fichiers.table.item(0, 4).setText("Version du 14")
+    fichiers.table.item(0, 5).setText("Version du 14")
     assert espace.modifications_en_attente()
     assert espace._minuteur.isActive()
     assert espace.enregistrer_maintenant()
@@ -1097,18 +1097,18 @@ def test_commenter_une_piece_jointe(espace, fichiers, export, monkeypatch, fiche
     ]
 
     relu = rouvrir(espace)[-1]
-    assert relu.table.item(0, 4).text() == "Version du 14"
+    assert relu.table.item(0, 5).text() == "Version du 14"
     fiche.afficher(espace.archive, espace.page.id)
-    assert fiche.tables["__fichiers__"].item(0, 4).text() == "Version du 14"
+    assert fiche.tables["__fichiers__"].item(0, 5).text() == "Version du 14"
 
 
 def test_commenter_garde_la_case_en_place(espace, fichiers, export, monkeypatch):
     """Réécrire la table pendant une modification détruirait la case modifiée."""
     choisir(monkeypatch, fichiers, export)
     fichiers.demander_jointure()
-    element = fichiers.table.item(0, 4)
+    element = fichiers.table.item(0, 5)
     element.setText("Commentaire")
-    assert fichiers.table.item(0, 4) is element
+    assert fichiers.table.item(0, 5) is element
 
 
 def test_commenter_met_a_jour_un_autre_onglet_de_fichiers(
@@ -1117,14 +1117,14 @@ def test_commenter_met_a_jour_un_autre_onglet_de_fichiers(
     autre = espace.ajouter_onglet("fichiers")
     choisir(monkeypatch, fichiers, export)
     fichiers.demander_jointure()
-    fichiers.table.item(0, 4).setText("Commentaire")
-    assert autre.table.item(0, 4).text() == "Commentaire"
+    fichiers.table.item(0, 5).setText("Commentaire")
+    assert autre.table.item(0, 5).text() == "Commentaire"
 
 
 def test_joindre_a_nouveau_garde_le_commentaire(espace, fichiers, export, monkeypatch):
     choisir(monkeypatch, fichiers, export)
     fichiers.demander_jointure()
-    fichiers.table.item(0, 4).setText("Commentaire")
+    fichiers.table.item(0, 5).setText("Commentaire")
     fichiers.demander_jointure()
     assert [p.commentaire for p in espace.pieces.pieces] == ["Commentaire"]
     assert espace.enregistrer_maintenant()
@@ -1139,8 +1139,8 @@ def test_le_double_clic_ecrit_le_commentaire_et_ouvre_ailleurs(
     ouverts = []
     monkeypatch.setattr(fichiers, "_ouvrir", lambda c: ouverts.append(c) or True)
 
-    fichiers.table.setCurrentCell(0, 4)
-    fichiers._double_clic(fichiers.table.model().index(0, 4))
+    fichiers.table.setCurrentCell(0, 5)
+    fichiers._double_clic(fichiers.table.model().index(0, 5))
     assert ouverts == []
     fichiers.table.setCurrentCell(0, 0)
     fichiers._double_clic(fichiers.table.model().index(0, 0))
@@ -1152,10 +1152,10 @@ def test_le_commentaire_d_une_piece_jointe_s_affiche_en_grand(
 ):
     choisir(monkeypatch, fichiers, export)
     fichiers.demander_jointure()
-    fichiers.table.item(0, 4).setText("Commentaire long")
+    fichiers.table.item(0, 5).setText("Commentaire long")
     fichiers.show()
     qtbot.waitExposed(fichiers)
-    rectangle = fichiers.table.visualItemRect(fichiers.table.item(0, 4))
+    rectangle = fichiers.table.visualItemRect(fichiers.table.item(0, 5))
     assert fichiers.table.findChild(AffichageEnGrand).lire_texte(
         rectangle.center()
     ) == ("Commentaire long")
@@ -1166,7 +1166,7 @@ def test_actualiser_une_empreinte_garde_le_commentaire(
 ):
     choisir(monkeypatch, fichiers, export)
     fichiers.demander_jointure()
-    fichiers.table.item(0, 4).setText("Commentaire")
+    fichiers.table.item(0, 5).setText("Commentaire")
     assert espace.enregistrer_maintenant()
     chemin = "pieces_jointes/Export constructeur.txt"
     fichier_de_la_page(espace, chemin).write_text("changé", encoding="utf-8")

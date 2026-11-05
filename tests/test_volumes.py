@@ -22,8 +22,8 @@ from fabrique_dicom import (
 )
 from pydicom.uid import JPEG2000Lossless, JPEGLSLossless, RLELossless
 
-from pymphub.dicom import ErreurDicom
-from pymphub.volumes import (
+from medphystools.dicom import ErreurDicom
+from medphystools.volumes import (
     balises_principales,
     construire_volume,
     coupe,
@@ -240,7 +240,7 @@ def test_au_dela_du_seuil_le_volume_est_sur_le_disque(monkeypatch):
     """Mêmes valeurs, mais dans un fichier temporaire que le système charge à la demande."""
     en_memoire = construire_volume(serie_ct(melanger=False))
     assert not isinstance(en_memoire.donnees, np.memmap)
-    monkeypatch.setattr("pymphub.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
+    monkeypatch.setattr("medphystools.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
     sur_disque = construire_volume(serie_ct(melanger=False))
     assert isinstance(sur_disque.donnees, np.memmap)
     assert np.array_equal(sur_disque.donnees, en_memoire.donnees)
@@ -250,7 +250,7 @@ def test_au_dela_du_seuil_le_volume_est_sur_le_disque(monkeypatch):
 
 
 def test_une_4d_sur_le_disque_garde_ses_phases(monkeypatch):
-    monkeypatch.setattr("pymphub.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
+    monkeypatch.setattr("medphystools.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
     volume = construire_volume(serie_4d_classique(phases=3, coupes=2))
     assert isinstance(volume.donnees, np.memmap)
     assert volume.donnees[2, 1, 0, 0] == 201
@@ -258,7 +258,7 @@ def test_une_4d_sur_le_disque_garde_ses_phases(monkeypatch):
 
 def test_le_fichier_temporaire_ne_reste_pas_sur_le_disque(monkeypatch, tmp_path):
     monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
-    monkeypatch.setattr("pymphub.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
+    monkeypatch.setattr("medphystools.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
     volume = construire_volume(serie_ct())
     assert volume.valeur(0, 0, 0, 0) is not None
     del volume
@@ -267,7 +267,7 @@ def test_le_fichier_temporaire_ne_reste_pas_sur_le_disque(monkeypatch, tmp_path)
 
 
 def test_sans_place_sur_le_disque_cela_s_explique(monkeypatch):
-    monkeypatch.setattr("pymphub.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
+    monkeypatch.setattr("medphystools.volumes.SEUIL_SUR_DISQUE_OCTETS", 1)
     monkeypatch.setattr("shutil.disk_usage", lambda _d: type("U", (), {"free": 0})())
     with pytest.raises(ErreurDicom, match="place sur le disque"):
         construire_volume(serie_ct())
@@ -276,8 +276,8 @@ def test_sans_place_sur_le_disque_cela_s_explique(monkeypatch):
 def test_une_lecture_annulee_s_arrete_au_fichier_suivant(tmp_path):
     from fabrique_dicom import ecrire
 
-    from pymphub import Archive
-    from pymphub.dicom import LectureAnnulee, importer_series, lire_serie
+    from medphystools import Archive
+    from medphystools.dicom import LectureAnnulee, importer_series, lire_serie
 
     arc = Archive.creer(tmp_path / "A", "CHU X", "Resp.", date(2026, 11, 1))
     fichier = importer_series(arc, ecrire(serie_ct(), tmp_path / "s")).fichiers[0]
