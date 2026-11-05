@@ -1,11 +1,13 @@
 # MedPhysTools (application MedPhysNotebook) — consignes pour Claude Code
 
-Spécification complète : docs/cahier-des-charges.md (à lire avant toute tâche).
+Le code de MedPhysNotebook est dans Notebook/ : lancer les commandes depuis ce dossier.
+
+Spécification complète : Notebook/docs/cahier-des-charges.md (à lire avant toute tâche).
 
 ## Conventions
 - Langue : docstrings, commentaires et noms métier en français.
 - Les modules d'analyse sont des fonctions pures à entrées typées (section 8).
-- Le cœur (src/medphystools/) ne dépend jamais de Qt : seul le sous-paquet medphystools.interface l'importe.
+- Le cœur (Notebook/src/medphystools/) ne dépend jamais de Qt : seul le sous-paquet medphystools.interface l'importe.
 - Données brutes jamais modifiées ; tout changement est versionné ; le motif est obligatoire sur une page validée.
 - Annotations de type obligatoires ; code simple, lisible par un physicien.
 
